@@ -4007,6 +4007,7 @@ extern const libxl__device_type libxl__p9_devtype;
 extern const libxl__device_type libxl__pvcallsif_devtype;
 extern const libxl__device_type libxl__vsnd_devtype;
 extern const libxl__device_type libxl__renesas_vmq_devtype;
+extern const libxl__device_type libxl__vgsx_devtype;
 
 extern const libxl__device_type *device_type_tbl[];
 
