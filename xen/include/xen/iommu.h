@@ -238,6 +238,14 @@ int iommu_do_dt_domctl(struct xen_domctl *domctl, struct domain *d,
  */
 int iommu_remove_dt_device(struct dt_device_node *np);
 
+/*
+ * Status code indicating that DT device cannot be added to the IOMMU
+ * or removed from it because the IOMMU is disabled or the device is not
+ * connected to it.
+ */
+
+#define DT_NO_IOMMU    1
+
 #endif /* HAS_DEVICE_TREE */
 
 struct page_info;
