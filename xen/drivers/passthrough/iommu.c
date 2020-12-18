@@ -20,6 +20,7 @@
 #include <xen/param.h>
 #include <xen/softirq.h>
 #include <xen/keyhandler.h>
+#include <xen/acpi.h>
 #include <xsm/xsm.h>
 
 #ifdef CONFIG_X86
@@ -754,6 +755,18 @@ int __init iommu_get_extra_reserved_device_memory(iommu_grdm_t *func,
     }
 
     return 0;
+}
+
+int iommu_add_pci_sideband_ids(struct pci_dev *pdev)
+{
+    int ret = -EOPNOTSUPP;
+
+#ifdef CONFIG_HAS_PCI
+    if ( acpi_disabled )
+        ret = iommu_add_dt_pci_sideband_ids(pdev);
+#endif
+
+    return ret;
 }
 
 /*
