@@ -91,8 +91,14 @@ bool arch_pci_device_physdevop(void)
 bool __read_mostly pci_passthrough_enabled;
 boolean_param("pci-passthrough", pci_passthrough_enabled);
 
+/* By default pci scan is disabled. */
+static __initdata bool pci_scan_enabled;
+boolean_param("pci-scan", pci_scan_enabled);
+
 static int __init pci_init(void)
 {
+    int ret;
+
     /*
      * Enable PCI passthrough when has been enabled explicitly
      * (pci-passthrough=on).
@@ -104,9 +110,29 @@ static int __init pci_init(void)
         panic("Could not initialize PCI segment 0\n");
 
     if ( acpi_disabled )
-        return dt_pci_init();
+        ret = dt_pci_init();
     else
-        return acpi_pci_init();
+        ret = acpi_pci_init();
+
+    if ( ret < 0 )
+    {
+        printk(XENLOG_ERR "PCI: Failed to initialize PCI host bridges (rc=%d)\n", ret);
+        return 0;
+    }
+
+    if ( pci_scan_enabled )
+    {
+        ret = scan_pci_devices();
+
+        if ( ret < 0 )
+        {
+            printk(XENLOG_ERR "PCI: Failed to scan PCI devices (rc=%d)\n", ret);
+            return 0;
+        }
+
+    }
+
+    return 0;
 }
 __initcall(pci_init);
 
