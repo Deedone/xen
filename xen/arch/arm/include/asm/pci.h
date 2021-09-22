@@ -155,6 +155,8 @@ bool arch_pci_device_physdevop(void);
 
 #else   /*!CONFIG_HAS_PCI*/
 
+#define pci_scan_enabled false
+
 struct pci_dev;
 
 static inline void arch_pci_init_pdev(struct pci_dev *pdev) {}

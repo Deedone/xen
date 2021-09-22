@@ -284,6 +284,7 @@ pci_host_common_probe(struct dt_device_node *dev,
     }
 
     pci_add_host_bridge(bridge);
+    pci_add_segment(bridge->segment);
 
     return bridge;
 
