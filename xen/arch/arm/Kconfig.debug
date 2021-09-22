@@ -226,3 +226,10 @@ config FUZZER_PASS_BLOCKING
 
 	  Enable this option only if fuzzing attempt can lead to a
 	  correct stop, like when fuzzing hypercalls or PSCI.
+
+config PCI_DEVICE_DEBUG
+	bool "PCI device debug messages"
+	depends on HAS_PCI
+	help
+		PCI device debug
+		If unsure say N
