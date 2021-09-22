@@ -23,6 +23,7 @@
 #define pci_to_dev(pcidev) (&(pcidev)->arch.dev)
 
 extern bool pci_passthrough_enabled;
+extern bool pci_scan_enabled;
 
 struct rangeset;
 
@@ -154,6 +155,8 @@ void pci_generic_init_bus_range_child(struct dt_device_node *dev,
 bool arch_pci_device_physdevop(void);
 
 #else   /*!CONFIG_HAS_PCI*/
+
+#define pci_scan_enabled false
 
 struct pci_dev;
 
