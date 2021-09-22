@@ -84,6 +84,9 @@ bool arch_pci_device_physdevop(void)
 /* By default pci passthrough is disabled. */
 bool __read_mostly pci_passthrough_enabled;
 boolean_param("pci-passthrough", pci_passthrough_enabled);
+/* By default pci scan is disabled. */
+bool __read_mostly pci_scan_enabled;
+boolean_param("pci-scan", pci_scan_enabled);
 
 static int __init pci_init(void)
 {
@@ -91,6 +94,7 @@ static int __init pci_init(void)
      * Enable PCI passthrough when has been enabled explicitly
      * (pci-passthrough=on).
      */
+    int ret;
     if ( !is_pci_passthrough_enabled() && !arch_pci_device_physdevop() )
         return 0;
 
@@ -98,9 +102,26 @@ static int __init pci_init(void)
         panic("Could not initialize PCI segment 0\n");
 
     if ( acpi_disabled )
-        return dt_pci_init();
+        ret = dt_pci_init();
     else
-        return acpi_pci_init();
+        ret = acpi_pci_init();
+
+    if ( ret < 0 )
+        return ret;
+
+    if ( is_pci_scan_enabled() )
+    {
+        ret = scan_pci_devices();
+
+        if ( ret < 0 )
+            return ret;
+
+#ifdef CONFIG_PCI_DEVICE_DEBUG
+        dump_pci_devices('c');
+#endif
+    }
+
+    return 0;
 }
 __initcall(pci_init);
 
