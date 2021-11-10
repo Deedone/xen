@@ -1,1 +1,1 @@
-obj-y += vpci.o header.o msi.o msix.o
+obj-y += vpci.o header.o msi.o msix.o sriov.o
