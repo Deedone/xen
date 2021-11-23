@@ -240,6 +240,15 @@ struct vpci_vcpu {
     struct list_head task_queue;
 };
 
+#define VMSIX_ADDR_IN_RANGE(addr, vpci, nr)                               \
+    ((addr) >= vmsix_table_addr(vpci, nr) &&                              \
+     (addr) < vmsix_table_addr(vpci, nr) + vmsix_table_size(vpci, nr))
+
+#define VMSIX_ADDR_SAME_PAGE(addr, vpci, nr)                              \
+    (PFN_DOWN(addr) >= PFN_DOWN(vmsix_table_addr(vpci, nr)) &&            \
+     PFN_DOWN(addr) <= PFN_DOWN(vmsix_table_addr(vpci, nr) +              \
+                                vmsix_table_size(vpci, nr) - 1))
+
 void vpci_dump_msi(void);
 
 /* Make sure there's a hole in the p2m for the MSIX mmio areas. */
@@ -329,6 +338,14 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd,
                      enum vpci_map_op map_op, bool rom_only);
 
 int vpci_init_capability_list(struct pci_dev *pdev);
+
+void vpci_msix_arch_register(struct vpci_msix *msix, struct domain *d);
+
+int vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
+                    unsigned int len, unsigned long data);
+
+int vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
+                   unsigned int len, unsigned long *data);
 
 #endif /* __XEN__ */
 
