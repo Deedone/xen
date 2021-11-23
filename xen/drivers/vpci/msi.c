@@ -18,10 +18,9 @@
 
 #include "private.h"
 
+#include <xen/msi.h>
 #include <xen/sched.h>
 #include <xen/softirq.h>
-
-#include <asm/msi.h>
 
 static uint32_t cf_check control_read(
     const struct pci_dev *pdev, unsigned int reg, void *data)
