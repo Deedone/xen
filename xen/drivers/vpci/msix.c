@@ -19,20 +19,11 @@
 
 #include <xen/io.h>
 #include <xen/lib.h>
+#include <xen/msi.h>
 #include <xen/sched.h>
 #include <xen/vpci.h>
 
-#include <asm/msi.h>
 #include <asm/p2m.h>
-
-#define VMSIX_ADDR_IN_RANGE(addr, vpci, nr)                               \
-    ((addr) >= vmsix_table_addr(vpci, nr) &&                              \
-     (addr) < vmsix_table_addr(vpci, nr) + vmsix_table_size(vpci, nr))
-
-#define VMSIX_ADDR_SAME_PAGE(addr, vpci, nr)                              \
-    (PFN_DOWN(addr) >= PFN_DOWN(vmsix_table_addr(vpci, nr)) &&            \
-     PFN_DOWN(addr) <= PFN_DOWN(vmsix_table_addr(vpci, nr) +              \
-                                vmsix_table_size(vpci, nr) - 1))
 
 static uint32_t cf_check control_read(
     const struct pci_dev *pdev, unsigned int reg, void *data)
@@ -150,37 +141,6 @@ static void cf_check control_write(
     val = control_read(pdev, reg, data);
     if ( pci_msi_conf_write_intercept(msix->pdev, reg, 2, &val) >= 0 )
         pci_conf_write16(pdev->sbdf, reg, val);
-}
-
-static struct vpci_msix *msix_find(const struct domain *d, unsigned long addr)
-{
-    struct vpci_msix *msix;
-
-    ASSERT_PDEV_LIST_IS_READ_LOCKED(d);
-
-    list_for_each_entry ( msix, &d->arch.hvm.msix_tables, next )
-    {
-        const struct vpci_bar *bars = msix->pdev->vpci->header.bars;
-        unsigned int i;
-
-        for ( i = 0; i < ARRAY_SIZE(msix->tables); i++ )
-            if ( bars[msix->tables[i] & PCI_MSIX_BIRMASK].enabled &&
-                 VMSIX_ADDR_SAME_PAGE(addr, msix->pdev->vpci, i) )
-                return msix;
-    }
-
-    return NULL;
-}
-
-static int cf_check msix_accept(struct vcpu *v, unsigned long addr)
-{
-    int rc;
-
-    read_lock(&v->domain->pci_lock);
-    rc = !!msix_find(v->domain, addr);
-    read_unlock(&v->domain->pci_lock);
-
-    return rc;
 }
 
 static bool access_allowed(const struct pci_dev *pdev, unsigned long addr,
@@ -346,11 +306,10 @@ static int adjacent_read(const struct domain *d, const struct vpci_msix *msix,
     return X86EMUL_OKAY;
 }
 
-static int cf_check msix_read(
-    struct vcpu *v, unsigned long addr, unsigned int len, unsigned long *data)
+int cf_check vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
+    unsigned int len, unsigned long *data)
 {
-    struct domain *d = v->domain;
-    struct vpci_msix *msix;
+    struct domain *d = msix->pdev->domain;
     const struct vpci_msix_entry *entry;
     unsigned int offset;
 
@@ -358,7 +317,6 @@ static int cf_check msix_read(
 
     read_lock(&d->pci_lock);
 
-    msix = msix_find(d, addr);
     if ( !msix )
     {
         read_unlock(&d->pci_lock);
@@ -474,17 +432,15 @@ static int adjacent_write(const struct domain *d, const struct vpci_msix *msix,
     return X86EMUL_OKAY;
 }
 
-static int cf_check msix_write(
-    struct vcpu *v, unsigned long addr, unsigned int len, unsigned long data)
+int cf_check vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
+    unsigned int len, unsigned long data)
 {
-    struct domain *d = v->domain;
-    struct vpci_msix *msix;
+    struct domain *d = msix->pdev->domain;
     struct vpci_msix_entry *entry;
     unsigned int offset;
 
     read_lock(&d->pci_lock);
 
-    msix = msix_find(d, addr);
     if ( !msix )
     {
         read_unlock(&d->pci_lock);
@@ -811,11 +767,9 @@ static int cf_check init_msix(struct pci_dev *pdev)
         vpci_msix_arch_init_entry(&msix->entries[i]);
     }
 
-    if ( list_empty(&d->arch.hvm.msix_tables) )
-        register_mmio_handler(d, &vpci_msix_table_ops);
-
     pdev->vpci->msix = msix;
-    list_add(&msix->next, &d->arch.hvm.msix_tables);
+
+    vpci_msix_arch_register(msix, d);
 
     /*
      * vPCI header initialization will have mapped the whole BAR into the
