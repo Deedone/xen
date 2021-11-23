@@ -193,6 +193,15 @@ struct vpci_vcpu {
     pci_sbdf_t drop_vfs_pf;
 };
 
+#define VMSIX_ADDR_IN_RANGE(addr, vpci, nr)                               \
+    ((addr) >= vmsix_table_addr(vpci, nr) &&                              \
+     (addr) < vmsix_table_addr(vpci, nr) + vmsix_table_size(vpci, nr))
+
+#define VMSIX_ADDR_SAME_PAGE(addr, vpci, nr)                              \
+    (PFN_DOWN(addr) >= PFN_DOWN(vmsix_table_addr(vpci, nr)) &&            \
+     PFN_DOWN(addr) <= PFN_DOWN(vmsix_table_addr(vpci, nr) +              \
+                                vmsix_table_size(vpci, nr) - 1))
+
 void vpci_dump_msi(void);
 
 /* Arch-specific vPCI MSI helpers. */
@@ -231,6 +240,15 @@ bool vpci_ecam_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 
 bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
                     unsigned long *data);
+
+/* Map/unmap the BARs of a vPCI device. */
+void vpci_msix_arch_register(struct vpci_msix *msix, struct domain *d);
+
+int vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
+                    unsigned int len, unsigned long data);
+
+int vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
+                   unsigned int len, unsigned long *data);
 
 #endif /* __XEN__ */
 
