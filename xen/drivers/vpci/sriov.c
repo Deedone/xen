@@ -341,7 +341,7 @@ bool vpci_sriov_add_vf(pci_sbdf_t sbdf)
     node = pf->node;
     read_unlock(&d->pci_lock);
 
-    rc = pci_add_device(sbdf.seg, sbdf.bus, sbdf.devfn, &info, node);
+    rc = pci_add_device(d, sbdf.seg, sbdf.bus, sbdf.devfn, &info, node);
     if ( rc )
         gprintk(XENLOG_ERR, "%pp: cannot add VF %pp: %d\n", &pf_sbdf, &sbdf,
                 rc);
