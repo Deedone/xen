@@ -1448,7 +1448,7 @@ int __init make_timer_node(const struct kernel_info *kinfo)
 }
 
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
-static int __init make_vpci_node(void *fdt)
+int __init make_vpci_node(void *fdt)
 {
     const uint64_t vpci_ecam_base = GUEST_VPCI_ECAM_BASE;
     const uint64_t vpci_ecam_size = GUEST_VPCI_ECAM_SIZE;
@@ -1539,7 +1539,7 @@ static int __init make_vpci_node(void *fdt)
     return res;
 }
 #else
-static inline int __init make_vpci_node(void *fdt)
+int __init make_vpci_node(void *fdt)
 {
     return 0;
 }
