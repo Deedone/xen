@@ -20,7 +20,9 @@
 #include <asm/arm64/sve.h>
 #include <asm/dom0less-build.h>
 #include <asm/domain_build.h>
+#include <asm/gic_v3_its.h>
 #include <asm/grant_table.h>
+#include <asm/pci.h>
 #include <asm/setup.h>
 #include <asm/static-memory.h>
 #include <asm/static-shmem.h>
@@ -93,10 +95,6 @@ static int __init make_gicv3_domU_node(struct kernel_info *kinfo)
     if ( res )
         return res;
 
-    res = fdt_property_cell(fdt, "#address-cells", 0);
-    if ( res )
-        return res;
-
     res = fdt_property_cell(fdt, "#interrupt-cells", 3);
     if ( res )
         return res;
@@ -142,6 +140,14 @@ static int __init make_gicv3_domU_node(struct kernel_info *kinfo)
 
     res = fdt_property_cell(fdt, "phandle", kinfo->phandle_intc);
     if (res)
+        return res;
+
+    /* Add ITS node only if domain will use vpci */
+    if ( is_pci_scan_enabled() )
+        res = gicv3_its_make_emulated_dt_node(fdt);
+    else
+        res = fdt_property_cell(fdt, "#address-cells", 0);
+    if ( res )
         return res;
 
     res = fdt_end_node(fdt);
