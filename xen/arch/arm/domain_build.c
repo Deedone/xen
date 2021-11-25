@@ -1687,7 +1687,7 @@ int __init make_vpci_node(struct domain *d, void *fdt)
     return res;
 }
 #else
-static inline int __init make_vpci_node(struct domain *d, void *fdt)
+int __init make_vpci_node(struct domain *d, void *fdt)
 {
     return 0;
 }
