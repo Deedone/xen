@@ -233,7 +233,7 @@ const unsigned long *pci_get_ro_map(u16 seg);
 int pci_vf_setup_begin(pci_sbdf_t sbdf);
 void pci_vf_setup_end(pci_sbdf_t sbdf);
 bool pci_vf_setup_pending(pci_sbdf_t sbdf);
-int pci_add_device(u16 seg, u8 bus, u8 devfn,
+int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
                    const struct pci_dev_info *info, nodeid_t node);
 int pci_remove_device(u16 seg, u8 bus, u8 devfn);
 int pci_ro_device(int seg, int bus, int devfn);
