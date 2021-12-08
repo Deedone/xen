@@ -20,8 +20,10 @@
 #include <xen/io.h>
 #include <xen/msi.h>
 #include <xen/sched.h>
+#include <xen/vmap.h>
 #include <xen/vpci.h>
 
+#include <asm/io.h>
 #include <asm/p2m.h>
 
 static uint32_t cf_check control_read(
