@@ -176,6 +176,29 @@ void pci_add_host_bridge(struct pci_host_bridge *bridge)
     list_add_tail(&bridge->node, &pci_host_bridges);
 }
 
+static int pci_set_msi_base(struct pci_host_bridge *bridge)
+{
+    struct dt_device_node *msi_node;
+    const __be32 *map = NULL;
+    uint64_t addr;
+
+    map = dt_get_property(bridge->dt_node, "msi-map", NULL);
+    if ( !map )
+        return -ENODEV;
+
+    msi_node = dt_find_node_by_phandle(be32_to_cpup(map + 1));
+    if ( !msi_node )
+        return -ENODEV;
+
+    if ( dt_device_get_address(msi_node, 0, &addr, NULL) )
+        return -ENODEV;
+
+    bridge->its_msi_base = addr;
+
+    return 0;
+}
+
+
 int pci_get_new_domain_nr(void)
 {
     if ( use_dt_domains )
@@ -299,6 +322,8 @@ pci_host_common_probe(struct dt_device_node *dev,
 
     pci_add_host_bridge(bridge);
 
+    pci_set_msi_base(bridge);
+
     return bridge;
 
 err_priv:
@@ -306,6 +331,8 @@ err_priv:
 
 err_child:
     xfree(bridge->cfg);
+
+    return 0;
 
 err_exit:
     xfree(bridge);
