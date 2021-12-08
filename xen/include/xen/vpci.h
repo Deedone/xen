@@ -27,6 +27,9 @@ int __must_check vpci_assign_device(struct pci_dev *pdev);
 /* Remove all handlers and free vpci related structures. */
 void vpci_deassign_device(struct pci_dev *pdev);
 
+const struct pci_dev *vpci_translate_virtual_device(const struct domain *d,
+                                                    pci_sbdf_t *sbdf);
+
 int vpci_reinit_ext_capabilities(struct pci_dev *pdev);
 
 /* Generic read/write handlers for the PCI config space. */
