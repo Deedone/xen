@@ -76,6 +76,7 @@ struct pci_host_bridge {
     void *priv;                      /* Private data of the bridge. */
     struct rangeset *bar_ranges;
     struct rangeset *bar_ranges_prefetch;
+    uint64_t its_msi_base;
 };
 
 struct pci_ops {
