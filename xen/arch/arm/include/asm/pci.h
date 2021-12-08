@@ -21,6 +21,8 @@
 
 #include <asm/p2m.h>
 
+#include <asm/msi.h>
+
 #define pci_to_dev(pcidev) (&(pcidev)->arch.dev)
 
 extern bool pci_passthrough_enabled;
@@ -28,14 +30,6 @@ extern bool pci_passthrough_enabled;
 /* Arch pci dev struct */
 struct arch_pci_dev {
     struct device dev;
-};
-
-/* Arch-specific MSI data for vPCI. */
-struct vpci_arch_msi {
-};
-
-/* Arch-specific MSI-X entry data for vPCI. */
-struct vpci_arch_msix_entry {
 };
 
 /*
@@ -140,6 +134,13 @@ int pci_host_iterate_bridges_and_count(struct domain *d,
 int pci_host_bridge_mappings(struct domain *d);
 
 bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end);
+
+static inline int
+pci_msi_conf_write_intercept(struct pci_dev *pdev, unsigned int reg,
+                             unsigned int size, uint32_t *data)
+{
+    return 0;
+}
 
 #else   /*!CONFIG_HAS_PCI*/
 
