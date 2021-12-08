@@ -146,6 +146,12 @@ void pci_generic_init_bus_range(struct dt_device_node *dev,
 void pci_generic_init_bus_range_child(struct dt_device_node *dev,
                                       struct pci_host_bridge *bridge,
                                       struct pci_config_window *cfg);
+static inline int
+pci_msi_conf_write_intercept(struct pci_dev *pdev, unsigned int reg,
+                             unsigned int size, uint32_t *data)
+{
+    return 0;
+}
 
 #else   /*!CONFIG_HAS_PCI*/
 
