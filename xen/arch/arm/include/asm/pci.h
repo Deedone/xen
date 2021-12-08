@@ -72,6 +72,7 @@ struct pci_host_bridge {
     /* Child bus */
     struct pci_config_window* child_cfg;
     const struct pci_ops *child_ops;
+    uint64_t its_msi_base;
 };
 
 struct pci_ops {
