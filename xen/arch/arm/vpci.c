@@ -5,6 +5,7 @@
 #include <xen/lib.h>
 #include <xen/sched.h>
 #include <xen/vpci.h>
+#include <xen/domain-layout.h>
 
 #include <asm/mmio.h>
 
