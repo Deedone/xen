@@ -470,6 +470,10 @@ void asmlinkage __init noreturn start_xen(unsigned long fdt_paddr)
         alloc_static_evtchn();
     }
 
+#ifdef CONFIG_HAS_PCI
+    assign_hwdom_pci_devices();
+#endif
+
     discard_initial_modules();
 
     remove_early_mappings();
