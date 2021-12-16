@@ -41,6 +41,7 @@
 #include <xen/grant_table.h>
 #include <asm/grant_table.h>
 #include <xen/serial.h>
+#include <xen/resource.h>
 
 static unsigned int __initdata opt_dom0_max_vcpus;
 integer_param("dom0_max_vcpus", opt_dom0_max_vcpus);
@@ -1557,6 +1558,142 @@ int __init make_chosen_node(const struct kernel_info *kinfo)
     return res;
 }
 
+#ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
+struct vpci_param {
+   uint64_t vpci_ecam_base;
+   uint64_t vpci_ecam_size;
+   uint64_t vpci_mem_base;
+   uint64_t vpci_mem_size;
+   uint64_t vpci_mem_prefetch_base;
+   uint64_t vpci_mem_prefetch_size;
+};
+
+static int __init handle_vpci_range(const struct dt_device_node *dev,
+                                    uint32_t flags, uint64_t addr, uint64_t len,
+                                    void *data)
+{
+    struct vpci_param *vpci = (struct vpci_param *)data;
+
+    if ( !(flags & IORESOURCE_MEM) )
+        return 0;
+
+    if ( !(flags & IORESOURCE_PREFETCH) && addr < GB(4) )
+    {
+        vpci->vpci_mem_base = addr;
+        vpci->vpci_mem_size = len;
+    }
+    else if ( flags & IORESOURCE_PREFETCH )
+    {
+        vpci->vpci_mem_prefetch_base = addr;
+        vpci->vpci_mem_prefetch_size = len;
+    }
+    return 0;
+}
+
+static int __init make_vpci_node(struct domain *d, void *fdt)
+{
+    /* reg is sized to be used for all the needed properties below */
+    __be32 reg[((GUEST_ROOT_ADDRESS_CELLS * 2) + GUEST_ROOT_SIZE_CELLS + 1)
+               * 2];
+    __be32 *cells;
+    char buf[22]; /* pcie@ + max 16 char address + '\0' */
+    int res;
+    struct vpci_param vpci = {
+        .vpci_ecam_base = GUEST_VPCI_ECAM_BASE,
+        .vpci_ecam_size = GUEST_VPCI_ECAM_SIZE,
+        .vpci_mem_base = GUEST_VPCI_MEM_ADDR,
+        .vpci_mem_size = GUEST_VPCI_MEM_SIZE,
+        .vpci_mem_prefetch_base = GUEST_VPCI_PREFETCH_MEM_ADDR,
+        .vpci_mem_prefetch_size = GUEST_VPCI_PREFETCH_MEM_SIZE
+    };
+
+    if ( domain_use_host_layout(d) )
+    {
+        struct pci_host_bridge *bridge;
+
+        bridge = pci_find_host_bridge(0, 0);
+
+        vpci.vpci_ecam_base = bridge->cfg->phys_addr;
+        vpci.vpci_ecam_size = bridge->cfg->size;
+
+        res = dt_for_each_range(bridge->dt_node, handle_vpci_range, &vpci);
+        if ( res < 0 )
+            return -EINVAL;
+    }
+
+    snprintf(buf, sizeof(buf), "pcie@%"PRIx64, vpci.vpci_ecam_base);
+    dt_dprintk("Create vpci node\n");
+    res = fdt_begin_node(fdt, buf);
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "compatible", "pci-host-ecam-generic");
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "device_type", "pci");
+    if ( res )
+        return res;
+
+    /* Create reg property */
+    cells = &reg[0];
+    dt_child_set_range(&cells, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+                       vpci.vpci_ecam_base, vpci.vpci_ecam_size);
+
+    res = fdt_property(fdt, "reg", reg,
+                       (GUEST_ROOT_ADDRESS_CELLS +
+                       GUEST_ROOT_SIZE_CELLS) * sizeof(*reg));
+    if ( res )
+        return res;
+
+    /* Create bus-range property */
+    cells = &reg[0];
+    dt_set_cell(&cells, 1, 0);
+    dt_set_cell(&cells, 1, 255);
+    res = fdt_property(fdt, "bus-range", reg, 2 * sizeof(*reg));
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "#address-cells", 3);
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(fdt, "#size-cells", 2);
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "status", "okay");
+    if ( res )
+        return res;
+
+    /*
+     * Create ranges property as:
+     * <(PCI bitfield) (PCI address) (CPU address) (Size)>
+     */
+    cells = &reg[0];
+    dt_set_cell(&cells, 1, GUEST_VPCI_ADDR_TYPE_MEM);
+    dt_set_cell(&cells, GUEST_ROOT_ADDRESS_CELLS, vpci.vpci_mem_base);
+    dt_set_cell(&cells, GUEST_ROOT_ADDRESS_CELLS, vpci.vpci_mem_base);
+    dt_set_cell(&cells, GUEST_ROOT_SIZE_CELLS, vpci.vpci_mem_size);
+    dt_set_cell(&cells, 1, GUEST_VPCI_ADDR_TYPE_PREFETCH_MEM);
+    dt_set_cell(&cells, GUEST_ROOT_ADDRESS_CELLS, vpci.vpci_mem_prefetch_base);
+    dt_set_cell(&cells, GUEST_ROOT_ADDRESS_CELLS, vpci.vpci_mem_prefetch_base);
+    dt_set_cell(&cells, GUEST_ROOT_SIZE_CELLS, vpci.vpci_mem_prefetch_size);
+    res = fdt_property(fdt, "ranges", reg, sizeof(reg));
+    if ( res )
+        return res;
+
+    res = fdt_end_node(fdt);
+
+    return res;
+}
+#else
+static inline int __init make_vpci_node(struct domain *d, void *fdt)
+{
+    return 0;
+}
+#endif
+
 static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
                               struct dt_device_node *node,
                               p2m_type_t p2mt)
@@ -1615,7 +1752,12 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         dt_dprintk("  Skip it (blacklisted)\n");
         return 0;
     }
-
+    /* If Xen is scanning the PCI devices, don't expose real bus to hwdom */
+    if ( has_vpci_bridge(d) && dt_device_type_is_equal(node, "pci") )
+    {
+        dt_dprintk("  Skip it (pci-scan is enabled)\n");
+        return 0;
+    }
     /*
      * Replace these nodes with our own. Note that the original may be
      * used_by DOMID_XEN so this check comes first.
@@ -1763,6 +1905,13 @@ static int __init handle_node(struct domain *d, struct kernel_info *kinfo,
         if ( !res_mem_node_found )
         {
             res = make_resv_memory_node(kinfo, addrcells, sizecells);
+            if ( res )
+                return res;
+        }
+
+        if ( has_vpci_bridge(d) )
+        {
+            res = make_vpci_node(d, kinfo->fdt);
             if ( res )
                 return res;
         }
