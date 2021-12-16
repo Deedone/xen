@@ -20,6 +20,7 @@
 #include <xen/pci_ids.h>
 #include <xen/list.h>
 #include <xen/prefetch.h>
+#include <xen/iocap.h>
 #include <xen/iommu.h>
 #include <xen/irq.h>
 #include <xen/param.h>
@@ -1126,6 +1127,12 @@ void pci_check_extcfg(struct pci_dev *pdev)
     pdev->ext_cfg = true;
 }
 
+static bool pdev_is_endpoint(struct pci_dev *pdev)
+{
+    enum pdev_type type = pdev_type(pdev->seg, pdev->bus, pdev->devfn);
+    return type == DEV_TYPE_PCIe_ENDPOINT || type == DEV_TYPE_PCI;
+}
+
 /*
  * find the upstream PCIe-to-PCI/PCIX bridge or PCI legacy bridge
  * return 0: the device is integrated PCI device or PCIe
@@ -1349,7 +1356,7 @@ static void __hwdom_init setup_one_hwdom_device(const struct setup_hwdom *ctxt,
                                                 struct pci_dev *pdev)
 {
     u8 devfn = pdev->devfn;
-    int err;
+    int err, i, rc;
 
     do {
         err = ctxt->handler(devfn, pdev);
@@ -1370,6 +1377,34 @@ static void __hwdom_init setup_one_hwdom_device(const struct setup_hwdom *ctxt,
     if ( err )
         printk(XENLOG_ERR "setup of vPCI for d%d failed: %d\n",
                ctxt->d->domain_id, err);
+
+    if ( !hwdom_uses_vpci() )
+        return;
+
+    for ( i = 0; i < PCI_HEADER_NORMAL_NR_BARS; i += rc )
+    {
+        uint64_t addr, size;
+        uint8_t reg = PCI_BASE_ADDRESS_0 + i * 4;
+
+        if ( (pci_conf_read32(pdev->sbdf, reg) & PCI_BASE_ADDRESS_SPACE)
+             == PCI_BASE_ADDRESS_SPACE_IO )
+        {
+            rc = 1;
+            continue;
+        }
+
+        rc = pci_size_mem_bar(pdev->sbdf, reg, &addr, &size,
+                              (i == PCI_HEADER_NORMAL_NR_BARS - 1)
+                                  ? PCI_BAR_LAST : 0);
+
+        if ( !size )
+            continue;
+
+        err = iomem_permit_access(hardware_domain, paddr_to_pfn(addr),
+                             paddr_to_pfn(PAGE_ALIGN(addr + size - 1)));
+        if ( err )
+            break;
+    }
 }
 
 static int __hwdom_init cf_check _setup_hwdom_pci_devices(
@@ -1386,6 +1421,9 @@ static int __hwdom_init cf_check _setup_hwdom_pci_devices(
                                                 PCI_SBDF(pseg->nr, bus, devfn));
 
             if ( !pdev )
+                continue;
+
+            if ( hwdom_uses_vpci() && !pdev_is_endpoint(pdev) )
                 continue;
 
             if ( !pdev->domain )
