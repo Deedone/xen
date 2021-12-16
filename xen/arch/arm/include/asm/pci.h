@@ -23,6 +23,7 @@
 #define pci_to_dev(pcidev) (&(pcidev)->arch.dev)
 
 extern bool pci_passthrough_enabled;
+extern bool pci_scan_enabled;
 
 struct rangeset;
 
@@ -173,4 +174,19 @@ static inline int pci_get_new_domain_nr(void)
 }
 
 #endif  /*!CONFIG_HAS_PCI*/
+
+#ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
+static inline bool hwdom_uses_vpci(void)
+{
+    return pci_scan_enabled;
+}
+
+#else  /*!CONFIG_HAS_VPCI_GUEST_SUPPORT*/
+
+static inline bool hwdom_uses_vpci(void)
+{
+    return false;
+}
+#endif  /*!CONFIG_HAS_VPCI_GUEST_SUPPORT*/
+
 #endif /* __ARM_PCI_H__ */
