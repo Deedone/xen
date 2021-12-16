@@ -19,6 +19,7 @@
 #include <xen/device_tree.h>
 #include <xen/iommu.h>
 #include <xen/lib.h>
+#include <xen/sched.h>
 
 #include <asm/device.h>
 
@@ -133,6 +134,16 @@ void arch_iommu_domain_destroy(struct domain *d)
 {
 }
 
+#ifdef CONFIG_HAS_PCI
+static int __hwdom_init iommu_add_hwdom_pci_device(u8 devfn,
+                                                   struct pci_dev *pdev)
+{
+    const struct domain_iommu *hd = dom_iommu(hardware_domain);
+
+    return iommu_call(hd->platform_ops, add_device, devfn, pci_to_dev(pdev));
+}
+#endif
+
 void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
 {
     /* Set to false options not supported on ARM. */
@@ -142,6 +153,10 @@ void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
     if ( iommu_hwdom_reserved == 1 )
         printk(XENLOG_WARNING "map-reserved dom0-iommu option is not supported on ARM\n");
     iommu_hwdom_reserved = 0;
+
+#ifdef CONFIG_HAS_PCI
+    setup_hwdom_pci_devices(d, iommu_add_hwdom_pci_device);
+#endif
 }
 
 /*

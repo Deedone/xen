@@ -20,6 +20,7 @@
 #include <xen/pci_ids.h>
 #include <xen/list.h>
 #include <xen/prefetch.h>
+#include <xen/iocap.h>
 #include <xen/iommu.h>
 #include <xen/irq.h>
 #include <xen/param.h>
@@ -1041,6 +1042,12 @@ enum pdev_type pdev_type(u16 seg, u8 bus, u8 devfn)
     return pos ? DEV_TYPE_PCIe_ENDPOINT : DEV_TYPE_PCI;
 }
 
+static bool __hwdom_init pdev_is_endpoint(const struct pci_dev *pdev)
+{
+    enum pdev_type type = pdev_type(pdev->seg, pdev->bus, pdev->devfn);
+    return type == DEV_TYPE_PCIe_ENDPOINT || type == DEV_TYPE_PCI;
+}
+
 /*
  * find the upstream PCIe-to-PCI/PCIX bridge or PCI legacy bridge
  * return 0: the device is integrated PCI device or PCIe
@@ -1220,6 +1227,10 @@ static int __hwdom_init cf_check _setup_hwdom_pci_devices(
 
             if ( !pdev )
                 continue;
+
+            /* Hide real bridges from HWdom when it's using the emulated one */
+            if ( has_vpci_bridge(hardware_domain) && !pdev_is_endpoint(pdev) )
+                pci_hide_device(pdev->seg, pdev->bus, pdev->devfn);
 
             if ( !pdev->domain )
             {

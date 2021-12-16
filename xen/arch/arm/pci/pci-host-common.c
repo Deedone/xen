@@ -430,6 +430,17 @@ int __init pci_host_bridge_mappings(struct domain *d)
         unsigned int i;
         bool need_mapping;
 
+        /*
+         * Only allow iomem access to ranges if we use pci-scan
+         * Actual mappings will be handled by VPCI code.
+         */
+        if ( has_vpci_bridge(d) )
+        {
+            mr_data.skip_mapping = true;
+            dt_for_each_range(dev, map_range_to_domain, &mr_data);
+            continue;
+        }
+
         for ( i = 0; i < dt_number_of_address(dev); i++ )
         {
             paddr_t addr, size;
