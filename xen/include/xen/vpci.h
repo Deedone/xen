@@ -342,6 +342,8 @@ static inline int __must_check vpci_reset_device(struct pci_dev *pdev)
     return vpci_assign_device(pdev);
 }
 
+#define is_hardware_pci_domain(d) (is_hardware_domain(d) && !hwdom_uses_vpci())
+
 #endif
 
 /*
