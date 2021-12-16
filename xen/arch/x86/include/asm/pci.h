@@ -74,4 +74,8 @@ bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end);
 struct rangeset;
 int pci_sanitize_bar_memory(struct rangeset *r);
 
+static inline bool hwdom_uses_vpci(void)
+{
+    return false;
+}
 #endif /* __X86_PCI_H__ */
