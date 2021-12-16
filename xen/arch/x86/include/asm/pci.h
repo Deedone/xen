@@ -70,4 +70,7 @@ static inline bool arch_pci_device_physdevop(void)
     return false;
 }
 
+/* Unlike ARM, HW domain does not ever use vpci for x86 */
+static inline bool hwdom_uses_vpci(void)
+
 #endif /* __X86_PCI_H__ */
