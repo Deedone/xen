@@ -129,8 +129,8 @@ static void cf_check control_write(
     }
 
     /* Make sure domU doesn't enable INTx while enabling MSI-X. */
-    if ( new_enabled && !msix->enabled && !is_hardware_domain(pdev->domain) )
-    {
+    if ( new_enabled && !msix->enabled &&
+        !pci_is_hardware_domain(pdev->domain, pdev->seg, pdev->bus) ) {
         pci_intx(pdev, false);
         pdev->vpci->header.guest_cmd |= PCI_COMMAND_INTX_DISABLE;
     }
@@ -422,7 +422,8 @@ static bool adjacent_write(const struct domain *d, const struct vpci_msix *msix,
      * handled here.
      */
     if ( VMSIX_ADDR_IN_RANGE(addr, vpci, VPCI_MSIX_PBA) &&
-         (!access_allowed(msix->pdev, addr, len) || !is_hardware_domain(d)) )
+         (!access_allowed(msix->pdev, addr, len) ||
+          !pci_is_hardware_domain(d, msix->pdev->seg, msix->pdev->bus)) )
         /* Ignore writes to PBA for DomUs, it's undefined behavior. */
         return true;
 

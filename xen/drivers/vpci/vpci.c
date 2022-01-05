@@ -48,7 +48,7 @@ static int assign_virtual_sbdf(struct pci_dev *pdev)
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
-    if ( is_hardware_domain(d) )
+    if ( pci_is_hardware_domain(d, pdev->seg, pdev->bus) )
         return 0;
 
     /*
