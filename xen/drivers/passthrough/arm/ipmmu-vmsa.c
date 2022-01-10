@@ -1136,6 +1136,7 @@ static void ipmmu_free_root_domain(struct ipmmu_vmsa_domain *domain)
     ipmmu_domain_destroy_context(domain);
     xfree(domain);
 }
+static int ipmmu_deassign_device(struct domain *d, struct device *dev);
 
 static int ipmmu_assign_device(struct domain *d, u8 devfn, struct device *dev,
                                uint32_t flag)
@@ -1150,8 +1151,43 @@ static int ipmmu_assign_device(struct domain *d, u8 devfn, struct device *dev,
     if ( !to_ipmmu(dev) )
         return -ENODEV;
 
-    spin_lock(&xen_domain->lock);
+#ifdef CONFIG_HAS_PCI
+    if ( dev_is_pci(dev) )
+    {
+        struct pci_dev *pdev = dev_to_pci(dev);
+        struct domain *old_d = pdev->domain;
 
+        printk(XENLOG_INFO "Assigning device %04x:%02x:%02x.%u to dom%d\n",
+               pdev->seg, pdev->bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
+               d->domain_id);
+
+        /*
+         * XXX What would be the proper behavior? This could happen if
+         * pdev->phantom_stride > 0
+         */
+        if ( devfn != pdev->devfn )
+            ASSERT_UNREACHABLE();
+
+        list_move(&pdev->domain_list, &d->pdev_list);
+        pdev->domain = d;
+
+        /* dom_io is used as a sentinel for quarantined devices */
+        if ( d == dom_io )
+        {
+            int ret;
+
+            /*
+             * Try to de-assign: do not return error if it was already
+             * de-assigned.
+             */
+            ret = ipmmu_deassign_device(old_d, dev);
+
+            return ret == -ESRCH ? 0 : ret;
+        }
+    }
+#endif
+
+    spin_lock(&xen_domain->lock);
     /*
      * The IPMMU context for the Xen domain is not allocated beforehand
      * (at the Xen domain creation time), but on demand only, when the first
@@ -1302,6 +1338,132 @@ static int ipmmu_dt_xlate(struct device *dev,
     return ipmmu_init_platform_device(dev, spec);
 }
 
+#ifdef CONFIG_HAS_PCI
+/* PCIE BDF-OSID assignment */
+#define CNVID(n)             (0x6900 + ((n) * 4))
+#define CNVID_CNV_EN         (1U << 31)
+#define CNVID_OSID_MASK      (0x0F << 16)
+#define CNVID_OSID_SHIFT     16
+#define CNVID_BDF_MASK       (0xFFFF << 0)
+#define CNVID_BDF_SHIFT      0
+
+#define CNVIDMSK(n)                (0x6980 + ((n) * 4))
+#define CNVIDMSK_BDF_MSK_MASK      (0xFFFF << 0)
+#define CNVIDMSK_BDF_MSK_SHIFT     0
+
+#define CNVOSIDCTRL                0x6A00
+#define CNVOSIDCTRL_OSID_MASK      (0x0F << 16)
+#define CNVOSIDCTRL_OSID_SHIFT     16
+
+#define DEFAULT_OSID    0
+
+#define NUM_OSID_REGS    16
+
+struct gen4_pci_ipmmu_info {
+    const char *node_path;
+    u64 reg_addr;
+    size_t reg_size;
+    unsigned int utlb_osid0;
+    void __iomem *base;
+    DECLARE_BITMAP(osid_regs, NUM_OSID_REGS);
+};
+
+/* TODO: Read reg range from DT */
+static struct gen4_pci_ipmmu_info pci_ipmmu_info[2] = {
+    {
+        .node_path = "/soc/pcie@e65d0000",
+        .reg_addr = 0xe65d0000,
+        .reg_size = 0x8000,
+        .utlb_osid0 = 32,
+    },
+    {
+        .node_path = "/soc/pcie@e65d8000",
+        .reg_addr = 0xe65d8000,
+        .reg_size = 0x8000,
+        .utlb_osid0 = 48,
+    },
+};
+
+static struct gen4_pci_ipmmu_info *get_gen4_pci_ipmmu_info(
+    const struct pci_dev *pdev)
+{
+    const struct dt_device_node *np;
+
+    np = pci_find_host_bridge_node(pdev);
+    if ( !np )
+        return NULL;
+
+    if ( dt_node_path_is_equal(np, "/soc/pcie@e65d0000") )
+        return &pci_ipmmu_info[0];
+    else if ( dt_node_path_is_equal(np, "/soc/pcie@e65d8000") )
+        return &pci_ipmmu_info[1];
+    else
+        return NULL;
+}
+
+static void osid_bdf_set(struct gen4_pci_ipmmu_info *info, unsigned int reg_id,
+                         uint32_t osid, uint32_t bdf)
+{
+    uint32_t data = readl(info->base + CNVID(reg_id));
+
+    data &= ~(CNVID_OSID_MASK | CNVID_BDF_MASK);
+    data |= CNVID_CNV_EN | (osid << CNVID_OSID_SHIFT) |
+            (bdf << CNVID_BDF_SHIFT);
+    writel(data, info->base + CNVID(reg_id));
+}
+
+static void osid_bdf_clear(struct gen4_pci_ipmmu_info *info,
+                           unsigned int reg_id)
+{
+    writel(readl(info->base + CNVID(reg_id)) & ~CNVID_CNV_EN,
+           info->base + CNVID(reg_id));
+}
+
+static void bdf_msk_set(struct gen4_pci_ipmmu_info *info, unsigned int reg_id,
+                        uint32_t data)
+{
+    writel((readl(info->base + CNVIDMSK(reg_id)) & ~CNVIDMSK_BDF_MSK_MASK) |
+           (data << CNVIDMSK_BDF_MSK_SHIFT), info->base + CNVIDMSK(reg_id));
+}
+
+static int osid_reg_alloc(struct gen4_pci_ipmmu_info *info)
+{
+    int ret;
+
+    ret = find_first_zero_bit(info->osid_regs, NUM_OSID_REGS);
+    if ( ret != NUM_OSID_REGS )
+        set_bit(ret, info->osid_regs);
+    else
+        ret = -EBUSY;
+
+    return ret;
+}
+
+static void osid_reg_free(struct gen4_pci_ipmmu_info *info, unsigned int reg_id)
+{
+    clear_bit(reg_id, info->osid_regs);
+}
+
+static int osid_regs_init(struct gen4_pci_ipmmu_info *info)
+{
+    if ( info->base )
+        return 0;
+
+    info->base = ioremap_nocache(info->reg_addr, info->reg_size);
+    if ( !info->base )
+        return -ENOMEM;
+
+    bitmap_zero(info->osid_regs, NUM_OSID_REGS);
+    writel((readl(info->base + CNVOSIDCTRL) & ~CNVOSIDCTRL_OSID_MASK) |
+           (DEFAULT_OSID << CNVOSIDCTRL_OSID_SHIFT), info->base + CNVOSIDCTRL);
+
+    printk("%s: Initialized OSID regs (default OSID %u)\n", info->node_path,
+           DEFAULT_OSID);
+
+    return 0;
+}
+#endif
+
 static int ipmmu_add_device(u8 devfn, struct device *dev)
 {
     struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
@@ -1318,6 +1480,47 @@ static int ipmmu_add_device(u8 devfn, struct device *dev)
 
     /* Let Xen know that the master device is protected by an IOMMU. */
     dt_device_set_protected(dev_to_dt(dev));
+
+#ifdef CONFIG_HAS_PCI
+    if ( dev_is_pci(dev) )
+    {
+        struct pci_dev *pdev = dev_to_pci(dev);
+        struct gen4_pci_ipmmu_info *info;
+        unsigned int reg_id, osid;
+        int ret;
+
+        info = get_gen4_pci_ipmmu_info(pdev);
+        if ( !info )
+            return -ENODEV;
+
+        if ( fwspec->num_ids != 1 || fwspec->ids[0] < info->utlb_osid0 ||
+             fwspec->ids[0] >= (info->utlb_osid0 + NUM_OSID_REGS) )
+            return -EINVAL;
+
+        osid_regs_init(info);
+
+        ret = osid_reg_alloc(info);
+        if ( ret < 0 )
+        {
+            dev_err(dev, "No unused OSID regs\n");
+            return ret;
+        }
+        reg_id = ret;
+
+        osid = fwspec->ids[0] - info->utlb_osid0;
+        osid_bdf_set(info, reg_id, osid, pdev->sbdf.bdf);
+        bdf_msk_set(info, reg_id, 0);
+
+        dev_info(dev, "Allocated OSID reg %u (OSID %u)\n", reg_id, osid);
+
+        ret = ipmmu_assign_device(pdev->domain, devfn, dev, 0);
+        if (ret) {
+            osid_bdf_clear(info, reg_id);
+            osid_reg_free(info, reg_id);
+            return ret;
+        }
+    }
+#endif
 
     dev_info(dev, "Added master device (IPMMU %s micro-TLBs %u)\n",
              dev_name(fwspec->iommu_dev), fwspec->num_ids);
