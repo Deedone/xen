@@ -341,11 +341,11 @@ int vpci_init_capability_list(struct pci_dev *pdev);
 
 void vpci_msix_arch_register(struct vpci_msix *msix, struct domain *d);
 
-int vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
-                    unsigned int len, unsigned long data);
+bool vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
+                     unsigned int len, unsigned long data);
 
-int vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
-                   unsigned int len, unsigned long *data);
+bool vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
+                    unsigned int len, unsigned long *data);
 
 #endif /* __XEN__ */
 
