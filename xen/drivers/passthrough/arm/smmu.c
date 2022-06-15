@@ -1699,6 +1699,10 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 	if (!cfg)
 		return -ENODEV;
 
+	ret = arm_smmu_master_alloc_smes(dev);
+	if (ret)
+		return ret;
+
 	return arm_smmu_domain_add_master(smmu_domain, cfg);
 }
 
@@ -2042,7 +2046,7 @@ static int arm_smmu_add_device(struct device *dev)
 	struct arm_smmu_master_cfg *cfg;
 	struct iommu_group *group;
 	void (*releasefn)(void *) = NULL;
-	int ret;
+	int ret = 0;
 
 	smmu = find_smmu_for_device(dev);
 	if (!smmu)
@@ -2094,7 +2098,7 @@ static int arm_smmu_add_device(struct device *dev)
 	iommu_group_add_device(group, dev);
 	iommu_group_put(group);
 
-	return arm_smmu_master_alloc_smes(dev);
+	return ret;
 }
 
 #if 0 /* Xen: We don't support remove device for now. Will be useful for PCI */
