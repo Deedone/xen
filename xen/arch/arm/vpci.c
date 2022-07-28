@@ -7,23 +7,35 @@
 
 #include <asm/mmio.h>
 
-static pci_sbdf_t vpci_sbdf_from_gpa(const struct pci_host_bridge *bridge,
-                                     paddr_t gpa, bool use_root)
+static bool vpci_sbdf_from_gpa(struct domain *d,
+                               const struct pci_host_bridge *bridge,
+                               paddr_t gpa, bool use_root, pci_sbdf_t *sbdf)
 {
-    pci_sbdf_t sbdf;
+    bool translated = true;
+
+    ASSERT(sbdf);
 
     if ( bridge )
     {
         const struct pci_config_window *cfg = use_root ? bridge->cfg
                                                        : bridge->child_cfg;
-        sbdf.sbdf = VPCI_ECAM_BDF(gpa - cfg->phys_addr);
-        sbdf.seg = bridge->segment;
-        sbdf.bus += cfg->busn_start;
+        sbdf->sbdf = VPCI_ECAM_BDF(gpa - cfg->phys_addr);
+        sbdf->seg = bridge->segment;
+        sbdf->bus += cfg->busn_start;
     }
     else
-        sbdf.sbdf = VPCI_ECAM_BDF(gpa - GUEST_VPCI_ECAM_BASE);
+    {
+        /*
+         * For the passed through devices we need to map their virtual SBDF
+         * to the physical PCI device being passed through.
+         */
+        sbdf->sbdf = VPCI_ECAM_BDF(gpa - GUEST_VPCI_ECAM_BASE);
+        read_lock(&d->pci_lock);
+        translated = vpci_translate_virtual_device(d, sbdf);
+        read_unlock(&d->pci_lock);
+    }
 
-    return sbdf;
+    return translated;
 }
 
 static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info, register_t *r,
@@ -50,7 +62,12 @@ static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info, register_t *r,
                                void *p)
 {
     struct pci_host_bridge *bridge = p;
-    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(bridge, info->gpa, true);
+    pci_sbdf_t sbdf;
+
+    ASSERT(!bridge == !is_hardware_domain(v->domain));
+
+    if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, true, &sbdf) )
+        return 1;
 
     return vpci_mmio_read(v, info, r, sbdf);
 }
@@ -59,7 +76,12 @@ static int vpci_mmio_read_child(struct vcpu *v, mmio_info_t *info,
                                 register_t *r, void *p)
 {
     struct pci_host_bridge *bridge = p;
-    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(bridge, info->gpa, false);
+    pci_sbdf_t sbdf;
+
+    ASSERT(!bridge == !is_hardware_domain(v->domain));
+
+    if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, false, &sbdf) )
+        return 1;
 
     return vpci_mmio_read(v, info, r, sbdf);
 }
@@ -75,7 +97,12 @@ static int vpci_mmio_write_root(struct vcpu *v, mmio_info_t *info, register_t r,
                                 void *p)
 {
     struct pci_host_bridge *bridge = p;
-    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(bridge, info->gpa, true);
+    pci_sbdf_t sbdf;
+
+    ASSERT(!bridge == !is_hardware_domain(v->domain));
+
+    if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, true, &sbdf) )
+        return 1;
 
     return vpci_mmio_write(v, info, r, sbdf);
 }
@@ -84,7 +111,12 @@ static int vpci_mmio_write_child(struct vcpu *v, mmio_info_t *info,
                                  register_t r, void *p)
 {
     struct pci_host_bridge *bridge = p;
-    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(bridge, info->gpa, false);
+    pci_sbdf_t sbdf;
+
+    ASSERT(!bridge == !is_hardware_domain(v->domain));
+
+    if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, false, &sbdf) )
+        return 1;
 
     return vpci_mmio_write(v, info, r, sbdf);
 }
@@ -189,4 +221,3 @@ unsigned int domain_vpci_get_num_mmio_handlers(struct domain *d)
  * indent-tabs-mode: nil
  * End:
  */
-
