@@ -9,6 +9,7 @@
 #include <xen/ioreq.h>
 
 #include <asm/traps.h>
+#include <asm/vpci.h>
 
 #include <public/hvm/ioreq.h>
 
@@ -176,12 +177,24 @@ bool arch_ioreq_server_get_type_addr(const struct domain *d,
                                      uint8_t *type,
                                      uint64_t *addr)
 {
+    uint64_t pci_addr;
+
     if ( p->type != IOREQ_TYPE_COPY && p->type != IOREQ_TYPE_PIO )
         return false;
 
-    *type = (p->type == IOREQ_TYPE_PIO) ?
-             XEN_DMOP_IO_RANGE_PORT : XEN_DMOP_IO_RANGE_MEMORY;
-    *addr = p->addr;
+    if ( p->type == IOREQ_TYPE_COPY &&
+         vpci_ioreq_server_get_addr(d, p->addr, &pci_addr) )
+    {
+        /* PCI config data cycle */
+        *type = XEN_DMOP_IO_RANGE_PCI;
+        *addr = pci_addr;
+    }
+    else
+    {
+        *type = (p->type == IOREQ_TYPE_PIO) ?
+                 XEN_DMOP_IO_RANGE_PORT : XEN_DMOP_IO_RANGE_MEMORY;
+        *addr = p->addr;
+    }
 
     return true;
 }
