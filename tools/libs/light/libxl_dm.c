@@ -144,7 +144,7 @@ static int libxl__domain_get_device_model_uid(libxl__gc *gc,
      *   the username `user`, and kill_by_uid must be set to the appropriate
      *   value.  intended_uid will be checked for root (0).
      */
-    
+
     /*
      * If device_model_user is present, set `-runas` even if
      * dm_restrict isn't in use
@@ -285,7 +285,7 @@ static int libxl__get_reaper_uid(libxl__gc *gc, uid_t *reaper_uid)
 
     rc = userlookup_helper_getpwnam(gc, LIBXL_QEMU_USER_REAPER,
                                          &user_pwbuf, &user_base);
-    /* 
+    /*
      * Either there was an error, or we found a suitable user; stop
      * looking
      */
@@ -1805,6 +1805,21 @@ static int libxl__build_device_model_args_new(libxl__gc *gc,
     }
     for (i = 0; b_info->extra && b_info->extra[i] != NULL; i++)
         flexarray_append(dm_args, b_info->extra[i]);
+
+    /*
+     * swtpm needs to be started at system boot with the following
+     * command line parameters:
+     * swtpm socket --tpmstate dir=/tmp/vtpm2 --ctrl type=unixio,path=/tmp/vtpm2/swtpm-sock
+     *
+     * The socket path needs to correspond to the one passed to QEMU
+     * here.
+     */
+    if (libxl_defbool_val(b_info->tpm)) {
+        flexarray_append(dm_args, "-chardev");
+        flexarray_append(dm_args, "socket,id=chrtpm,path=/tmp/vtpm2/swtpm-sock");
+        flexarray_append(dm_args, "-tpmdev");
+        flexarray_append(dm_args, "emulator,id=tpm0,chardev=chrtpm");
+    }
 
     flexarray_append(dm_args, "-machine");
     switch (b_info->type) {
@@ -3789,7 +3804,7 @@ void libxl__destroy_device_model(libxl__egc *egc,
      * to killing by pid.
      */
     if (rc) {
-        /* 
+        /*
          * Technically the state of the string passed to libxl__xs_read_checked() is
          * "undefined" in the case rc == 0 (according to libxl_internal.h).  Set it to
          * NULL to prevent undefined behavior.
@@ -3855,7 +3870,7 @@ out:
     return;
 }
 
-/* 
+/*
  * Note that this attempts to grab a file lock, so must be called from
  * a sub-process.
  */
@@ -4016,7 +4031,7 @@ int libxl__need_xenpv_qemu(libxl__gc *gc, libxl_domain_config *d_config)
         goto out;
     }
 
-    if (d_config->num_vfbs > 0) {
+    if (d_config->num_vfbs > 0 || libxl_defbool_val(d_config->b_info.tpm)) {
         ret = 1;
         goto out;
     }
