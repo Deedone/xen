@@ -533,6 +533,8 @@ typedef uint64_t xen_callback_t;
 #define GUEST_VIRTIO_MMIO_SPI_FIRST   33
 #define GUEST_VIRTIO_MMIO_SPI_LAST    43
 
+#define GUEST_VIRTIO_PCI_SPI_FIRST   44
+#define GUEST_VIRTIO_PCI_SPI_LAST    48
 /*
  * SGI is the preferred delivery mechanism of FF-A pending notifications or
  * schedule recveive interrupt. SGIs 8-15 are normally not used by a guest
