@@ -297,7 +297,7 @@ void __iomem *dw_pcie_child_map_bus(struct pci_host_bridge *bridge,
     uint32_t busdev;
 
     busdev = PCIE_ATU_BUS(sbdf.bus) | PCIE_ATU_DEV(PCI_SLOT(sbdf.devfn)) |
-        PCIE_ATU_FUNC(PCI_FUNC(sbdf.devfn));
+        PCIE_ATU_FUNC(0);
 
     /* FIXME: Parent is the root bus, so use PCIE_ATU_TYPE_CFG0. */
     dw_pcie_prog_outbound_atu(bridge, PCIE_ATU_REGION_INDEX1,
@@ -305,7 +305,7 @@ void __iomem *dw_pcie_child_map_bus(struct pci_host_bridge *bridge,
                               bridge->child_cfg->phys_addr,
                               busdev, bridge->child_cfg->size);
 
-    return bridge->child_cfg->win + where;
+    return bridge->child_cfg->win + ((uint32_t)sbdf.fn << 16) + where;
 }
 
 int dw_pcie_child_config_read(struct pci_host_bridge *bridge,
