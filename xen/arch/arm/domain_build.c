@@ -557,9 +557,12 @@ static int __init write_properties(struct domain *d, struct kernel_info *kinfo,
             continue;
         }
 
-        if ( iommu_node )
+        /*
+         * Expose IOMMU specific properties to hwdom when vIOMMU is
+         * enabled.
+         */
+        if ( iommu_node && viommu_get_type() == XEN_DOMCTL_CONFIG_VIOMMU_NONE )
         {
-            /* Don't expose IOMMU specific properties to hwdom */
             if ( dt_property_name_is_equal(prop, "iommus") )
                 continue;
 
