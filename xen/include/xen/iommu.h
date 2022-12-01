@@ -312,6 +312,7 @@ static inline int iommu_add_dt_pci_sideband_ids(struct pci_dev *pdev)
 #endif /* HAS_DEVICE_TREE_DISCOVERY */
 
 struct page_info;
+struct iommu_guest_config;
 
 /*
  * Any non-zero value returned from callbacks of this type will cause the
@@ -387,6 +388,11 @@ struct iommu_ops {
 #endif
     /* Inhibit all interrupt generation, to be used at shutdown. */
     void (*quiesce)(void);
+
+#ifdef CONFIG_ARM
+    int (*attach_guest_config)(struct domain *d, uint32_t sid,
+                               const struct iommu_guest_config *cfg);
+#endif
 };
 
 /*
