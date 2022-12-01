@@ -530,6 +530,12 @@ type ArmSci struct {
 Type ArmSciType
 }
 
+type ViommuType int
+const(
+ViommuTypeNone ViommuType = 0
+ViommuTypeSmmuv3 ViommuType = 1
+)
+
 type RdmReserve struct {
 Strategy RdmReserveStrategy
 Policy RdmReservePolicy
@@ -619,6 +625,7 @@ Vuart VuartType
 SveVl SveType
 NrSpis uint32
 ArmSci ArmSci
+ViommuType ViommuType
 }
 ArchX86 struct {
 MsrRelaxed Defbool
