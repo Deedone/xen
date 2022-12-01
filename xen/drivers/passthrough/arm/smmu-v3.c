@@ -2942,9 +2942,19 @@ static struct iommu_domain *arm_smmu_get_domain(struct domain *d,
 	 * assigned to this SMMU
 	 */
 	list_for_each_entry(io_domain, &xen_domain->contexts, list) {
+		unsigned long flags;
+		const struct arm_smmu_master *master;
+
 		smmu_domain = to_smmu_domain(io_domain);
-		if (smmu_domain->smmu == smmu)
-			return io_domain;
+
+		spin_lock_irqsave(&smmu_domain->devices_lock, flags);
+		list_for_each_entry(master, &smmu_domain->devices, domain_head) {
+			if (master->dev == dev) {
+				spin_unlock_irqrestore(&smmu_domain->devices_lock, flags);
+				return io_domain;
+			}
+		}
+		spin_unlock_irqrestore(&smmu_domain->devices_lock, flags);
 	}
 	return NULL;
 }
