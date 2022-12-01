@@ -86,8 +86,8 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
 {
     uint32_t nr_spis = 0, cfg_nr_spis = d_config->b_info.arch_arm.nr_spis;
     unsigned int i;
-    uint32_t vuart_irq, virtio_irq = 0;
-    bool vuart_enabled = false, virtio_enabled = false;
+    uint32_t vuart_irq, virtio_irq = 0, vsmmu_irq = 0;
+    bool vuart_enabled = false, virtio_enabled = false, vsmmu_enabled = false;
     uint64_t virtio_mmio_base = GUEST_VIRTIO_MMIO_BASE;
     uint32_t virtio_mmio_irq = GUEST_VIRTIO_MMIO_SPI_FIRST;
     int rc;
@@ -97,9 +97,19 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
      * of SPI VIRQ for pl011.
      */
     if (d_config->b_info.arch_arm.vuart == LIBXL_VUART_TYPE_SBSA_UART) {
-        nr_spis += (GUEST_VPL011_SPI - 32) + 1;
         vuart_irq = GUEST_VPL011_SPI;
+        nr_spis = max(nr_spis, vuart_irq - 32 + 1);
         vuart_enabled = true;
+    }
+
+    /*
+     * If smmuv3 viommu is enabled then increment the nr_spis to allow
+     * allocation of SPI VIRQ for VSMMU.
+     */
+    if (d_config->b_info.arch_arm.viommu_type == LIBXL_VIOMMU_TYPE_SMMUV3) {
+        vsmmu_irq = GUEST_VSMMU_SPI;
+        nr_spis = max(nr_spis, vsmmu_irq - 32 + 1);
+        vsmmu_enabled = true;
     }
 
     for (i = 0; i < d_config->num_disks; i++) {
@@ -167,6 +177,11 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         if (virtio_enabled &&
             (irq >= GUEST_VIRTIO_MMIO_SPI_FIRST && irq <= virtio_irq)) {
             LOG(ERROR, "Physical IRQ %u conflicting with Virtio MMIO IRQ range\n", irq);
+            return ERROR_FAIL;
+        }
+
+        if (vsmmu_enabled && irq == vsmmu_irq) {
+            LOG(ERROR, "Physical IRQ %u conflicting with vSMMUv3 SPI\n", irq);
             return ERROR_FAIL;
         }
 
@@ -983,6 +998,7 @@ static int make_vsmmuv3_node(libxl__gc *gc, void *fdt,
 {
     int res;
     const char *name = GCSPRINTF("iommu@%llx", GUEST_VSMMUV3_BASE);
+    gic_interrupt intr;
 
     res = fdt_begin_node(fdt, name);
     if (res) return res;
@@ -999,6 +1015,14 @@ static int make_vsmmuv3_node(libxl__gc *gc, void *fdt,
     if (res) return res;
 
     res = fdt_property_cell(fdt, "#iommu-cells", 1);
+    if (res) return res;
+
+    res = fdt_property_string(fdt, "interrupt-names", "combined");
+    if (res) return res;
+
+    set_interrupt(intr, GUEST_VSMMU_SPI, 0xf, DT_IRQ_TYPE_LEVEL_HIGH);
+
+    res = fdt_property_interrupts(gc, fdt, &intr, 1);
     if (res) return res;
 
     res = fdt_end_node(fdt);

@@ -231,6 +231,7 @@ static int __init make_vsmmuv3_node(const struct kernel_info *kinfo)
     char buf[24];
     __be32 reg[GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS];
     __be32 *cells;
+    gic_interrupt_t intr;
     void *fdt = kinfo->fdt;
 
     snprintf(buf, sizeof(buf), "iommu@%llx", GUEST_VSMMUV3_BASE);
@@ -258,6 +259,22 @@ static int __init make_vsmmuv3_node(const struct kernel_info *kinfo)
         return res;
 
     res = fdt_property_cell(fdt, "#iommu-cells", 1);
+    if ( res )
+        return res;
+
+    res = fdt_property_string(fdt, "interrupt-names", "combined");
+    if ( res )
+        return res;
+
+    set_interrupt(intr, GUEST_VSMMU_SPI, 0xf, DT_IRQ_TYPE_LEVEL_HIGH);
+
+    res = fdt_property(kinfo->fdt, "interrupts",
+                       intr, sizeof(intr));
+    if ( res )
+        return res;
+
+    res = fdt_property_cell(kinfo->fdt, "interrupt-parent",
+                            kinfo->phandle_intc);
     if ( res )
         return res;
 
