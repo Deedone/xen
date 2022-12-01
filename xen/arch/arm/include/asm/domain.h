@@ -102,6 +102,11 @@ struct arch_domain
 #ifdef CONFIG_MPU
     uint8_t v8r_el1_msa;
 #endif
+
+#ifdef CONFIG_ARM_VIRTUAL_IOMMU
+    struct list_head viommu_list;     /* List of virtual IOMMUs */
+#endif
+
 }  __cacheline_aligned;
 
 struct arch_vcpu

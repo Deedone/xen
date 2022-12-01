@@ -94,6 +94,7 @@
 #include <asm/suspend.h>
 
 #include "smmu-v3.h"
+#include "vsmmu-v3.h"
 
 #ifdef CONFIG_SYSTEM_SUSPEND
 #define __init_or_smmu_suspend
@@ -2844,6 +2845,9 @@ static int __init arm_smmu_device_probe(struct platform_device *pdev)
 	list_add(&smmu->devices, &arm_smmu_devices);
 	spin_unlock(&arm_smmu_devices_lock);
 
+	/* Add to host IOMMU list to initialize vIOMMU for dom0 */
+	add_to_host_iommu_list(ioaddr, iosize, dev_to_dt(pdev));
+
 	return 0;
 
 out_free_irqs:
@@ -3280,6 +3284,9 @@ static __init int arm_smmu_dt_init(struct dt_device_node *dev,
 	BUG_ON(!smmu);
 
 	platform_features &= smmu->features;
+
+	/* Set vIOMMU type to SMMUv3 */
+	vsmmuv3_set_type();
 
 	return 0;
 }

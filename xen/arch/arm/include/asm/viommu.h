@@ -5,8 +5,20 @@
 #ifdef CONFIG_ARM_VIRTUAL_IOMMU
 
 #include <xen/lib.h>
+#include <xen/list.h>
 #include <xen/types.h>
 #include <public/xen.h>
+
+extern struct list_head host_iommu_list;
+
+/* data structure for each hardware IOMMU */
+struct host_iommu {
+    struct list_head entry;
+    const struct dt_device_node *dt_node;
+    paddr_t addr;
+    paddr_t size;
+    uint32_t irq;
+};
 
 struct viommu_ops {
     /*
@@ -35,6 +47,10 @@ struct viommu_desc {
 int domain_viommu_init(struct domain *d, uint8_t viommu_type);
 int viommu_relinquish_resources(struct domain *d);
 uint8_t viommu_get_type(void);
+void add_to_host_iommu_list(paddr_t addr, paddr_t size,
+                            const struct dt_device_node *node);
+void set_cur_viommu(const struct viommu_desc *desc);
+unsigned int domain_viommu_get_num_mmio_handlers(struct domain *d);
 
 #else
 
@@ -52,6 +68,17 @@ static inline int domain_viommu_init(struct domain *d, uint16_t viommu_type)
 }
 
 static inline int viommu_relinquish_resources(struct domain *d)
+{
+    return 0;
+}
+
+static inline void add_to_host_iommu_list(paddr_t addr, paddr_t size,
+                                          const struct dt_device_node *node)
+{
+    return;
+}
+
+static inline unsigned int domain_viommu_get_num_mmio_handlers(struct domain *d)
 {
     return 0;
 }
