@@ -33,6 +33,7 @@
 #include <asm/vgic.h>
 #include <asm/vpci.h>
 #include <asm/vpsci.h>
+#include <asm/viommu.h>
 #include <asm/vtimer.h>
 
 #include "vuart.h"
@@ -669,6 +670,21 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
         return -EINVAL;
     }
 
+    if ( !(config->flags & XEN_DOMCTL_CDF_iommu) &&
+         config->arch.viommu_type != XEN_DOMCTL_CONFIG_VIOMMU_NONE )
+    {
+        dprintk(XENLOG_INFO,
+                "vIOMMU requested while iommu not enabled for domain\n");
+        return -EINVAL;
+    }
+
+    if ( config->arch.viommu_type != XEN_DOMCTL_CONFIG_VIOMMU_NONE )
+    {
+        dprintk(XENLOG_INFO,
+                "vIOMMU type requested not supported by the platform or Xen\n");
+        return -EINVAL;
+    }
+
     return sci_domain_sanitise_config(config);
 }
 
@@ -768,6 +784,9 @@ int arch_domain_create(struct domain *d,
     if ( (rc = sci_domain_init(d, config)) != 0 )
         goto fail;
 
+    if ( (rc = domain_viommu_init(d, config->arch.viommu_type)) != 0 )
+        goto fail;
+
     return 0;
 
 fail:
@@ -828,7 +847,7 @@ static void resume_ctx_reset(struct resume_info *ctx)
 void arch_domain_destroy(struct domain *d)
 {
     resume_ctx_reset(&d->arch.resume_ctx);
-
+    viommu_relinquish_resources(d);
     tee_free_domain_ctx(d);
     /* IOMMU page table is shared with P2M, always call
      * iommu_domain_destroy() before p2m_final_teardown().
@@ -1070,6 +1089,7 @@ static int relinquish_memory(struct domain *d, struct page_list_head *list)
  */
 enum {
     PROG_pci = 1,
+    PROG_viommu,
     PROG_sci,
     PROG_tee,
     PROG_xen,
@@ -1117,6 +1137,14 @@ int domain_relinquish_resources(struct domain *d)
         if ( ret )
             return ret;
 #endif
+    /*
+     * PCI devices may rely on the vIOMMU, so its resources
+     * should be relinquished only after the PCI devices are released.
+     */
+    PROGRESS(viommu):
+        ret = viommu_relinquish_resources(d);
+        if (ret )
+            return ret;
 
     PROGRESS(sci):
         ret = sci_relinquish_resources(d);

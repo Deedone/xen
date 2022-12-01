@@ -24,6 +24,7 @@
 #include <asm/domain_build.h>
 #include <asm/firmware/sci.h>
 #include <asm/gic_v3_its.h>
+#include <asm/viommu.h>
 #include <asm/grant_table.h>
 #include <asm/pci.h>
 #include <asm/setup.h>
@@ -375,6 +376,10 @@ int __init arch_parse_dom0less_node(struct dt_device_node *node,
     uint32_t val;
 
     d_cfg->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_NATIVE;
+    /* Set detected vIOMMU domain type only if IOMMU is enabled for the domain */
+    d_cfg->arch.viommu_type = d_cfg->flags & XEN_DOMCTL_CDF_iommu ? 
+                              viommu_get_type() :
+                              XEN_DOMCTL_CONFIG_VIOMMU_NONE;
     d_cfg->flags |= XEN_DOMCTL_CDF_hvm | XEN_DOMCTL_CDF_hap;
 
     if ( domu_dt_sci_parse(node, d_cfg) )
