@@ -683,6 +683,8 @@ static int cf_check init_msix(struct pci_dev *pdev)
     if ( !msix )
         return -ENOMEM;
 
+    INIT_LIST_HEAD(&msix->next);
+    
     msix->tables[VPCI_MSIX_TABLE] =
         pci_conf_read32(pdev->sbdf, msix_table_offset_reg(msix_offset));
     msix->tables[VPCI_MSIX_PBA] =
