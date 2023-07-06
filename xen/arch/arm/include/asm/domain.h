@@ -18,6 +18,8 @@ struct hvm_domain
     uint64_t              params[HVM_NR_PARAMS];
 };
 
+#define arch_needs_vpci(d) (!is_hardware_domain(d))
+
 struct vtimer {
     struct vcpu *v;
     int irq;
