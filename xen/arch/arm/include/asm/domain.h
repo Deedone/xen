@@ -294,6 +294,8 @@ static inline void update_guest_memory_policy(struct vcpu *v,
                                               struct guest_memory_policy *gmp)
 {}
 
+#define arch_needs_vpci(d) (!is_hardware_domain(d))
+
 #endif /* __ASM_DOMAIN_H__ */
 
 /*
