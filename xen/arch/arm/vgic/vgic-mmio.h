@@ -135,4 +135,8 @@ void vgic_mmio_write_config(struct vcpu *vcpu,
 
 unsigned int vgic_v2_init_dist_iodev(struct vgic_io_device *dev);
 
+#ifdef CONFIG_GICV3
+unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev);
+#endif
+
 #endif

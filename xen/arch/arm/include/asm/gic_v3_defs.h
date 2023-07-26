@@ -18,6 +18,7 @@
 #ifndef __ASM_ARM_GIC_V3_DEFS_H__
 #define __ASM_ARM_GIC_V3_DEFS_H__
 
+#include <xen/types.h>
 #include <xen/sizes.h>
 
 /*
@@ -25,6 +26,7 @@
  * Common GICD registers are defined in gic.h
  */
 
+#define GICD_TYPER2		     (0x00C)
 #define GICD_STATUSR                 (0x010)
 #define GICD_SETSPI_NSR              (0x040)
 #define GICD_CLRSPI_NSR              (0x048)
@@ -35,6 +37,7 @@
 #define GICD_IROUTER                 (0x6000)
 #define GICD_IROUTER32               (0x6100)
 #define GICD_IROUTER1019             (0x7FD8)
+#define GICD_IDREGS		     (0xFFD0)
 #define GICD_PIDR2                   (0xFFE8)
 
 /* Common between GICD_PIDR2 and GICR_PIDR2 */
@@ -60,6 +63,8 @@
 #define GICD_CTLR_ENABLE_G1A         (1U << 1)
 #define GICD_CTLR_ENABLE_G1          (1U << 0)
 #define GICD_IROUTER_SPI_MODE_ANY    (1UL << 31)
+#define GICD_CTLR_nASSGIreq		(1U << 8)
+#define GICD_CTLR_DS			(1U << 6)
 
 #define GICC_CTLR_EL1_EOImode_drop   (1U << 1)
 
@@ -89,6 +94,7 @@
 #define GICR_INVLPIR                 (0x00A0)
 #define GICR_INVALLR                 (0x00B0)
 #define GICR_SYNCR                   (0x00C0)
+#define GICR_IDREGS                  GICD_IDREGS
 #define GICR_PIDR2                   GICD_PIDR2
 
 /* GICR for SGI's & PPI's */
@@ -108,6 +114,9 @@
 #define GICR_NSACR                   (0x0E00)
 
 #define GICR_CTLR_ENABLE_LPIS        (1U << 0)
+#define GICR_CTLR_CES			(1UL << 1)
+#define GICR_CTLR_IR			(1UL << 2)
+#define GICR_CTLR_RWP			(1UL << 3)
 
 #define GICR_TYPER_PLPIS             (1U << 0)
 #define GICR_TYPER_VLPIS             (1U << 1)
@@ -202,6 +211,9 @@
 #define ICH_SGI_TARGETLIST_MASK      0xffff
 #define ICH_SGI_AFFx_MASK            0xff
 #define ICH_SGI_AFFINITY_LEVEL(x)    (16 * (x))
+
+#define GICD_CTLR_ENABLE_SS_G1		(1U << 1)
+#define GICD_CTLR_ENABLE_SS_G0		(1U << 0)
 
 struct rdist_region {
     paddr_t base;

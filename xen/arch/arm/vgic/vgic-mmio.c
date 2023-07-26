@@ -619,6 +619,9 @@ int vgic_register_dist_iodev(struct domain *d, gfn_t dist_base_fn,
     case VGIC_V2:
         len = vgic_v2_init_dist_iodev(io_device);
         break;
+    case VGIC_V3:
+        len = vgic_v3_init_dist_iodev(io_device);
+        break;
     default:
         BUG();
     }
