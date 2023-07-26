@@ -107,14 +107,18 @@ int domain_vgic_register(struct domain *d, unsigned int *mmio_count)
     {
     case GIC_V2:
         *mmio_count = 1;
+        d->arch.vgic.cbase = VGIC_ADDR_UNDEF;
         break;
+    case GIC_V3:
+        *mmio_count = 2;
+        INIT_LIST_HEAD(&d->arch.vgic.rd_regions);
+        break;
+
     default:
         BUG();
     }
 
     d->arch.vgic.dbase = VGIC_ADDR_UNDEF;
-    d->arch.vgic.cbase = VGIC_ADDR_UNDEF;
-    d->arch.vgic.vgic_redist_base = VGIC_ADDR_UNDEF;
 
     return 0;
 }
@@ -174,7 +178,7 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
     if ( dist->version == GIC_V2 )
         ret = vgic_v2_map_resources(d);
     else
-        ret = -ENXIO;
+        ret = vgic_v3_map_resources(d);
 
     if ( ret )
         return ret;
@@ -207,7 +211,7 @@ int vcpu_vgic_init(struct vcpu *v)
     if ( gic_hw_version() == GIC_V2 )
         vgic_v2_enable(v);
     else
-        ret = -ENXIO;
+        vgic_v3_enable(v);
 
     return ret;
 }

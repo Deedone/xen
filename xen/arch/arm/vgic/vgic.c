@@ -520,7 +520,11 @@ retry:
 
 static void vgic_fold_lr_state(struct vcpu *vcpu)
 {
-    vgic_v2_fold_lr_state(vcpu);
+    if (vcpu->domain->arch.vgic.version == GIC_V2) {
+        vgic_v2_fold_lr_state(vcpu);
+    } else {
+        vgic_v3_fold_lr_state(vcpu);
+    }
 }
 
 /* Requires the irq_lock to be held. */
@@ -529,7 +533,11 @@ static void vgic_populate_lr(struct vcpu *vcpu,
 {
     ASSERT(spin_is_locked(&irq->irq_lock));
 
-    vgic_v2_populate_lr(vcpu, irq, lr);
+    if (vcpu->domain->arch.vgic.version == GIC_V2) {
+        vgic_v2_populate_lr(vcpu, irq, lr);
+    } else {
+        vgic_v3_populate_lr(vcpu, irq, lr);
+    }
 }
 
 static void vgic_set_underflow(struct vcpu *vcpu)
@@ -950,6 +958,8 @@ unsigned int vgic_max_vcpus(unsigned int domctl_vgic_version)
     {
     case XEN_DOMCTL_CONFIG_GIC_V2:
         return VGIC_V2_MAX_CPUS;
+    case XEN_DOMCTL_CONFIG_GIC_V3:
+        return VGIC_V3_MAX_CPUS;
 
     default:
         return 0;
@@ -957,14 +967,6 @@ unsigned int vgic_max_vcpus(unsigned int domctl_vgic_version)
 }
 
 #ifdef CONFIG_GICV3
-/* Dummy implementation to allow building without actual vGICv3 support. */
-void vgic_v3_setup_hw(paddr_t dbase,
-                      unsigned int nr_rdist_regions,
-                      const struct rdist_region *regions,
-                      unsigned int intid_bits)
-{
-    panic("New VGIC implementation does not yet support GICv3\n");
-}
 #endif
 
 /*
