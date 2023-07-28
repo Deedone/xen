@@ -170,7 +170,8 @@ void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
         if ( irq->config == VGIC_CONFIG_EDGE )
             irq->pending_latch = false;
 
-        if ( vgic_irq_is_sgi(irq->intid) )
+        //TODO FIX
+        if ( vgic_irq_is_sgi(irq->intid) && /* MODEL IS V2 BUT NOT FOR NOW*/ 0 )
         {
             uint32_t src = ffs(irq->source);
 

@@ -76,6 +76,7 @@ void vgic_v3_fold_lr_state(struct vcpu *vcpu);
 void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr);
 void vgic_v3_enable(struct vcpu *vcpu);
 int vgic_v3_map_resources(struct domain *d);
+bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr);
 #endif
 
 #endif
