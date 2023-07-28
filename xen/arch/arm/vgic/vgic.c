@@ -859,9 +859,13 @@ struct irq_desc *vgic_get_hw_irq_desc(struct domain *d, struct vcpu *v,
 
 bool vgic_emulate(struct cpu_user_regs *regs, union hsr hsr)
 {
-    ASSERT(current->domain->arch.vgic.version == GIC_V3);
 
-    return false;
+    switch (current->domain->arch.vgic.version) {
+    case GIC_V3:
+        return vgic_v3_emulate_reg(regs, hsr);
+    default:
+        return false;
+    }
 }
 
 /*
