@@ -1664,10 +1664,12 @@ static int add_device(libxl__egc *egc, libxl__ao *ao,
 
     switch(dev->backend_kind) {
     case LIBXL__DEVICE_KIND_QDISK:
+    case LIBXL__DEVICE_KIND_QVIRTIO:
     case LIBXL__DEVICE_KIND_9PFS:
         if (dguest->pvqemu_refcnt == 0) {
             GCNEW(dmss);
             dmss->guest_domid = dev->domid;
+            dmss->backend_domid = dev->backend_domid;
             dmss->spawn.ao = ao;
             dmss->callback = qemu_xenpv_spawn_outcome;
 
@@ -1704,6 +1706,7 @@ static int remove_device(libxl__egc *egc, libxl__ao *ao,
 
     switch(ddev->dev->backend_kind) {
     case LIBXL__DEVICE_KIND_QDISK:
+    case LIBXL__DEVICE_KIND_QVIRTIO:
     case LIBXL__DEVICE_KIND_9PFS:
         if (--dguest->pvqemu_refcnt == 0) {
             rc = libxl__destroy_qemu_xenpv_backend(gc, dev->domid);
