@@ -948,6 +948,44 @@ static int cf_check init_header(struct pci_dev *pdev)
             return rc;
     }
 
+    /* Utilize rsvdp_mask to hide PCI_STATUS_CAP_LIST from the guest. */
+    rc = vpci_add_register_mask(pdev->vpci, vpci_hw_read16, vpci_hw_write16,
+                                PCI_STATUS, 2, NULL,
+                                PCI_STATUS_RO_MASK &
+                                    ~(mask_cap_list ? PCI_STATUS_CAP_LIST : 0),
+                                PCI_STATUS_RW1C_MASK,
+                                mask_cap_list ? PCI_STATUS_CAP_LIST : 0,
+                                PCI_STATUS_RSVDZ_MASK);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read32, NULL, PCI_CLASS_REVISION,
+                           4, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_CACHE_LINE_SIZE,
+                           1, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, vpci_hw_write8,
+                           PCI_LATENCY_TIMER, 1, NULL);
+    if ( rc )
+        return rc;
+
+    /* domU: hardcode multi-function device bit to 0 */
+    rc = vpci_add_register_mask(pdev->vpci, vpci_hw_read8, NULL,
+                                PCI_HEADER_TYPE, 1, NULL, 0x7f, 0, 0,
+                                is_hwdom ? 0 : 0x80);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, is_hwdom ? vpci_hw_read8 : vpci_read_val,
+                           is_hwdom ? vpci_hw_write8 : NULL, PCI_BIST, 1, NULL);
+    if ( rc )
+        return rc;
+
     if ( pdev->ignore_bars )
         return 0;
 
