@@ -893,6 +893,22 @@ int vpci_init_header(struct pci_dev *pdev)
     if ( rc )
         return rc;
 
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_CACHE_LINE_SIZE,
+                           1, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, vpci_hw_write8,
+                           PCI_LATENCY_TIMER, 1, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, is_hwdom ? vpci_hw_read8 : vpci_read_val,
+                           is_hwdom ? vpci_hw_write8 : NULL, PCI_BIST, 1, NULL);
+    if ( rc )
+        return rc;
+
     if ( pdev->ignore_bars )
         return 0;
 
@@ -913,6 +929,20 @@ int vpci_init_header(struct pci_dev *pdev)
 
     if ( pdev->info.is_virtfn )
         return vpci_vf_init_header(pdev);
+
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read32, NULL, PCI_CLASS_REVISION,
+                           4, NULL);
+    if ( rc )
+        return rc;
+
+    /* domU: hardcode multi-function device bit to 0 */
+    rc = vpci_add_register_mask(pdev->vpci, vpci_hw_read8, NULL,
+                                PCI_HEADER_TYPE, 1, NULL, 0x7f, 0, 0,
+                                is_hwdom ? 0 : 0x80);
+    if ( rc )
+        return rc;
+
 
     /* Disable memory decoding before sizing. */
     if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
