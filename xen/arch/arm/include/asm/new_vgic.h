@@ -21,6 +21,7 @@
 #include <xen/list.h>
 #include <xen/mm.h>
 #include <xen/spinlock.h>
+#include <xen/rbtree.h>
 
 #define INTERRUPT_ID_BITS_SPIS	10
 #define INTERRUPT_ID_BITS_ITS	16
@@ -100,6 +101,7 @@ struct vgic_irq {
 enum iodev_type {
     IODEV_DIST,
     IODEV_REDIST,
+    IODEV_ITS,
 };
 
 struct vgic_redist_region {
@@ -116,6 +118,34 @@ struct vgic_io_device {
     const struct vgic_register_region *regions;
     enum iodev_type iodev_type;
     unsigned int nr_regions;
+    struct vgic_its *its;
+};
+
+struct vgic_its {
+	/* The base address of the ITS control register frame */
+	paddr_t			vgic_its_base;
+
+	bool			enabled;
+	struct vgic_io_device	iodev;
+	struct domain	*domain;
+
+	/* These registers correspond to GITS_BASER{0,1} */
+	u64			baser_device_table;
+	u64			baser_coll_table;
+
+	/* Protects the command queue */
+	struct spinlock		cmd_lock;
+	u64			cbaser;
+	u32			creadr;
+	u32			cwriter;
+
+	/* migration ABI revision in use */
+	u32			abi_rev;
+
+	/* Protects the device and collection lists */
+	struct spinlock		its_lock;
+	struct list_head	device_list;
+	struct list_head	collection_list;
 };
 
 struct vgic_dist {
@@ -159,11 +189,16 @@ struct vgic_dist {
      * GICv3 spec: 6.1.2 "LPI Configuration tables"
      */
     uint64_t            propbaser;
+    struct rb_root its_devices;         /* Devices mapped to an ITS */
+    spinlock_t its_devices_lock;        /* Protects the its_devices tree */
 
     /* Protects the lpi_list and the count value below. */
     spinlock_t          lpi_list_lock;
     struct list_head    lpi_list_head;
     unsigned int        lpi_list_count;
+
+	/* LPI translation cache */
+	struct list_head	lpi_translation_cache;
 };
 
 struct vgic_cpu {
@@ -221,6 +256,7 @@ static inline paddr_t vgic_dist_base(const struct vgic_dist *vgic)
 struct vgic_redist_region *vgic_v3_rdist_free_slot(struct list_head *rd_regions);
 int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count);
 unsigned int vgic_v3_max_rdist_count(const struct domain *d);
+void vgic_flush_pending_lpis(struct vcpu *vcpu);
 
 #endif
 

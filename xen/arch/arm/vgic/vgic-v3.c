@@ -1,6 +1,8 @@
 
 #include <asm/new_vgic.h>
+#include <xen/guest_access.h>
 #include <asm/gic_v3_defs.h>
+#include <asm/gic_v3_its.h>
 #include <asm/gic.h>
 #include <xen/bug.h>
 #include <xen/sched.h>
@@ -170,8 +172,7 @@ void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
         if ( irq->config == VGIC_CONFIG_EDGE )
             irq->pending_latch = false;
 
-        //TODO FIX
-        if ( vgic_irq_is_sgi(irq->intid) && /* MODEL IS V2 BUT NOT FOR NOW*/ 0 )
+        if ( vgic_irq_is_sgi(irq->intid) && vcpu->domain->arch.vgic.version == VGIC_V2)
         {
             uint32_t src = ffs(irq->source);
 
@@ -269,10 +270,58 @@ unsigned int vgic_v3_max_rdist_count(const struct domain *d)
 int vgic_register_redist_iodev(struct vcpu *vcpu);
 void vgic_v3_enable(struct vcpu *vcpu)
 {
-
     /* Get the show on the road... */
     vgic_register_redist_iodev(vcpu);
     gic_hw_ops->update_hcr_status(GICH_HCR_EN, true);
+}
+
+int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq)
+{
+	struct vcpu *vcpu;
+	int byte_offset, bit_nr;
+	paddr_t pendbase, ptr;
+	bool status;
+	u8 val;
+	int ret;
+	unsigned long flags;
+
+retry:
+	vcpu = irq->target_vcpu;
+	if (!vcpu)
+		return 0;
+
+	pendbase = GICR_PENDBASER_ADDRESS(vcpu->arch.vgic.pendbaser);
+
+	byte_offset = irq->intid / BITS_PER_BYTE;
+	bit_nr = irq->intid % BITS_PER_BYTE;
+	ptr = pendbase + byte_offset;
+
+	ret = access_guest_memory_by_gpa(d, ptr,
+									 &val, 1, false);
+	//ret = kvm_read_guest_lock(kvm, ptr, &val, 1);
+	if (ret)
+		return ret;
+
+	status = val & (1 << bit_nr);
+
+	spin_lock_irqsave(&irq->irq_lock, flags);
+	if (irq->target_vcpu != vcpu) {
+		spin_unlock_irqrestore(&irq->irq_lock, flags);
+		goto retry;
+	}
+	irq->pending_latch = status;
+	vgic_queue_irq_unlock(vcpu->domain, irq, flags);
+
+	if (status) {
+		/* clear consumed data */
+		val &= ~(1 << bit_nr);
+		//ret = kvm_write_guest_lock(kvm, ptr, &val, 1);
+        ret = access_guest_memory_by_gpa(d, ptr,
+                                         &val, 1, true);
+		if (ret)
+			return ret;
+	}
+	return 0;
 }
 
 int vgic_v3_map_resources(struct domain *d)
@@ -282,16 +331,6 @@ int vgic_v3_map_resources(struct domain *d)
 
     /* Allocate memory for Re-distributor regions */
     rdist_count = vgic_v3_max_rdist_count(d);
-
-    // rdist_regions = xzalloc_array(struct vgic_redist_region, rdist_count);
-    // if ( !rdist_regions )
-    //     return -ENOMEM;
-
-    // d->arch.vgic.nr_regions = rdist_count;
-    // d->arch.vgic.rdist_regions = rdist_regions;
-
-    // rwlock_init(&d->arch.vgic.pend_lpi_tree_lock);
-    // radix_tree_init(&d->arch.vgic.pend_lpi_tree);
 
     /*
      * For domain using the host memory layout, it gets the hardware
@@ -308,30 +347,7 @@ int vgic_v3_map_resources(struct domain *d)
         {
             vgic_v3_set_redist_base(d, i, vgic_v3_hw_data.regions[i].base, 
             vgic_v3_hw_data.regions[i].size / GICV3_GICR_SIZE);
-
-            // paddr_t size = vgic_v3_hw_data.regions[i].size;
-
-            // d->arch.vgic.rdist_regions[i].base = vgic_v3_hw.regions[i].base;
-            // d->arch.vgic.rdist_regions[i].size = size;
-
-            // /* Set the first CPU handled by this region */
-            // d->arch.vgic.rdist_regions[i].first_cpu = first_cpu;
-
-            // first_cpu += size / GICV3_GICR_SIZE;
-
-            // if ( first_cpu >= d->max_vcpus )
-            //     break;
         }
-
-        /*
-         * For domain using the host memory layout, it may not use all
-         * the re-distributors regions (e.g when the number of vCPUs does
-         * not match the number of pCPUs). Update the number of regions to
-         * avoid exposing unused region as they will not get emulated.
-         */
-        // d->arch.vgic.nr_regions = i + 1;
-
-        // d->arch.vgic.intid_bits = vgic_v3_hw_data.intid_bits;
     }
     else
     {
@@ -342,45 +358,16 @@ int vgic_v3_map_resources(struct domain *d)
 
         /* The first redistributor should contain enough space for all CPUs */
         BUILD_BUG_ON((GUEST_GICV3_GICR0_SIZE / GICV3_GICR_SIZE) < MAX_VIRT_CPUS);
-        // d->arch.vgic.rdist_regions[0].base = GUEST_GICV3_GICR0_BASE;
-        // d->arch.vgic.rdist_regions[0].size = GUEST_GICV3_GICR0_SIZE;
-        // d->arch.vgic.rdist_regions[0].first_cpu = 0;
         vgic_v3_set_redist_base(d, 0, GUEST_GICV3_GICR0_BASE,
                                 GUEST_GICV3_GICR0_SIZE / GICV3_GICR_SIZE);
-
-        /*
-         * TODO: only SPIs for now, adjust this when guests need LPIs.
-         * Please note that this value just describes the bits required
-         * in the stream interface, which is of no real concern for our
-         * emulation. So we just go with "10" here to cover all eventual
-         * SPIs (even if the guest implements less).
-         */
-        //d->arch.vgic.intid_bits = 10;
     }
 
-    //TODO FIX
-    printk(XENLOG_ERR "vgic v3 should init its\n");
-    // ret = vgic_v3_its_init_domain(d);
-    // if ( ret )
-    //     return ret;
+    ret = vgic_v3_its_init_domain(d);
+    if ( ret )
+        return ret;
 
     /* Register mmio handle for the Distributor */
-    // register_mmio_handler(d, &vgic_distr_mmio_handler, d->arch.vgic.dbase,
-    //                       SZ_64K, NULL);
     ret = vgic_register_dist_iodev(d, gaddr_to_gfn(d->arch.vgic.dbase), VGIC_V3);
-
-    /*
-     * Register mmio handler per contiguous region occupied by the
-     * redistributors. The handler will take care to choose which
-     * redistributor is targeted.
-     */
-    // for ( i = 0; i < d->arch.vgic.nr_regions; i++ )
-    // {
-    //     struct vgic_rdist_region *region = &d->arch.vgic.rdist_regions[i];
-
-    //     register_mmio_handler(d, &vgic_rdistr_mmio_handler,
-    //                           region->base, region->size, region);
-    // }
 
     d->arch.vgic.ready = true;
 

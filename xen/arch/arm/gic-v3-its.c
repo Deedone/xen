@@ -24,6 +24,10 @@
 
 #define ITS_CMD_QUEUE_SZ                SZ_1M
 
+#ifdef CONFIG_NEW_VGIC
+#define pending_irq vgic_irq
+#endif
+
 /*
  * No lock here, as this list gets only populated upon boot while scanning
  * firmware tables for all host ITSes, and only gets iterated afterwards.
@@ -52,6 +56,7 @@ struct its_device {
 
 bool gicv3_its_host_has_its(void)
 {
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
     return !list_empty(&host_its_list);
 }
 
@@ -242,6 +247,7 @@ int gicv3_its_setup_collection(unsigned int cpu)
     struct host_its *its;
     int ret;
 
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
     list_for_each_entry(its, &host_its_list, entry)
     {
         ret = its_send_cmd_mapc(its, cpu, cpu);
@@ -620,6 +626,7 @@ int gicv3_its_map_guest_device(struct domain *d,
     struct rb_node **new = &d->arch.vgic.its_devices.rb_node, *parent = NULL;
     int i, ret = -ENOENT;      /* "i" must be signed to check for >= 0 below. */
 
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
     hw_its = gicv3_its_find_by_doorbell(host_doorbell);
     if ( !hw_its )
         return ret;
@@ -841,6 +848,7 @@ int gicv3_remove_guest_event(struct domain *d, paddr_t vdoorbell_address,
                              uint32_t vdevid, uint32_t eventid)
 {
     uint32_t host_lpi = INVALID_LPI;
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
 
     if ( !get_event_pending_irq(d, vdoorbell_address, vdevid, eventid,
                                 &host_lpi) )
@@ -870,6 +878,7 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
     struct pending_irq *pirq;
     uint32_t host_lpi = INVALID_LPI;
 
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
     pirq = get_event_pending_irq(d, vdoorbell_address, vdevid, eventid,
                                  &host_lpi);
 
@@ -886,6 +895,7 @@ int gicv3_its_deny_access(struct domain *d)
     int rc = 0;
     unsigned long mfn, nr;
     const struct host_its *its_data;
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
 
     list_for_each_entry( its_data, &host_its_list, entry )
     {
@@ -917,6 +927,7 @@ int gicv3_its_make_hwdom_dt_nodes(const struct domain *d,
     const struct dt_device_node *its = NULL;
     const struct host_its *its_data;
 
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
     if ( list_empty(&host_its_list) )
         return 0;
 
@@ -1069,6 +1080,7 @@ int gicv3_its_init(void)
 {
     struct host_its *hw_its;
     int ret;
+    printk(XENLOG_ERR "MYLOGTAG %s %d\n", __func__, __LINE__);
 
     if ( acpi_disabled )
         gicv3_its_dt_init(dt_interrupt_controller);

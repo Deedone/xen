@@ -1046,6 +1046,7 @@ static int vgic_v3_rdistr_mmio_read(struct vcpu *v, mmio_info_t *info,
     const struct vgic_rdist_region *region = priv;
 
     perfc_incr(vgicr_reads);
+    //printk(XENLOG_ERR "RD READ addr %lx %x\n", info->gpa, info->dabt.size);
 
     v = get_vcpu_from_rdist(v->domain, region, info->gpa, &offset);
     if ( unlikely(!v) )
@@ -1069,6 +1070,7 @@ static int vgic_v3_rdistr_mmio_write(struct vcpu *v, mmio_info_t *info,
     uint32_t offset;
     const struct vgic_rdist_region *region = priv;
 
+    //printk(XENLOG_ERR "RD WRITE addr %lx %x\n", info->gpa, info->dabt.size);
     perfc_incr(vgicr_writes);
 
     v = get_vcpu_from_rdist(v->domain, region, info->gpa, &offset);
@@ -1095,6 +1097,7 @@ static int vgic_v3_distr_mmio_read(struct vcpu *v, mmio_info_t *info,
     unsigned long flags;
     int gicd_reg = (int)(info->gpa - v->domain->arch.vgic.dbase);
 
+    //printk(XENLOG_ERR "D READ addr %lx %x\n", info->gpa, info->dabt.size);
     perfc_incr(vgicd_reads);
 
     switch ( gicd_reg )
@@ -1298,6 +1301,7 @@ static int vgic_v3_distr_mmio_write(struct vcpu *v, mmio_info_t *info,
     unsigned long flags;
     int gicd_reg = (int)(info->gpa - v->domain->arch.vgic.dbase);
 
+    //printk(XENLOG_ERR "D WRITE addr %lx %x\n", info->gpa, info->dabt.size);
     perfc_incr(vgicd_writes);
 
     switch ( gicd_reg )

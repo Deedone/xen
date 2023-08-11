@@ -173,6 +173,8 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
     }
 
     INIT_LIST_HEAD(&dist->lpi_list_head);
+    INIT_LIST_HEAD(&dist->lpi_translation_cache);
+    dist->lpi_list_count=0;
     spin_lock_init(&dist->lpi_list_lock);
 
     if ( dist->version == GIC_V2 )
