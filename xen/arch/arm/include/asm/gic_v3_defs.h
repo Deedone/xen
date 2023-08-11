@@ -97,6 +97,15 @@
 #define GICR_IDREGS                  GICD_IDREGS
 #define GICR_PIDR2                   GICD_PIDR2
 
+#define GIC_PAGE_SIZE_4K		0ULL
+#define GIC_PAGE_SIZE_16K		1ULL
+#define GIC_PAGE_SIZE_64K		2ULL
+#define GIC_PAGE_SIZE_MASK		3ULL
+
+#define GICR_PROPBASER_IDBITS_MASK			(0x1f)
+#define GICR_PROPBASER_ADDRESS(x)	((x) & GENMASK_ULL(51, 12))
+#define GICR_PENDBASER_ADDRESS(x)	((x) & GENMASK_ULL(51, 16))
+
 /* GICR for SGI's & PPI's */
 
 #define GICR_IGROUPR0                (0x0080)
@@ -140,6 +149,7 @@
 #define GIC_BASER_NonShareable       0ULL
 #define GIC_BASER_InnerShareable     1ULL
 #define GIC_BASER_OuterShareable     2ULL
+#define GIC_BASER_SHAREABILITY_MASK	3ULL
 
 #define GICR_PROPBASER_OUTER_CACHEABILITY_SHIFT         56
 #define GICR_PROPBASER_OUTER_CACHEABILITY_MASK               \

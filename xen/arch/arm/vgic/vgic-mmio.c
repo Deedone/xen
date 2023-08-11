@@ -555,6 +555,7 @@ static int dispatch_mmio_read(struct vcpu *vcpu, mmio_info_t *info,
     paddr_t addr = info->gpa;
     int len = 1U << info->dabt.size;
 
+
     region = vgic_get_mmio_region(vcpu, iodev, addr, len);
     if ( !region )
     {
@@ -569,6 +570,9 @@ static int dispatch_mmio_read(struct vcpu *vcpu, mmio_info_t *info,
         break;
     case IODEV_REDIST:
         data = region->read(iodev->redist_vcpu, addr, len);
+        break;
+    case IODEV_ITS:
+        data = region->its_read(vcpu->domain, iodev->its, addr, len);;
         break;
     }
 
@@ -586,6 +590,7 @@ static int dispatch_mmio_write(struct vcpu *vcpu, mmio_info_t *info,
     paddr_t addr = info->gpa;
     int len = 1U << info->dabt.size;
 
+
     region = vgic_get_mmio_region(vcpu, iodev, addr, len);
     if ( !region )
         return 0;
@@ -597,6 +602,9 @@ static int dispatch_mmio_write(struct vcpu *vcpu, mmio_info_t *info,
         break;
     case IODEV_REDIST:
         region->write(iodev->redist_vcpu, addr, len, data);
+        break;
+    case IODEV_ITS:
+        region->its_write(vcpu->domain, iodev->its, addr, len, data);;
         break;
     }
 
@@ -630,6 +638,8 @@ int vgic_register_dist_iodev(struct domain *d, gfn_t dist_base_fn,
     io_device->iodev_type = IODEV_DIST;
     io_device->redist_vcpu = NULL;
 
+    printk(XENLOG_ERR "Register distr base %lx size %x\n",
+           d->arch.vgic.dbase, len);
     register_mmio_handler(d, &vgic_io_ops, gfn_to_gaddr(dist_base_fn), len,
                           io_device);
 

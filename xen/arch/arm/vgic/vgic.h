@@ -30,6 +30,29 @@
 
 #define VGIC_PRI_BITS       5
 
+/*
+ * As per Documentation/virt/kvm/devices/arm-vgic-its.rst,
+ * below macros are defined for ITS table entry encoding.
+ */
+#define ITS_CTE_VALID_SHIFT		63
+#define ITS_CTE_VALID_MASK		BIT(63, ULL)
+#define ITS_CTE_RDBASE_SHIFT	16
+#define ITS_CTE_ICID_MASK		GENMASK_ULL(15, 0)
+#define ITS_ITE_NEXT_SHIFT		48
+#define ITS_ITE_PINTID_SHIFT	16
+#define ITS_ITE_PINTID_MASK		GENMASK_ULL(47, 16)
+#define ITS_ITE_ICID_MASK		GENMASK_ULL(15, 0)
+#define ITS_DTE_VALID_SHIFT		63
+#define ITS_DTE_VALID_MASK		BIT(63, ULL)
+#define ITS_DTE_NEXT_SHIFT		49
+#define ITS_DTE_NEXT_MASK		GENMASK_ULL(62, 49)
+#define ITS_DTE_ITTADDR_SHIFT	5
+#define ITS_DTE_ITTADDR_MASK	GENMASK_ULL(48, 5)
+#define ITS_DTE_SIZE_MASK		GENMASK_ULL(4, 0)
+#define ITS_L1E_VALID_MASK		BIT(63, ULL)
+/* we only support 64 kB translation table page size */
+#define ITS_L1E_ADDR_MASK		GENMASK_ULL(51, 16)
+
 #define vgic_irq_is_sgi(intid) ((intid) < VGIC_NR_SGIS)
 
 static inline bool irq_is_pending(struct vgic_irq *irq)
@@ -45,9 +68,9 @@ static inline bool vgic_irq_is_mapped_level(struct vgic_irq *irq)
     return irq->config == VGIC_CONFIG_LEVEL && irq->hw;
 }
 
-struct vgic_irq *vgic_get_irq(struct domain *d, struct vcpu *vcpu,
-                              uint32_t intid);
-void vgic_put_irq(struct domain *d, struct vgic_irq *irq);
+// struct vgic_irq *vgic_get_irq(struct domain *d, struct vcpu *vcpu,
+//                               uint32_t intid);
+// void vgic_put_irq(struct domain *d, struct vgic_irq *irq);
 void vgic_queue_irq_unlock(struct domain *d, struct vgic_irq *irq,
                            unsigned long flags);
 void vgic_kick_vcpus(struct domain *d);
@@ -77,6 +100,39 @@ void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr);
 void vgic_v3_enable(struct vcpu *vcpu);
 int vgic_v3_map_resources(struct domain *d);
 bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr);
+int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq);
+bool vgic_lpis_enabled(struct vcpu *vcpu);
+u64 vgic_sanitise_field(u64 reg, u64 field_mask, int field_shift,
+			u64 (*sanitise_fn)(u64));
+u64 vgic_sanitise_shareability(u64 field);
+u64 vgic_sanitise_inner_cacheability(u64 field);
+u64 vgic_sanitise_outer_cacheability(u64 field);
+#else
+static inline void vgic_v3_fold_lr_state(struct vcpu *vcpu)
+{
+}
+static inline void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
+{
+}
+static inline void vgic_v3_enable(struct vcpu *vcpu)
+{
+}
+static inline int vgic_v3_map_resources(struct domain *d)
+{
+    return 0;
+}
+static inline bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr)
+{
+    return false;
+}
+static inline int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq)
+{
+    return 0;
+}
+static inline bool vgic_lpis_enabled(struct vcpu *vcpu)
+{
+    return false;
+}
 #endif
 
 #endif

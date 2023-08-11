@@ -3,6 +3,7 @@
 #include <xen/sizes.h>
 #include <asm/new_vgic.h>
 #include <asm/gic_v3_defs.h>
+#include <asm/gic_v3_its.h>
 #include <asm/vreg.h>
 
 #include "asm/domain.h"
@@ -98,9 +99,7 @@ static bool vgic_v3_emulate_sgi1r(struct cpu_user_regs *regs, uint64_t *r,
         return false;
     }
 
-    //irqmode = (sgir >> ICH_SGI_IRQMODE_SHIFT) & ICH_SGI_IRQMODE_MASK;
     sgi = (*r >> ICH_SGI_IRQ_SHIFT ) & ICH_SGI_IRQ_MASK;
-	//sgi = (*r & ICH_SGI_IRQ_MASK) >> ICH_SGI_IRQ_SHIFT;
 	broadcast = *r & BIT(ICH_SGI_IRQMODE_SHIFT, ULL);
 	target_cpus = (*r & ICH_SGI_TARGETLIST_MASK);
 	mpidr = SGI_AFFINITY_LEVEL(*r, 3);
@@ -151,6 +150,7 @@ static bool vgic_v3_emulate_sgi1r(struct cpu_user_regs *regs, uint64_t *r,
             vgic_queue_irq_unlock(vcpu->domain, irq, flags);
         } else {
             printk(XENLOG_ERR "HW SGI NOT IMPLEMENTED\n");
+			BUG();
             /* HW SGI? Ask the GIC to inject it */
             // int err;
             // err = irq_set_irqchip_state(irq->host_irq,
@@ -202,7 +202,6 @@ bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr)
         printk(XENLOG_ERR "vgic_v3_emulate_reg: HSR_EC_CP15_64 not implemented");
         BUG();
         break;
-        //return vgic_v3_emulate_cp64(regs, hsr);
     default:
         return false;
     }
@@ -226,8 +225,6 @@ static unsigned long vgic_mmio_read_v3_misc(struct vcpu *vcpu,
 		if (vgic->enabled)
 			value |= GICD_CTLR_ENABLE_SS_G1;
 		value |= GICD_CTLR_ARE_NS | GICD_CTLR_DS;
-		// if (vgic->nassgireq)
-		// 	value |= GICD_CTLR_nASSGIreq;
 		break;
 	case GICD_TYPER:
 		value = vgic->nr_spis + VGIC_NR_PRIVATE_IRQS;
@@ -240,8 +237,6 @@ static unsigned long vgic_mmio_read_v3_misc(struct vcpu *vcpu,
 		}
 		break;
 	case GICD_TYPER2:
-		// if (kvm_vgic_global_state.has_gicv4_1 && gic_cpuif_has_vsgi())
-		// 	value = GICD_TYPER2_nASSGIcap;
 		break;
 	case GICD_IIDR:
 		value = (PRODUCT_ID_KVM << 24) |
@@ -263,35 +258,14 @@ static void vgic_mmio_write_v3_misc(struct vcpu *vcpu,
 
 	switch (addr & 0x0c) {
 	case GICD_CTLR: {
-		bool was_enabled, is_hwsgi;
+		bool was_enabled;
 
 		domain_lock(vcpu->domain);
 
 		was_enabled = dist->enabled;
-		//is_hwsgi = dist->nassgireq;
 
 		dist->enabled = val & GICD_CTLR_ENABLE_SS_G1;
 
-		// /* Not a GICv4.1? No HW SGIs */
-		// if (!kvm_vgic_global_state.has_gicv4_1 || !gic_cpuif_has_vsgi())
-		// 	val &= ~GICD_CTLR_nASSGIreq;
-
-		/* Dist stays enabled? nASSGIreq is RO */
-		if (was_enabled && dist->enabled) {
-			// val &= ~GICD_CTLR_nASSGIreq;
-			// val |= FIELD_PREP(GICD_CTLR_nASSGIreq, is_hwsgi);
-		}
-
-		/* Switching HW SGIs? */
-		// dist->nassgireq = val & GICD_CTLR_nASSGIreq;
-		// if (is_hwsgi != dist->nassgireq)
-		// 	vgic_v4_configure_vsgis(vcpu->kvm);
-
-		// if (kvm_vgic_global_state.has_gicv4_1 &&
-		//     was_enabled != dist->enabled)
-		// 	kvm_make_all_cpus_request(vcpu->kvm, KVM_REQ_RELOAD_GICv4);
-		// else if (!was_enabled && dist->enabled)
-		// 	vgic_kick_vcpus(vcpu->kvm);
         if ( dist->enabled )
             vgic_kick_vcpus(vcpu->domain);
 
@@ -422,9 +396,7 @@ static unsigned long vgic_mmio_read_v3r_ctlr(struct vcpu *vcpu,
 	unsigned long val;
 
 	val = atomic_read(&vgic_cpu->ctlr);
-	//TODO: fix
-	//if (vgic_get_implementation_rev(vcpu) >= KVM_VGIC_IMP_REV_3)
-		val |= GICR_CTLR_IR | GICR_CTLR_CES;
+	val |= GICR_CTLR_IR | GICR_CTLR_CES;
 
 	return val;
 }
@@ -450,10 +422,8 @@ static void vgic_mmio_write_v3r_ctlr(struct vcpu *vcpu,
 		if (ctlr != GICR_CTLR_ENABLE_LPIS)
 			return;
 
-		//TODO: fix
-		printk(XENLOG_ERR "ITS INVALIDATE CACHE SHOULD BE HERE\n");
-		//vgic_flush_pending_lpis(vcpu);
-		//vgic_its_invalidate_cache(vcpu->kvm);
+		vgic_flush_pending_lpis(vcpu);
+		vgic_its_invalidate_cache(vcpu->domain);
 		atomic_set(&vgic_cpu->ctlr, 0);
 	} else {
 		ctlr = atomic_cmpxchg(&vgic_cpu->ctlr, 0,
@@ -461,8 +431,7 @@ static void vgic_mmio_write_v3r_ctlr(struct vcpu *vcpu,
 		if (ctlr != 0)
 			return;
 
-		//TODO: fix
-		//vgic_enable_lpis(vcpu);
+		vgic_enable_lpis(vcpu);
 	}
 }
 
@@ -652,9 +621,7 @@ static void vgic_mmio_write_invlpi(struct vcpu *vcpu,
 
 	irq = vgic_get_irq(vcpu->domain, NULL, val & 0xffffffff);
 	if (irq) {
-		//TODO FIX
-		printk(XENLOG_ERR "INVLPIS SHOULD BE HERE\n");
-		//vgic_its_inv_lpi(vcpu->domain, irq);
+		vgic_its_inv_lpi(vcpu->domain, irq);
 		vgic_put_irq(vcpu->domain, irq);
 	}
 
@@ -670,9 +637,7 @@ static void vgic_mmio_write_invall(struct vcpu *vcpu,
 		return;
 
 	vgic_set_rdist_busy(vcpu, true);
-	printk(XENLOG_ERR "INVALL SHOULD BE HERE\n");
-	//TODO FIX
-	//vgic_its_invall(vcpu);
+	vgic_its_invall(vcpu);
 	vgic_set_rdist_busy(vcpu, false);
 }
 
@@ -823,9 +788,6 @@ int vgic_register_redist_iodev(struct vcpu *vcpu)
 	paddr_t rd_base;
 	int ret;
 
-	// if (!IS_VGIC_ADDR_UNDEF(vgic_cpu->rd_iodev.base_addr))
-	// 	return 0;
-
 	/*
 	 * We may be creating VCPUs before having set the base address for the
 	 * redistributor region, in which case we will come back to this
@@ -836,30 +798,22 @@ int vgic_register_redist_iodev(struct vcpu *vcpu)
 	if (!rdreg)
 		return 0;
 
-	// if (!vgic_v3_check_base(kvm))
-	// 	return -EINVAL;
-
 	vgic_cpu->rdreg = rdreg;
 	vgic_cpu->rdreg_index = rdreg->free_index;
 
 	rd_base = rdreg->base + rdreg->free_index * VGIC_V3_REDIST_SIZE;
 
-	//kvm_iodevice_init(&rd_dev->dev, &vgic_io_ops);
 	rd_dev->base_fn = gaddr_to_gfn(rd_base);
 	rd_dev->iodev_type = IODEV_REDIST;
 	rd_dev->regions = vgic_v3_rd_registers;
 	rd_dev->nr_regions = ARRAY_SIZE(vgic_v3_rd_registers);
 	rd_dev->redist_vcpu = vcpu;
 
-	// ret = kvm_io_bus_register_dev(kvm, KVM_MMIO_BUS, rd_base,
-	// 			      2 * SZ_64K, &rd_dev->dev);
 
 	printk(XENLOG_ERR "Register rdist base %lx size %x\n",
-																rd_base, 2 * SZ_64K);					
-    register_mmio_handler(d, &vgic_io_ops, rd_base, 2 * SZ_64K,
+								rd_base, VGIC_V3_REDIST_SIZE);					
+    register_mmio_handler(d, &vgic_io_ops, rd_base, VGIC_V3_REDIST_SIZE,
                           rd_dev);
-	// if (ret)
-	// 	return ret;
 
 	rdreg->free_index++;
 	return 0;
@@ -869,6 +823,7 @@ static int vgic_register_all_redist_iodevs(struct domain *d)
 {
 	struct vcpu *vcpu;
 	int ret = 0;
+	int i;
 
 	for_each_vcpu(d, vcpu) {
 		ret = vgic_register_redist_iodev(vcpu);
@@ -879,9 +834,9 @@ static int vgic_register_all_redist_iodevs(struct domain *d)
 	if (ret) {
 		printk(XENLOG_ERR "Failed to register redistributor iodev\n");
 		// /* The current c failed, so iterate over the previous ones. */
-		// int i;
 
-		// mutex_lock(&kvm->slots_lock);
+		//TODO FIX
+		// mutex_lock(&d->slots_lock);
 		// for (i = 0; i < c; i++) {
 		// 	vcpu = kvm_get_vcpu(kvm, i);
 		// 	vgic_unregister_redist_iodev(vcpu);
@@ -896,8 +851,7 @@ static inline size_t
 vgic_v3_rd_region_size(struct domain *d, struct vgic_redist_region *rdreg)
 {
 	if (!rdreg->count)
-	//TODO FIX
-		return 1 * VGIC_V3_REDIST_SIZE;
+		return d->max_vcpus * VGIC_V3_REDIST_SIZE;
 	else
 		return rdreg->count * VGIC_V3_REDIST_SIZE;
 }
@@ -925,6 +879,14 @@ bool vgic_v3_rdist_overlap(struct domain *domain, paddr_t base, size_t size)
 	return false;
 }
 
+static inline bool vgic_dist_overlap(struct domain *domain, paddr_t base, size_t size)
+{
+	struct vgic_dist *d = &domain->arch.vgic;
+
+	return (base + size > d->dbase) &&
+		(base < d->dbase + VGIC_V3_DIST_SIZE);
+}
+
 /**
  * vgic_v3_alloc_redist_region - Allocate a new redistributor region
  *
@@ -946,7 +908,7 @@ static int vgic_v3_alloc_redist_region(struct domain *domain, uint32_t index,
 	struct vgic_dist *d = &domain->arch.vgic;
 	struct vgic_redist_region *rdreg;
 	struct list_head *rd_regions = &d->rd_regions;
-	int nr_vcpus = 1;// TODO FIX
+	int nr_vcpus = domain->max_vcpus;
 	size_t size = count ? count * VGIC_V3_REDIST_SIZE
 			    : nr_vcpus * VGIC_V3_REDIST_SIZE;
 	int ret;
@@ -980,9 +942,9 @@ static int vgic_v3_alloc_redist_region(struct domain *domain, uint32_t index,
 	 */
 	// TODO FIX
 	printk(XENLOG_ERR "VGIC V3 ALLOC REDIST REGION SHOULD CHECK OVERLAP\n");
-	// if (!count && !IS_VGIC_ADDR_UNDEF(d->dbase) &&
-	// 	vgic_dist_overlap(domain, base, size))
-	// 	return -EINVAL;
+	if (!count && !IS_VGIC_ADDR_UNDEF(d->dbase) &&
+		vgic_dist_overlap(domain, base, size))
+		return -EINVAL;
 
 	/* collision with any other rdist region? */
 	if (vgic_v3_rdist_overlap(domain, base, size))
@@ -994,6 +956,7 @@ static int vgic_v3_alloc_redist_region(struct domain *domain, uint32_t index,
 
 	rdreg->base = VGIC_ADDR_UNDEF;
 
+	//TODO FIX
 	// ret = vgic_check_iorange(kvm, rdreg->base, base, SZ_64K, size);
 	// if (ret)
 	// 	goto free;

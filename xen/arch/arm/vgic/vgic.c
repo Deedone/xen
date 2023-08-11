@@ -66,6 +66,7 @@ static struct vgic_irq *vgic_get_lpi(struct domain *d, uint32_t intid)
 
     list_for_each_entry( irq, &dist->lpi_list_head, lpi_list )
     {
+        //printk(XENLOG_ERR "CMP %d %d\n", irq->intid, intid);
         if ( irq->intid != intid )
             continue;
 
@@ -148,9 +149,30 @@ void vgic_put_irq(struct domain *d, struct vgic_irq *irq)
     dist->lpi_list_count--;
     spin_unlock(&dist->lpi_list_lock);
 
-    xfree(irq);
+    memset(irq, 0, sizeof(*irq));
+    //xfree(irq);
 }
 
+void vgic_flush_pending_lpis(struct vcpu *vcpu)
+{
+	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+	struct vgic_irq *irq, *tmp;
+	unsigned long flags;
+
+	spin_lock_irqsave(&vgic_cpu->ap_list_lock, flags);
+
+	list_for_each_entry_safe(irq, tmp, &vgic_cpu->ap_list_head, ap_list) {
+		if (irq->intid >= VGIC_MIN_LPI) {
+			spin_lock(&irq->irq_lock);
+			list_del(&irq->ap_list);
+			irq->vcpu = NULL;
+			spin_unlock(&irq->irq_lock);
+			vgic_put_irq(vcpu->domain, irq);
+		}
+	}
+
+	spin_unlock_irqrestore(&vgic_cpu->ap_list_lock, flags);
+}
 /**
  * vgic_target_oracle() - compute the target vcpu for an irq
  * @irq:    The irq to route. Must be already locked.
