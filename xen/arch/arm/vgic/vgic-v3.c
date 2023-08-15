@@ -4,7 +4,7 @@
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
 #include <asm/gic.h>
-#include <xen/bug.h>
+//#include <xen/bug.h>
 #include <xen/sched.h>
 #include <xen/sizes.h>
 
@@ -296,7 +296,7 @@ retry:
 	bit_nr = irq->intid % BITS_PER_BYTE;
 	ptr = pendbase + byte_offset;
 
-	ret = access_guest_memory_by_gpa(d, ptr,
+	ret = access_guest_memory_by_ipa(d, ptr,
 									 &val, 1, false);
 	//ret = kvm_read_guest_lock(kvm, ptr, &val, 1);
 	if (ret)
@@ -316,7 +316,7 @@ retry:
 		/* clear consumed data */
 		val &= ~(1 << bit_nr);
 		//ret = kvm_write_guest_lock(kvm, ptr, &val, 1);
-        ret = access_guest_memory_by_gpa(d, ptr,
+        ret = access_guest_memory_by_ipa(d, ptr,
                                          &val, 1, true);
 		if (ret)
 			return ret;

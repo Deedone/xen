@@ -10,7 +10,7 @@
 #include "asm/types.h"
 #include "vgic.h"
 #include "vgic-mmio.h"
-#include "xen/stdint.h"
+//#include "xen/stdint.h"
 
 bool vgic_has_its(struct domain *d)
 {

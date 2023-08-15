@@ -279,7 +279,7 @@ static int update_lpi_config(struct domain *d, struct vgic_irq *irq,
 
 	// ret = kvm_read_guest_lock(d, propbase + irq->intid - GIC_LPI_OFFSET,
 	// 			  &prop, 1);
-	ret = access_guest_memory_by_gpa(d, propbase + irq->intid - GIC_LPI_OFFSET,
+	ret = access_guest_memory_by_ipa(d, propbase + irq->intid - GIC_LPI_OFFSET,
 									 &prop, 1, false);
 
 	if (ret)
@@ -755,7 +755,7 @@ static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
 	// 		   base + index * sizeof(indirect_ptr),
 	// 		   &indirect_ptr, sizeof(indirect_ptr)))
 		// return false;
-	if (access_guest_memory_by_gpa(its->domain, base + index * sizeof(indirect_ptr),
+	if (access_guest_memory_by_ipa(its->domain, base + index * sizeof(indirect_ptr),
 			   &indirect_ptr, sizeof(indirect_ptr),0))
 		return false;
 
@@ -1380,7 +1380,7 @@ static void vgic_its_process_commands(struct domain *d, struct vgic_its *its)
 	while (its->cwriter != its->creadr) {
 		//int ret = kvm_read_guest_lock(kvm, cbaser + its->creadr,
 					      //cmd_buf, ITS_CMD_SIZE);
-        int ret = access_guest_memory_by_gpa(d, cbaser + its->creadr,
+        int ret = access_guest_memory_by_ipa(d, cbaser + its->creadr,
                                          cmd_buf, ITS_CMD_SIZE, false);
 		/*
 		 * If kvm_read_guest() fails, this could be due to the guest
@@ -1489,7 +1489,7 @@ static int its_sync_lpi_pending_table(struct vcpu *vcpu)
 			// ret = kvm_read_guest_lock(vcpu->kvm,
 			// 			  pendbase + byte_offset,
 			// 			  &pendmask, 1);
-			ret = access_guest_memory_by_gpa(vcpu->domain,
+			ret = access_guest_memory_by_ipa(vcpu->domain,
 			                                 pendbase + byte_offset,
 			                                 &pendmask, 1, false);
 			if (ret) {
