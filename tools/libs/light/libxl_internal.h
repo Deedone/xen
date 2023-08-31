@@ -4205,6 +4205,10 @@ _hidden void libxl__spawn_qemu_xenpv_backend(libxl__egc *egc,
                                         libxl__dm_spawn_state *dmss);
 _hidden int libxl__destroy_qemu_xenpv_backend(libxl__gc *gc, uint32_t domid);
 
+_hidden int libxl__wait_for_qdisk_backend_ready(libxl__gc *gc,
+                                                uint32_t domid,
+                                                uint32_t backend_domid);
+
 _hidden int libxl__save_qdisk_backend_dm_args(libxl__gc *gc,
                                               uint32_t domid,
                                               uint32_t backend_domid,
