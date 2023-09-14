@@ -88,6 +88,8 @@ long hvm_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
     case PHYSDEVOP_pci_device_remove:
     case PHYSDEVOP_pci_device_reset:
     case PHYSDEVOP_dbgp_op:
+    case PHYSDEVOP_prepare_msix:
+    case PHYSDEVOP_release_msix:
         if ( !is_hardware_domain(currd) )
             return -ENOSYS;
         break;
