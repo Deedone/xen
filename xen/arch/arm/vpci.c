@@ -92,6 +92,8 @@ static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info,
                              true, &sbdf) )
     {
         int rc = IO_HANDLED;
+        const uint8_t access_size = (1 << info->dabt.size) * 8;
+        const uint64_t access_mask = GENMASK_ULL(access_size - 1, 0);
 
 #if defined(CONFIG_HAS_VPCI_GUEST_SUPPORT) && defined(CONFIG_IOREQ_SERVER)
         if ( domain_has_ioreq_server(v->domain) )
@@ -107,7 +109,7 @@ static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info,
                  rc = IO_HANDLED;
          }
  #endif
-         *r = ~0ul;
+         *r = access_mask;
          return rc;
     }
 
@@ -124,6 +126,8 @@ static int vpci_mmio_read_child(struct vcpu *v, mmio_info_t *info,
                              false, &sbdf) )
     {
         int rc = IO_HANDLED;
+        const uint8_t access_size = (1 << info->dabt.size) * 8;
+        const uint64_t access_mask = GENMASK_ULL(access_size - 1, 0);
 
 #if defined(CONFIG_HAS_VPCI_GUEST_SUPPORT) && defined(CONFIG_IOREQ_SERVER)
         if ( domain_has_ioreq_server(v->domain) )
@@ -139,7 +143,7 @@ static int vpci_mmio_read_child(struct vcpu *v, mmio_info_t *info,
                  rc = IO_HANDLED;
          }
  #endif
-         *r = ~0ul;
+         *r = access_mask;
          return rc;
     }
 
