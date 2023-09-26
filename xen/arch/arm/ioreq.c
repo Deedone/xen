@@ -80,7 +80,7 @@ enum io_state try_fwd_ioserv(struct cpu_user_regs *regs,
 
     ASSERT(dabt.valid);
 
-    p.data = get_user_reg(regs, info->dabt.reg);
+    p.data = (p.dir) ? 0 : get_user_reg(regs, info->dabt.reg);
     vio->req = p;
     vio->suspended = false;
     vio->info.dabt_instr = instr;
