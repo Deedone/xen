@@ -121,6 +121,8 @@ struct arch_domain
     void *tee;
 #endif
 
+    bool has_vpci;
+
 }  __cacheline_aligned;
 
 struct arch_vcpu
