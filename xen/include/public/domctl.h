@@ -29,9 +29,9 @@
  * (e.g. adding semantics to 0-checked input fields or data to zeroed output
  * fields) don't require a change of the version.
  *
- * Last version bump: Xen 4.19
+ * Last version bump: Xen 4.20
  */
-#define XEN_DOMCTL_INTERFACE_VERSION 0x00000017
+#define XEN_DOMCTL_INTERFACE_VERSION 0x00000018
 
 /*
  * NB. xen_domctl.domain is an IN/OUT parameter for this operation.
