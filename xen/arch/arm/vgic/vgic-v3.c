@@ -157,7 +157,6 @@ void vgic_v3_fold_lr_state(struct vcpu *vcpu)
     vgic_cpu->used_lrs = 0;
 }
 
-
 /* Requires the irq to be locked already */
 void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
 {    
@@ -296,9 +295,8 @@ retry:
 	bit_nr = irq->intid % BITS_PER_BYTE;
 	ptr = pendbase + byte_offset;
 
-	ret = access_guest_memory_by_ipa(d, ptr,
+	ret = access_guest_memory_by_gpa(d, ptr,
 									 &val, 1, false);
-	//ret = kvm_read_guest_lock(kvm, ptr, &val, 1);
 	if (ret)
 		return ret;
 
@@ -315,8 +313,7 @@ retry:
 	if (status) {
 		/* clear consumed data */
 		val &= ~(1 << bit_nr);
-		//ret = kvm_write_guest_lock(kvm, ptr, &val, 1);
-        ret = access_guest_memory_by_ipa(d, ptr,
+        ret = access_guest_memory_by_gpa(d, ptr,
                                          &val, 1, true);
 		if (ret)
 			return ret;
@@ -361,10 +358,6 @@ int vgic_v3_map_resources(struct domain *d)
         vgic_v3_set_redist_base(d, 0, GUEST_GICV3_GICR0_BASE,
                                 GUEST_GICV3_GICR0_SIZE / GICV3_GICR_SIZE);
     }
-
-    ret = vgic_v3_its_init_domain(d);
-    if ( ret )
-        return ret;
 
     /* Register mmio handle for the Distributor */
     ret = vgic_register_dist_iodev(d, gaddr_to_gfn(d->arch.vgic.dbase), VGIC_V3);

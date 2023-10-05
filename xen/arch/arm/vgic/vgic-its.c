@@ -60,7 +60,6 @@ static struct vgic_irq *vgic_add_lpi(struct domain *d, struct vgic_its *its, u32
 			continue;
 
 		/* Someone was faster with adding this LPI, lets use that. */
-		//xfree(irq);
 		gicv3_remove_guest_event(its->domain, its->vgic_its_base + ITS_DOORBELL_OFFSET,
 							devid, eventid);
 		irq = oldirq;
@@ -108,14 +107,6 @@ out_unlock:
 	return irq;
 }
 
-struct vgic_translation_cache_entry {
-	struct list_head	entry;
-	paddr_t		db;
-	u32			devid;
-	u32			eventid;
-	struct vgic_irq		*irq;
-};
-
 struct its_device {
 	struct list_head dev_list;
 
@@ -133,6 +124,22 @@ struct its_collection {
 
 	u32 collection_id;
 	u32 target_addr;
+};
+
+struct its_ite {
+	struct list_head ite_list;
+
+	struct vgic_irq *irq;
+	struct its_collection *collection;
+	u32 event_id;
+};
+
+struct vgic_translation_cache_entry {
+	struct list_head	entry;
+	paddr_t		db;
+	u32			devid;
+	u32			eventid;
+	struct vgic_irq		*irq;
 };
 
 /**
@@ -181,22 +188,14 @@ static int vgic_its_set_abi(struct vgic_its *its, u32 rev)
 #define its_is_collection_mapped(coll) ((coll) && \
 				((coll)->target_addr != COLLECTION_NOT_MAPPED))
 
-struct its_ite {
-	struct list_head ite_list;
-
-	struct vgic_irq *irq;
-	struct its_collection *collection;
-	u32 event_id;
-};
-
 #define KVM_MSI_VALID_DEVID	(1U << 0)
 struct xen_msi {
-	__u32 address_lo;
-	__u32 address_hi;
-	__u32 data;
-	__u32 flags;
-	__u32 devid;
-	__u8  pad[12];
+	u32 address_lo;
+	u32 address_hi;
+	u32 data;
+	u32 flags;
+	u32 devid;
+	u8  pad[12];
 };
 
 /*
@@ -277,9 +276,7 @@ static int update_lpi_config(struct domain *d, struct vgic_irq *irq,
 	int ret;
 	unsigned long flags;
 
-	// ret = kvm_read_guest_lock(d, propbase + irq->intid - GIC_LPI_OFFSET,
-	// 			  &prop, 1);
-	ret = access_guest_memory_by_ipa(d, propbase + irq->intid - GIC_LPI_OFFSET,
+	ret = access_guest_memory_by_gpa(d, propbase + irq->intid - GIC_LPI_OFFSET,
 									 &prop, 1, false);
 
 	if (ret)
@@ -555,34 +552,6 @@ int vgic_its_resolve_lpi(struct domain *d, struct vgic_its *its,
 	return 0;
 }
 
-// struct vgic_its *vgic_msi_to_its(struct domain *d, struct xen_msi *msi)
-// {
-// 	u64 address;
-// 	struct kvm_io_device *kvm_io_dev;
-// 	struct vgic_io_device *iodev;
-
-// 	if (!vgic_has_its(kvm))
-// 		return ERR_PTR(-ENODEV);
-
-// 	if (!(msi->flags & KVM_MSI_VALID_DEVID))
-// 		return ERR_PTR(-EINVAL);
-
-// 	address = (u64)msi->address_hi << 32 | msi->address_lo;
-
-// 	kvm_io_dev = kvm_io_bus_get_dev(kvm, KVM_MMIO_BUS, address);
-// 	if (!kvm_io_dev)
-// 		return ERR_PTR(-EINVAL);
-
-// 	if (kvm_io_dev->ops != &kvm_io_gic_ops)
-// 		return ERR_PTR(-EINVAL);
-
-// 	iodev = container_of(kvm_io_dev, struct vgic_io_device, dev);
-// 	if (iodev->iodev_type != IODEV_ITS)
-// 		return ERR_PTR(-EINVAL);
-
-// 	return iodev->its;
-// }
-
 /*
  * Find the target VCPU and the LPI number for a given devid/eventid pair
  * and make this IRQ pending, possibly injecting it.
@@ -650,6 +619,91 @@ static struct its_ite *vgic_its_alloc_ite(struct its_device *device,
 	return ite;
 }
 
+#ifdef CONFIG_HAS_PCI
+static uint32_t dt_msi_map_id(uint32_t id_in)
+{
+    uint32_t id_out = id_in;
+    const struct pci_host_bridge *bridge;
+    int rc;
+
+    bridge = pci_find_host_bridge(PCI_SEG(id_in), PCI_BUS(id_in));
+    if ( unlikely(!bridge) )
+        return -ENODEV;
+
+    rc = dt_map_id(bridge->dt_node, id_in, "msi-map", "msi-map-mask",
+                   NULL, &id_out);
+    if ( rc )
+        return rc;
+
+    return id_out;
+}
+
+static uint32_t its_get_host_devid(struct domain *d, uint32_t guest_devid)
+{
+    uint32_t host_devid = guest_devid;
+
+    if ( !pci_passthrough_enabled )
+        return guest_devid;
+
+    if ( !is_hardware_domain(d) )
+    {
+        pci_sbdf_t sbdf = (pci_sbdf_t)guest_devid;
+        const struct pci_dev *pdev;
+
+        pcidevs_lock();
+        for_each_pdev( d, pdev )
+        {
+            /* Replace virtual SBDF with the physical one. */
+            if ( pdev->vpci->guest_sbdf.sbdf == sbdf.sbdf )
+            {
+                host_devid = dt_msi_map_id(pdev->sbdf.sbdf);
+            }
+        }
+        pcidevs_unlock();
+    }
+
+    return host_devid;
+}
+
+paddr_t its_get_host_doorbell(struct vgic_its *its, uint32_t guest_devid)
+{
+    const struct pci_host_bridge *bridge;
+    const struct pci_dev *pdev;
+    uint32_t host_devid = guest_devid;
+    pci_sbdf_t sbdf = (pci_sbdf_t)guest_devid;
+
+    if ( !pci_passthrough_enabled )
+        return its->doorbell_address;
+
+    pcidevs_lock();
+    for_each_pdev( its->domain, pdev )
+    {
+        if ( pdev->vpci->guest_sbdf.sbdf == sbdf.sbdf )
+        {
+            /* Replace virtual SBDF with the physical one. */
+            host_devid = pdev->sbdf.sbdf;
+        }
+    }
+    pcidevs_unlock();
+
+    bridge = pci_find_host_bridge(PCI_SEG(host_devid), PCI_BUS(host_devid));
+    if ( unlikely(!bridge) )
+        return -ENODEV;
+
+    return bridge->its_msi_base + ITS_DOORBELL_OFFSET;
+}
+#else
+static uint32_t its_get_host_devid(struct domain *d, uint32_t guest_devid)
+{
+    return guest_devid;
+}
+
+paddr_t its_get_host_doorbell(struct vgic_its *its, uint32_t host_devid)
+{
+    return its->doorbell_address;
+}
+#endif
+
 #define its_cmd_get_command(cmd)	its_cmd_mask_field(cmd, 0,  0,  8)
 #define its_cmd_get_deviceid(cmd)	its_cmd_mask_field(cmd, 0, 32, 32)
 #define its_cmd_get_size(cmd)		(its_cmd_mask_field(cmd, 1,  0,  5) + 1)
@@ -661,7 +715,7 @@ static struct its_ite *vgic_its_alloc_ite(struct its_device *device,
 #define its_cmd_get_validbit(cmd)	its_cmd_mask_field(cmd, 2, 63,  1)
 
 /*
- * Check whether a guest physical address is visible to the guest.
+ * Check whether a guest physical address is owned by it
 */
 static bool __is_visible_gfn_locked(struct vgic_its *its, paddr_t gpa)
 {
@@ -751,11 +805,7 @@ static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
 		return false;
 
 	/* Each 1st level entry is represented by a 64-bit value. */
-	// if (kvm_read_guest_lock(its->dev->kvm,
-	// 		   base + index * sizeof(indirect_ptr),
-	// 		   &indirect_ptr, sizeof(indirect_ptr)))
-		// return false;
-	if (access_guest_memory_by_ipa(its->domain, base + index * sizeof(indirect_ptr),
+	if (access_guest_memory_by_gpa(its->domain, base + index * sizeof(indirect_ptr),
 			   &indirect_ptr, sizeof(indirect_ptr),0))
 		return false;
 
@@ -777,11 +827,6 @@ static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
 
 	return __is_visible_gfn_locked(its, indirect_ptr);
 }
-
-/*
- * MAPD maps or unmaps a device ID to Interrupt Translation Tables (ITTs).
- * Must be called with the its_lock mutex held.
- */
 
 /*
  * Add a new collection into the ITS collection table.
@@ -887,23 +932,30 @@ static struct its_device *vgic_its_alloc_device(struct vgic_its *its,
 	return device;
 }
 
+/*
+ * MAPD maps or unmaps a device ID to Interrupt Translation Tables (ITTs).
+ * Must be called with the its_lock mutex held.
+ */
+
 static int vgic_its_cmd_handle_mapd(struct domain *d, struct vgic_its *its,
 				    u64 *its_cmd)
 {
-	u32 device_id = its_cmd_get_deviceid(its_cmd);
+	uint32_t guest_devid = its_cmd_get_deviceid(its_cmd);
+    uint32_t host_devid = its_get_host_devid(its->domain, guest_devid);
 	bool valid = its_cmd_get_validbit(its_cmd);
 	u8 num_eventid_bits = its_cmd_get_size(its_cmd);
 	paddr_t itt_addr = its_cmd_get_ittaddr(its_cmd);
+	paddr_t host_doorbell_address;
 	int ret;
 	struct its_device *device;
 
-	if (!vgic_its_check_id(its, its->baser_device_table, device_id, NULL))
+	if (!vgic_its_check_id(its, its->baser_device_table, guest_devid, NULL))
 	 	return E_ITS_MAPD_DEVICE_OOR;
 
 	if (valid && num_eventid_bits > VITS_TYPER_IDBITS)
 		return E_ITS_MAPD_ITTSIZE_OOR;
 
-	device = find_its_device(its, device_id);
+	device = find_its_device(its, guest_devid);
 
 	/*
 	 * The spec says that calling MAPD on an already mapped device
@@ -912,16 +964,9 @@ static int vgic_its_cmd_handle_mapd(struct domain *d, struct vgic_its *its,
 	 */
 	if (device)
 		vgic_its_free_device(d, device);
-
-	/*
-	 * The spec does not say whether unmapping a not-mapped device
-	 * is an error, so we are done in any case.
-	 */
-	if (!valid)
-		return 0;
-
-	device = vgic_its_alloc_device(its, device_id, itt_addr,
-				       num_eventid_bits);
+	else
+		device = vgic_its_alloc_device(its, guest_devid, itt_addr,
+						num_eventid_bits);
 
     /*
      * There is no easy and clean way for Xen to know the ITS device ID of a
@@ -931,19 +976,17 @@ static int vgic_its_cmd_handle_mapd(struct domain *d, struct vgic_its *its,
      * Eventually this will be replaced with a dedicated hypercall to
      * announce pass-through of devices.
      */
-    if ( is_hardware_domain(its->domain) )
-    {
+	
+	if ( !is_hardware_domain(its->domain) )
+		host_doorbell_address = its_get_host_doorbell(its, guest_devid);
+	else
+		host_doorbell_address = its->doorbell_address;
 
-        /*
-         * Dom0's ITSes are mapped 1:1, so both addresses are the same.
-         * Also the device IDs are equal.
-         */
-        ret = gicv3_its_map_guest_device(its->domain, its->vgic_its_base + ITS_DOORBELL_OFFSET, device_id,
-                                         its->vgic_its_base + ITS_DOORBELL_OFFSET, device_id,
-                                         BIT(num_eventid_bits, UL), valid);
-        if ( ret && valid )
-            return ret;
-    }
+	ret = gicv3_its_map_guest_device(its->domain, host_doorbell_address, host_devid,
+										its->vgic_its_base + ITS_DOORBELL_OFFSET, guest_devid,
+										BIT(num_eventid_bits, UL), valid);
+	if ( ret && valid )
+		return ret;
 
 	return IS_ERR(device) ? PTR_ERR(device) : 0;
 }
@@ -1259,10 +1302,6 @@ int vgic_its_invall(struct vcpu *vcpu)
 	}
 
 	xfree(intids);
-
-	// if (vcpu->arch.vgic.vgic_v3.its_vpe.its_vm)
-	// 	its_invall_vpe(&vcpu->arch.vgic_cpu.vgic_v3.its_vpe);
-
 	return 0;
 }
 
@@ -1303,52 +1342,40 @@ static int vgic_its_handle_command(struct domain *d, struct vgic_its *its,
 	spin_lock(&its->its_lock);
 	switch (its_cmd_get_command(its_cmd)) {
 	case GITS_CMD_MAPD:
-		printk("Handling GITS_CMD_MAPD\n");
 		ret = vgic_its_cmd_handle_mapd(d, its, its_cmd);
 		break;
 	case GITS_CMD_MAPC:
-		printk("Handling GITS_CMD_MAPC\n");
 		ret = vgic_its_cmd_handle_mapc(d, its, its_cmd);
 		break;
 	case GITS_CMD_MAPI:
-		printk("Handling GITS_CMD_MAPI\n");
 		ret = vgic_its_cmd_handle_mapi(d, its, its_cmd);
 		break;
 	case GITS_CMD_MAPTI:
-		printk("Handling GITS_CMD_MAPTI\n");
 		ret = vgic_its_cmd_handle_mapi(d, its, its_cmd);
 		break;
 	case GITS_CMD_MOVI:
-		printk("Handling GITS_CMD_MOVI\n");
 		ret = vgic_its_cmd_handle_movi(d, its, its_cmd);
 		break;
 	case GITS_CMD_DISCARD:
-		printk("Handling GITS_CMD_DISCARD\n");
 		ret = vgic_its_cmd_handle_discard(d, its, its_cmd);
 		break;
 	case GITS_CMD_CLEAR:
-		printk("Handling GITS_CMD_CLEAR\n");
 		ret = vgic_its_cmd_handle_clear(d, its, its_cmd);
 		break;
 	case GITS_CMD_MOVALL:
-		printk("Handling GITS_CMD_MOVALL\n");
 		ret = vgic_its_cmd_handle_movall(d, its, its_cmd);
 		break;
 	case GITS_CMD_INT:
-		printk("Handling GITS_CMD_INT\n");
 		ret = vgic_its_cmd_handle_int(d, its, its_cmd);
 		break;
 	case GITS_CMD_INV:
-		printk("Handling GITS_CMD_INV\n");
 		ret = vgic_its_cmd_handle_inv(d, its, its_cmd);
 		break;
 	case GITS_CMD_INVALL:
-		printk("Handling GITS_CMD_INVALL\n");
 		ret = vgic_its_cmd_handle_invall(d, its, its_cmd);
 		break;
 	case GITS_CMD_SYNC:
 		/* we ignore this command: we are in sync all of the time */
-		printk("Handling GITS_CMD_SYNC\n");
 		ret = 0;
 		break;
 	default:
@@ -1378,9 +1405,7 @@ static void vgic_its_process_commands(struct domain *d, struct vgic_its *its)
 	cbaser = GITS_CBASER_ADDRESS(its->cbaser);
 
 	while (its->cwriter != its->creadr) {
-		//int ret = kvm_read_guest_lock(kvm, cbaser + its->creadr,
-					      //cmd_buf, ITS_CMD_SIZE);
-        int ret = access_guest_memory_by_ipa(d, cbaser + its->creadr,
+        int ret = access_guest_memory_by_gpa(d, cbaser + its->creadr,
                                          cmd_buf, ITS_CMD_SIZE, false);
 		/*
 		 * If kvm_read_guest() fails, this could be due to the guest
@@ -1486,10 +1511,7 @@ static int its_sync_lpi_pending_table(struct vcpu *vcpu)
 		 * this very same byte in the last iteration. Reuse that.
 		 */
 		if (byte_offset != last_byte_offset) {
-			// ret = kvm_read_guest_lock(vcpu->kvm,
-			// 			  pendbase + byte_offset,
-			// 			  &pendmask, 1);
-			ret = access_guest_memory_by_ipa(vcpu->domain,
+			ret = access_guest_memory_by_gpa(vcpu->domain,
 			                                 pendbase + byte_offset,
 			                                 &pendmask, 1, false);
 			if (ret) {
@@ -1798,27 +1820,22 @@ static int vgic_register_its_iodev(struct domain *d, struct vgic_its *its,
 	struct vgic_io_device *iodev = &its->iodev;
 	int ret = 0;
 
-	//spin_lock(&d->slots_lock);
 	if (!IS_VGIC_ADDR_UNDEF(its->vgic_its_base)) {
 		ret = -EBUSY;
 		goto out;
 	}
 
 	its->vgic_its_base = addr;
+	its->doorbell_address = addr + ITS_DOORBELL_OFFSET;
 	iodev->regions = its_registers;
 	iodev->nr_regions = ARRAY_SIZE(its_registers);
-	//kvm_iodevice_init(&iodev->dev, &kvm_io_gic_ops);
 
 	iodev->base_fn = gaddr_to_gfn(its->vgic_its_base);
 	iodev->iodev_type = IODEV_ITS;
 	iodev->its = its;
-	// ret = kvm_io_bus_register_dev(kvm, KVM_MMIO_BUS, iodev->base_addr,
-	// 			      KVM_VGIC_V3_ITS_SIZE, &iodev->dev);
     register_mmio_handler(d, &vgic_io_ops, its->vgic_its_base, VGIC_V3_ITS_SIZE,
                           iodev);
 out:
-	//mutex_unlock(&kvm->slots_lock);
-
 	return ret;
 }
 
@@ -1882,6 +1899,8 @@ static int vgic_its_create(struct domain *d, u64 addr)
 	its = xzalloc(struct vgic_its);
 	if (!its)
 		return -ENOMEM;
+	
+	d->arch.vgic.its = its;
 
 	vgic_lpi_translation_cache_init(d);
 
@@ -1919,24 +1938,10 @@ static int vgic_its_create(struct domain *d, u64 addr)
 	its->baser_device_table |= (GIC_ENCODE_SZ(abi->dte_esz, 5)
 					<< GITS_BASER_ENTRY_SIZE_SHIFT);
 
+	its->doorbell_address = addr + ITS_DOORBELL_OFFSET;
 
 	return 0;
 }
-
-// static void vgic_its_destroy(struct kvm_device *kvm_dev)
-// {
-// 	struct kvm *kvm = kvm_dev->kvm;
-// 	struct vgic_its *its = kvm_dev->private;
-
-// 	mutex_lock(&its->its_lock);
-
-// 	vgic_its_free_device_list(kvm, its);
-// 	vgic_its_free_collection_list(kvm, its);
-
-// 	mutex_unlock(&its->its_lock);
-// 	kfree(its);
-// 	kfree(kvm_dev);/* alloc by kvm_ioctl_create_device, free by .destroy */
-// }
 
 /*
  * For a hardware domain, this will iterate over the host ITSes
@@ -1963,7 +1968,31 @@ int vgic_v3_its_init_domain(struct domain *d)
             else
                 d->arch.vgic.has_its = true;
         }
-    }
+    } else {
+		ret = vgic_its_create(d, GUEST_GICV3_ITS_BASE);
+		if ( ret )
+			return ret;
+		else
+			d->arch.vgic.has_its = true;
+
+		ret = gicv3_its_map_translation_register(d);
+        if ( ret )
+            return ret;
+	}
 
     return 0;
+}
+
+void vgic_v3_its_free_domain(struct domain *d)
+{
+	struct vgic_its *its = d->arch.vgic.its;
+
+	spin_lock(&its->its_lock);
+
+	vgic_its_free_device_list(d, its);
+	vgic_its_free_collection_list(d, its);
+
+	spin_unlock(&its->its_lock);
+	xfree(its);
+	d->arch.vgic.its = NULL;
 }

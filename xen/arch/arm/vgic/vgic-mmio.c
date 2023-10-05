@@ -477,6 +477,21 @@ void vgic_mmio_write_config(struct vcpu *vcpu,
     }
 }
 
+int vgic_check_iorange(paddr_t ioaddr, paddr_t addr, paddr_t alignment,
+		       paddr_t size)
+{
+	if (!IS_VGIC_ADDR_UNDEF(ioaddr))
+		return -EEXIST;
+
+	if (!IS_ALIGNED(addr, alignment) || !IS_ALIGNED(size, alignment))
+		return -EINVAL;
+
+	if (addr + size < addr)
+		return -EINVAL;
+
+	return 0;
+}
+
 static int match_region(const void *key, const void *elt)
 {
     const unsigned int offset = (unsigned long)key;
@@ -526,7 +541,12 @@ static bool check_region(const struct domain *d,
             return true;
 
         /* Do we access a non-allocated IRQ? */
-        return VGIC_ADDR_TO_INTID(addr, region->bits_per_irq) < nr_irqs;
+        if (!(VGIC_ADDR_TO_INTID(addr, region->bits_per_irq) < nr_irqs)) {
+            printk(XENLOG_ERR "vGIC: access to non-allocated IRQ %lu\n",
+                   VGIC_ADDR_TO_INTID(addr, region->bits_per_irq));
+            return false;
+        }
+        return true;
     }
 
     return false;

@@ -146,6 +146,7 @@ struct vgic_its {
 	struct spinlock		its_lock;
 	struct list_head	device_list;
 	struct list_head	collection_list;
+    paddr_t doorbell_address;
 };
 
 struct vgic_dist {
@@ -181,6 +182,7 @@ struct vgic_dist {
     struct vgic_io_device   dist_iodev;
 
     bool                has_its;
+    struct vgic_its     *its;
 
     /*
      * Contains the attributes and gpa of the LPI configuration table.

@@ -18,6 +18,7 @@
 #include <xen/lib.h>
 #include <xen/sched.h>
 #include <asm/new_vgic.h>
+#include <asm/gic_v3_its.h>
 
 #include "vgic.h"
 
@@ -124,6 +125,19 @@ int domain_vgic_register(struct domain *d, unsigned int *mmio_count)
 }
 
 /* INIT/DESTROY */
+/**
+ * domain_vgic_late_init - Late initialization of the VGIC for a domain.
+ * @d: Pointer to the domain structure.
+ */
+
+int domain_vgic_late_init(struct domain *d)
+{
+#ifdef CONFIG_HAS_ITS
+    return vgic_v3_its_init_domain(d);
+#else
+    return 0;
+#endif
+}
 
 /**
  * domain_vgic_init: initialize the dist data structures

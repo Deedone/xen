@@ -10,7 +10,6 @@
 #include "asm/types.h"
 #include "vgic.h"
 #include "vgic-mmio.h"
-//#include "xen/stdint.h"
 
 bool vgic_has_its(struct domain *d)
 {
@@ -138,30 +137,14 @@ static bool vgic_v3_emulate_sgi1r(struct cpu_user_regs *regs, uint64_t *r,
 
 		spin_lock_irqsave(&irq->irq_lock, flags);
 
-		/*
-		 * An access targeting Group0 SGIs can only generate
-		 * those, while an access targeting Group1 SGIs can
-		 * generate interrupts of either group.
-		 */
-        //TODO FIX
-		// if (!irq->group || allow_group1) {
         if (!irq->hw) {
             irq->pending_latch = true;
             vgic_queue_irq_unlock(vcpu->domain, irq, flags);
         } else {
-            printk(XENLOG_ERR "HW SGI NOT IMPLEMENTED\n");
+            printk(XENLOG_ERR "HW SGIs are not implemented\n");
 			BUG();
-            /* HW SGI? Ask the GIC to inject it */
-            // int err;
-            // err = irq_set_irqchip_state(irq->host_irq,
-            //                 IRQCHIP_STATE_PENDING,
-            //                 true);
-            // WARN_RATELIMIT(err, "IRQ %d", irq->host_irq);
             spin_unlock_irqrestore(&irq->irq_lock, flags);
         }
-		// } else {
-		// 	raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
-		// }
 
 		vgic_put_irq(vcpu->domain, irq);
 	}
@@ -374,7 +357,9 @@ static unsigned long vgic_mmio_read_v3r_typer(struct vcpu *vcpu,
 static unsigned long vgic_mmio_read_v3r_iidr(struct vcpu *vcpu,
 					     paddr_t addr, unsigned int len)
 {
-	return (PRODUCT_ID_KVM << 24) | (IMPLEMENTER_ARM << 0);
+	return (PRODUCT_ID_KVM << 24) |
+		   (VARIANT_ID_XEN << 16) |
+		   (IMPLEMENTER_ARM << 0);
 }
 
 static unsigned long vgic_mmio_read_v3_idregs(struct vcpu *vcpu,
@@ -726,7 +711,6 @@ static const struct vgic_register_region vgic_v3_rd_registers[] = {
 		VGIC_ACCESS_32bit),
 	/* SGI_base registers */
 	REGISTER_DESC_WITH_LENGTH(SZ_64K + GICR_IGROUPR0,
-	//TODO FIX READ GROUP HERE
 		vgic_mmio_read_rao, vgic_mmio_write_wi, 4,
 		VGIC_ACCESS_32bit),
 	REGISTER_DESC_WITH_LENGTH(SZ_64K + GICR_ISENABLER0,
@@ -833,15 +817,6 @@ static int vgic_register_all_redist_iodevs(struct domain *d)
 
 	if (ret) {
 		printk(XENLOG_ERR "Failed to register redistributor iodev\n");
-		// /* The current c failed, so iterate over the previous ones. */
-
-		//TODO FIX
-		// mutex_lock(&d->slots_lock);
-		// for (i = 0; i < c; i++) {
-		// 	vcpu = kvm_get_vcpu(kvm, i);
-		// 	vgic_unregister_redist_iodev(vcpu);
-		// }
-		// mutex_unlock(&kvm->slots_lock);
 	}
 
 	return ret;
@@ -885,6 +860,19 @@ static inline bool vgic_dist_overlap(struct domain *domain, paddr_t base, size_t
 
 	return (base + size > d->dbase) &&
 		(base < d->dbase + VGIC_V3_DIST_SIZE);
+}
+
+struct vgic_redist_region *vgic_v3_rdist_region_from_index(struct domain *d,
+							   u32 index)
+{
+	struct list_head *rd_regions = &d->arch.vgic.rd_regions;
+	struct vgic_redist_region *rdreg;
+
+	list_for_each_entry(rdreg, rd_regions, list) {
+		if (rdreg->index == index)
+			return rdreg;
+	}
+	return NULL;
 }
 
 /**
@@ -940,8 +928,6 @@ static int vgic_v3_alloc_redist_region(struct domain *domain, uint32_t index,
 	 * check that the redistributor region does not overlap with the
 	 * distributor's address space.
 	 */
-	// TODO FIX
-	printk(XENLOG_ERR "VGIC V3 ALLOC REDIST REGION SHOULD CHECK OVERLAP\n");
 	if (!count && !IS_VGIC_ADDR_UNDEF(d->dbase) &&
 		vgic_dist_overlap(domain, base, size))
 		return -EINVAL;
@@ -956,10 +942,9 @@ static int vgic_v3_alloc_redist_region(struct domain *domain, uint32_t index,
 
 	rdreg->base = VGIC_ADDR_UNDEF;
 
-	//TODO FIX
-	// ret = vgic_check_iorange(kvm, rdreg->base, base, SZ_64K, size);
-	// if (ret)
-	// 	goto free;
+	ret = vgic_check_iorange(rdreg->base, base, SZ_64K, size);
+	if (ret)
+		goto free;
 
 	rdreg->base = base;
 	rdreg->count = count;
@@ -968,9 +953,15 @@ static int vgic_v3_alloc_redist_region(struct domain *domain, uint32_t index,
 
 	list_add_tail(&rdreg->list, rd_regions);
 	return 0;
-//free:
+free:
 	xfree(rdreg);
 	return ret;
+}
+
+void vgic_v3_free_redist_region(struct vgic_redist_region *rdreg)
+{
+	list_del(&rdreg->list);
+	xfree(rdreg);
 }
 
 int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count)
@@ -986,22 +977,13 @@ int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count)
 	 * afterwards will register the iodevs when needed.
 	 */
 	ret = vgic_register_all_redist_iodevs(d);
-	//TODO FIX
-	printk(XENLOG_ERR "SHOULD CHECK REGISTER ALL REDIST IODEVS RETURN\n");
-	// if (ret) {
-	// 	struct vgic_redist_region *rdreg;
+	if (ret) {
+		struct vgic_redist_region *rdreg;
 
-	// 	rdreg = vgic_v3_rdist_region_from_index(kvm, index);
-	// 	vgic_v3_free_redist_region(rdreg);
-	// 	return ret;
-	// }
+		rdreg = vgic_v3_rdist_region_from_index(d, index);
+		vgic_v3_free_redist_region(rdreg);
+		return ret;
+	}
 
 	return 0;
 }
-
-// static void vgic_unregister_redist_iodev(struct kvm_vcpu *vcpu)
-// {
-// 	struct vgic_io_device *rd_dev = &vcpu->arch.vgic_cpu.rd_iodev;
-
-// 	kvm_io_bus_unregister_dev(vcpu->kvm, KVM_MMIO_BUS, &rd_dev->dev);
-// }
