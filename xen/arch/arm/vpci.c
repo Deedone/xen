@@ -9,6 +9,7 @@
 #include <xen/keyhandler.h>
 
 #include <asm/mmio.h>
+#include <asm/ioreq.h>
 
 static bool_t vpci_sbdf_from_gpa(struct domain *d,
                                  const struct pci_host_bridge *bridge,
