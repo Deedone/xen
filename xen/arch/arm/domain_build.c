@@ -2549,7 +2549,12 @@ static int __init make_gicv3_domU_node(struct kernel_info *kinfo)
     int res = 0;
     __be32 *reg, *cells;
     const struct domain *d = kinfo->d;
-    unsigned int i, len = 0;
+    unsigned int len = 0;
+#ifdef CONFIG_NEW_VGIC
+    struct vgic_redist_region *rdreg;
+#else
+    unsigned int i;
+#endif
 
     res = domain_fdt_begin_node(fdt, "interrupt-controller",
                                 vgic_dist_base(&d->arch.vgic));
@@ -2572,9 +2577,14 @@ static int __init make_gicv3_domU_node(struct kernel_info *kinfo)
     if ( res )
         return res;
 
-    /* reg specifies all re-distributors and Distributor. */
+#ifdef CONFIG_NEW_VGIC
+    len += (GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS) *
+            vgic_v3_max_rdist_count(d) * sizeof(__be32);
+#else
     len = (GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS) *
           (d->arch.vgic.nr_regions + 1) * sizeof(__be32);
+#endif
+    /* reg specifies all re-distributors and Distributor. */
     reg = xmalloc_bytes(len);
     if ( reg == NULL )
         return -ENOMEM;
@@ -2583,12 +2593,19 @@ static int __init make_gicv3_domU_node(struct kernel_info *kinfo)
     dt_child_set_range(&cells, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
                        vgic_dist_base(&d->arch.vgic), GUEST_GICV3_GICD_SIZE);
 
+#ifdef CONFIG_NEW_VGIC
+    list_for_each_entry(rdreg, &d->arch.vgic.rd_regions, list)
+        dt_child_set_range(&cells,
+                            GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+                            rdreg->base,
+                            rdreg->count * VGIC_V3_REDIST_SIZE);
+#else
     for ( i = 0; i < d->arch.vgic.nr_regions; i++ )
         dt_child_set_range(&cells,
                            GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
                            d->arch.vgic.rdist_regions[i].base,
                            d->arch.vgic.rdist_regions[i].size);
-
+#endif
     res = fdt_property(fdt, "reg", reg, len);
     xfree(reg);
     if (res)

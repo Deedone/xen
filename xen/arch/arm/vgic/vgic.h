@@ -68,7 +68,53 @@ int vgic_v2_map_resources(struct domain *d);
 int vgic_register_dist_iodev(struct domain *d, gfn_t dist_base_fn,
                              enum vgic_type);
 
-#endif
+#ifdef CONFIG_GICV3
+void vgic_v3_fold_lr_state(struct vcpu *vcpu);
+void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr);
+void vgic_v3_enable(struct vcpu *vcpu);
+int vgic_v3_map_resources(struct domain *d);
+bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr);
+int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq);
+bool vgic_lpis_enabled(struct vcpu *vcpu);
+u64 vgic_sanitise_field(u64 reg, u64 field_mask, int field_shift,
+			u64 (*sanitise_fn)(u64));
+u64 vgic_sanitise_shareability(u64 field);
+u64 vgic_sanitise_inner_cacheability(u64 field);
+u64 vgic_sanitise_outer_cacheability(u64 field);
+unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev);
+#else
+static inline void vgic_v3_fold_lr_state(struct vcpu *vcpu)
+{
+}
+static inline void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
+{
+}
+static inline void vgic_v3_enable(struct vcpu *vcpu)
+{
+}
+static inline int vgic_v3_map_resources(struct domain *d)
+{
+    return 0;
+}
+static inline bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr)
+{
+    return false;
+}
+static inline int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq)
+{
+    return 0;
+}
+static inline bool vgic_lpis_enabled(struct vcpu *vcpu)
+{
+    return false;
+}
+static inline unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev)
+{
+    return 0;
+}
+#endif /* CONFIG_GICV3 */
+
+#endif /* __XEN_ARM_VGIC_VGIC_H__ */
 
 /*
  * Local variables:

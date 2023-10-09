@@ -1294,8 +1294,13 @@ static int gicv3_make_hwdom_dt_node(const struct domain *d,
     if ( res )
         return res;
 
+#ifdef CONFIG_NEW_VGIC
+    res = fdt_property_cell(fdt, "#redistributor-regions",
+                            vgic_v3_max_rdist_count(d));
+#else
     res = fdt_property_cell(fdt, "#redistributor-regions",
                             d->arch.vgic.nr_regions);
+#endif
     if ( res )
         return res;
 
@@ -1307,7 +1312,11 @@ static int gicv3_make_hwdom_dt_node(const struct domain *d,
      * The hardware domain may not use all the regions. So only copy
      * what is necessary.
      */
+#ifdef CONFIG_NEW_VGIC
+    new_len = new_len * (vgic_v3_max_rdist_count(d) + 1);
+#else
     new_len = new_len * (d->arch.vgic.nr_regions + 1);
+#endif
 
     hw_reg = dt_get_property(gic, "reg", &len);
     if ( !hw_reg )

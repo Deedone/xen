@@ -21,6 +21,9 @@
 #include <xen/list.h>
 #include <xen/mm.h>
 #include <xen/spinlock.h>
+#define INTERRUPT_ID_BITS_SPIS  10
+#define INTERRUPT_ID_BITS_ITS   16
+#define VGIC_PRI_BITS           5
 
 #define VGIC_V3_MAX_CPUS        255
 #define VGIC_V2_MAX_CPUS        8
@@ -31,6 +34,8 @@
 #define VGIC_MAX_SPI            1019
 #define VGIC_MAX_RESERVED       1023
 #define VGIC_MIN_LPI            8192
+#define VGIC_V3_DIST_SIZE       SZ_64K
+#define VGIC_V3_REDIST_SIZE     (2 * SZ_64K)
 
 #define irq_is_ppi(irq) ((irq) >= VGIC_NR_SGIS && (irq) < VGIC_NR_PRIVATE_IRQS)
 #define irq_is_spi(irq) ((irq) >= VGIC_NR_PRIVATE_IRQS && \
@@ -94,6 +99,14 @@ enum iodev_type {
     IODEV_REDIST,
 };
 
+struct vgic_redist_region {
+    uint32_t index;
+    paddr_t base;
+    uint32_t count; /* number of redistributors or 0 if single region */
+    uint32_t free_index; /* index of the next free redistributor */
+    struct list_head list;
+};
+
 struct vgic_io_device {
     gfn_t base_fn;
     struct vcpu *redist_vcpu;
@@ -121,11 +134,7 @@ struct vgic_dist {
         /* either a GICv2 CPU interface */
         paddr_t         cbase;
         /* or a number of GICv3 redistributor regions */
-        struct
-        {
-            paddr_t     vgic_redist_base;
-            paddr_t     vgic_redist_free_offset;
-        };
+        struct list_head rd_regions;
     };
     paddr_t             csize; /* CPU interface size */
     paddr_t             vbase; /* virtual CPU interface base address */
@@ -174,6 +183,9 @@ struct vgic_cpu {
      * parts of the redistributor.
      */
     struct vgic_io_device   rd_iodev;
+    struct vgic_redist_region *rdreg;
+    uint32_t rdreg_index;
+    atomic_t syncr_busy;
     struct vgic_io_device   sgi_iodev;
 
     /* Contains the attributes and gpa of the LPI pending tables. */
@@ -186,6 +198,9 @@ struct vgic_cpu {
 
     /* Cache guest interrupt ID bits */
     uint32_t num_id_bits;
+
+    /* GICR_CTLR.{ENABLE_LPIS,RWP} */
+    atomic_t ctlr;
 };
 
 static inline paddr_t vgic_cpu_base(const struct vgic_dist *vgic)
@@ -197,6 +212,13 @@ static inline paddr_t vgic_dist_base(const struct vgic_dist *vgic)
 {
     return vgic->dbase;
 }
+
+#ifdef CONFIG_GICV3
+struct vgic_redist_region *vgic_v3_rdist_free_slot(struct list_head *rd_regions);
+int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count);
+unsigned int vgic_v3_max_rdist_count(const struct domain *d);
+void vgic_flush_pending_lpis(struct vcpu *vcpu);
+#endif
 
 #endif /* __ASM_ARM_NEW_VGIC_H */
 
