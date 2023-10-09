@@ -438,7 +438,7 @@ typedef uint64_t xen_callback_t;
 #define GUEST_GICC_SIZE   xen_mk_ullong(0x00002000)
 
 /* vGIC v3 mappings */
-#define GUEST_GICV3_GICD_BASE      xen_mk_ullong(0x03001000)
+#define GUEST_GICV3_GICD_BASE      xen_mk_ullong(0x03000000)
 #define GUEST_GICV3_GICD_SIZE      xen_mk_ullong(0x00010000)
 
 #define GUEST_GICV3_RDIST_REGIONS  1
