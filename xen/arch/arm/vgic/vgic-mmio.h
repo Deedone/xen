@@ -135,4 +135,14 @@ void vgic_mmio_write_config(struct vcpu *vcpu,
 
 unsigned int vgic_v2_init_dist_iodev(struct vgic_io_device *dev);
 
+/* extract @num bytes at @offset bytes offset in data */
+unsigned long extract_bytes(uint64_t data, unsigned int offset,
+			    unsigned int num);
+
+uint64_t update_64bit_reg(u64 reg, unsigned int offset, unsigned int len,
+		     unsigned long val);
+
+int vgic_check_iorange(paddr_t ioaddr, paddr_t addr, paddr_t alignment,
+		       paddr_t size);
+
 #endif

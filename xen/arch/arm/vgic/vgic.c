@@ -151,6 +151,28 @@ void vgic_put_irq(struct domain *d, struct vgic_irq *irq)
     xfree(irq);
 }
 
+void vgic_flush_pending_lpis(struct vcpu *vcpu)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    struct vgic_irq *irq, *tmp;
+    unsigned long flags;
+
+    spin_lock_irqsave(&vgic_cpu->ap_list_lock, flags);
+
+    list_for_each_entry_safe(irq, tmp, &vgic_cpu->ap_list_head, ap_list)
+    {
+        if ( irq->intid >= VGIC_MIN_LPI )
+        {
+            spin_lock(&irq->irq_lock);
+            list_del(&irq->ap_list);
+            irq->vcpu = NULL;
+            spin_unlock(&irq->irq_lock);
+            vgic_put_irq(vcpu->domain, irq);
+        }
+    }
+
+    spin_unlock_irqrestore(&vgic_cpu->ap_list_lock, flags);
+}
 /**
  * vgic_target_oracle() - compute the target vcpu for an irq
  * @irq:    The irq to route. Must be already locked.
@@ -520,7 +542,14 @@ retry:
 
 static void vgic_fold_lr_state(struct vcpu *vcpu)
 {
-    vgic_v2_fold_lr_state(vcpu);
+    if ( vcpu->domain->arch.vgic.version == GIC_V2 )
+    {
+        vgic_v2_fold_lr_state(vcpu);
+    }
+    else
+    {
+        vgic_v3_fold_lr_state(vcpu);
+    }
 }
 
 /* Requires the irq_lock to be held. */
@@ -529,7 +558,14 @@ static void vgic_populate_lr(struct vcpu *vcpu,
 {
     ASSERT(spin_is_locked(&irq->irq_lock));
 
-    vgic_v2_populate_lr(vcpu, irq, lr);
+    if ( vcpu->domain->arch.vgic.version == GIC_V2 )
+    {
+        vgic_v2_populate_lr(vcpu, irq, lr);
+    }
+    else
+    {
+        vgic_v3_populate_lr(vcpu, irq, lr);
+    }
 }
 
 static void vgic_set_underflow(struct vcpu *vcpu)
@@ -851,9 +887,13 @@ struct irq_desc *vgic_get_hw_irq_desc(struct domain *d, struct vcpu *v,
 
 bool vgic_emulate(struct cpu_user_regs *regs, union hsr hsr)
 {
-    ASSERT(current->domain->arch.vgic.version == GIC_V3);
-
-    return false;
+    switch ( current->domain->arch.vgic.version )
+    {
+    case GIC_V3:
+        return vgic_v3_emulate_reg(regs, hsr);
+    default:
+        return false;
+    }
 }
 
 /*
@@ -950,6 +990,8 @@ unsigned int vgic_max_vcpus(unsigned int domctl_vgic_version)
     {
     case XEN_DOMCTL_CONFIG_GIC_V2:
         return VGIC_V2_MAX_CPUS;
+    case XEN_DOMCTL_CONFIG_GIC_V3:
+        return VGIC_V3_MAX_CPUS;
 
     default:
         return 0;
@@ -957,14 +999,6 @@ unsigned int vgic_max_vcpus(unsigned int domctl_vgic_version)
 }
 
 #ifdef CONFIG_GICV3
-/* Dummy implementation to allow building without actual vGICv3 support. */
-void vgic_v3_setup_hw(paddr_t dbase,
-                      unsigned int nr_rdist_regions,
-                      const struct rdist_region *regions,
-                      unsigned int intid_bits)
-{
-    panic("New VGIC implementation does not yet support GICv3\n");
-}
 #endif
 
 /*

@@ -477,6 +477,21 @@ void vgic_mmio_write_config(struct vcpu *vcpu,
     }
 }
 
+int vgic_check_iorange(paddr_t ioaddr, paddr_t addr, paddr_t alignment,
+                       paddr_t size)
+{
+    if ( !IS_VGIC_ADDR_UNDEF(ioaddr) )
+        return -EEXIST;
+
+    if ( !IS_ALIGNED(addr, alignment) || !IS_ALIGNED(size, alignment) )
+        return -EINVAL;
+
+    if ( addr + size < addr )
+        return -EINVAL;
+
+    return 0;
+}
+
 static int match_region(const void *key, const void *elt)
 {
     const unsigned int offset = (unsigned long)key;
@@ -618,6 +633,9 @@ int vgic_register_dist_iodev(struct domain *d, gfn_t dist_base_fn,
     {
     case VGIC_V2:
         len = vgic_v2_init_dist_iodev(io_device);
+        break;
+    case VGIC_V3:
+        len = vgic_v3_init_dist_iodev(io_device);
         break;
     default:
         BUG();
