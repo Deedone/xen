@@ -387,6 +387,12 @@ void vgic_sync_from_lrs(struct vcpu *v);
 
 int vgic_vcpu_pending_irq(struct vcpu *v);
 
+#ifdef CONFIG_NEW_VGIC
+struct vgic_irq *vgic_get_irq(struct domain *d, struct vcpu *vcpu,
+                              uint32_t intid);
+void vgic_put_irq(struct domain *d, struct vgic_irq *irq);
+#endif
+
 #endif /* __ASM_ARM_VGIC_H__ */
 
 /*

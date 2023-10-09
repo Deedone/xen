@@ -45,9 +45,6 @@ static inline bool vgic_irq_is_mapped_level(struct vgic_irq *irq)
     return irq->config == VGIC_CONFIG_LEVEL && irq->hw;
 }
 
-struct vgic_irq *vgic_get_irq(struct domain *d, struct vcpu *vcpu,
-                              uint32_t intid);
-void vgic_put_irq(struct domain *d, struct vgic_irq *irq);
 void vgic_queue_irq_unlock(struct domain *d, struct vgic_irq *irq,
                            unsigned long flags);
 void vgic_kick_vcpus(struct domain *d);
