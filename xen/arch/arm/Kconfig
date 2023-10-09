@@ -82,7 +82,6 @@ config ARM_EFI
 
 config GICV3
 	bool "GICv3 driver"
-	depends on !NEW_VGIC
 	default n if ARM_32
 	default y if ARM_64
 	---help---
