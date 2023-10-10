@@ -47,7 +47,9 @@ struct its_device {
     uint32_t guest_devid;
     uint32_t eventids;                  /* Number of event IDs (MSIs) */
     uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
+#ifndef CONFIG_NEW_VGIC
     struct pending_irq *pend_irqs;      /* One struct per event */
+#endif
 };
 
 bool gicv3_its_host_has_its(void)
@@ -560,7 +562,9 @@ static int remove_mapped_guest_device(struct its_device *dev)
                dev->host_devid);
 
     xfree(dev->itt_addr);
+#ifndef CONFIG_NEW_VGIC
     xfree(dev->pend_irqs);
+#endif
     xfree(dev->host_lpi_blocks);
     xfree(dev);
 
@@ -733,9 +737,11 @@ int gicv3_its_map_guest_device(struct domain *d,
      * See the mailing list discussion for some background:
      * https://lists.xen.org/archives/html/xen-devel/2017-03/msg03645.html
      */
+#ifndef CONFIG_NEW_VGIC
     dev->pend_irqs = xzalloc_array(struct pending_irq, nr_events);
     if ( !dev->pend_irqs )
         goto out_unlock;
+#endif
 
     dev->host_lpi_blocks = xzalloc_array(uint32_t, nr_events);
     if ( !dev->host_lpi_blocks )
@@ -801,7 +807,9 @@ out_unlock:
 out:
     if ( dev )
     {
+#ifndef CONFIG_NEW_VGIC
         xfree(dev->pend_irqs);
+#endif
         xfree(dev->host_lpi_blocks);
     }
     xfree(itt_addr);
@@ -838,6 +846,7 @@ static struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
     return NULL;
 }
 
+#ifndef CONFIG_NEW_VGIC
 static struct pending_irq *get_event_pending_irq(struct domain *d,
                                                  paddr_t vdoorbell_address,
                                                  uint32_t vdevid,
@@ -860,7 +869,25 @@ static struct pending_irq *get_event_pending_irq(struct domain *d,
 
     return pirq;
 }
+#endif
 
+uint32_t gicv3_its_get_host_lpi(struct domain *d, paddr_t vdoorbell_address,
+                                     uint32_t vdevid, uint32_t eventid)
+{
+    struct its_device *dev;
+    uint32_t host_lpi = INVALID_LPI;
+
+    spin_lock(&d->arch.vgic.its_devices_lock);
+    dev = get_its_device(d, vdoorbell_address, vdevid);
+    if ( dev )
+        host_lpi = dev->host_lpi_blocks[eventid / LPI_BLOCK] +
+                   (eventid % LPI_BLOCK);
+
+    spin_unlock(&d->arch.vgic.its_devices_lock);
+    return host_lpi;
+}
+
+#ifndef CONFIG_NEW_VGIC
 struct pending_irq *gicv3_its_get_event_pending_irq(struct domain *d,
                                                     paddr_t vdoorbell_address,
                                                     uint32_t vdevid,
@@ -912,6 +939,7 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
 
     return pirq;
 }
+#endif /* !CONFIG_NEW_VGIC */
 
 int gicv3_its_deny_access(struct domain *d)
 {
