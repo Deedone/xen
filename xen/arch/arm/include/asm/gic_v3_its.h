@@ -35,7 +35,17 @@
 #define GITS_BASER5                     0x128
 #define GITS_BASER6                     0x130
 #define GITS_BASER7                     0x138
+#define GITS_IDREGS_BASE                0xffd0
+#define GITS_PIDR0                      0xffe0
+#define GITS_PIDR1                      0xffe4
 #define GITS_PIDR2                      GICR_PIDR2
+#define GITS_PIDR4                      0xffd0
+#define GITS_CIDR0                      0xfff0
+#define GITS_CIDR1                      0xfff4
+#define GITS_CIDR2                      0xfff8
+#define GITS_CIDR3                      0xfffc
+
+#define GITS_TRANSLATER                 0x10040
 
 /* Register bits */
 #define GITS_VALID_BIT                  BIT(63, UL)
@@ -49,6 +59,11 @@
 #define GITS_TYPER_DEVICE_ID_BITS(r)    ((((r) & GITS_TYPER_DEVIDS_MASK) >> \
                                                  GITS_TYPER_DEVIDS_SHIFT) + 1)
 
+#define GITS_IIDR_REV_SHIFT             12
+#define GITS_IIDR_REV_MASK              (0xf << GITS_IIDR_REV_SHIFT)
+#define GITS_IIDR_REV(r)                (((r) >> GITS_IIDR_REV_SHIFT) & 0xf)
+#define GITS_IIDR_PRODUCTID_SHIFT       24
+
 #define GITS_TYPER_IDBITS_SHIFT         8
 #define GITS_TYPER_IDBITS_MASK          (0x1fUL << GITS_TYPER_IDBITS_SHIFT)
 #define GITS_TYPER_EVENT_ID_BITS(r)     ((((r) & GITS_TYPER_IDBITS_MASK) >> \
@@ -60,10 +75,12 @@
                                                  GITS_TYPER_ITT_SIZE_SHIFT) + 1)
 #define GITS_TYPER_PHYSICAL             (1U << 0)
 
+#define GITS_BASER_VALID                (1ULL << 63)
 #define GITS_BASER_INDIRECT             BIT(62, UL)
 #define GITS_BASER_INNER_CACHEABILITY_SHIFT        59
 #define GITS_BASER_TYPE_SHIFT           56
 #define GITS_BASER_TYPE_MASK            (7ULL << GITS_BASER_TYPE_SHIFT)
+#define GITS_BASER_TYPE(r)              (((r) >> GITS_BASER_TYPE_SHIFT) & 7)
 #define GITS_BASER_OUTER_CACHEABILITY_SHIFT        53
 #define GITS_BASER_TYPE_NONE            0UL
 #define GITS_BASER_TYPE_DEVICE          1UL
@@ -76,6 +93,7 @@
 #define GITS_BASER_ENTRY_SIZE_SHIFT     48
 #define GITS_BASER_ENTRY_SIZE(reg)                                       \
                         ((((reg) >> GITS_BASER_ENTRY_SIZE_SHIFT) & 0x1f) + 1)
+#define GITS_BASER_ENTRY_SIZE_MASK      GENMASK_ULL(52, 48)
 #define GITS_BASER_SHAREABILITY_SHIFT   10
 #define GITS_BASER_PAGE_SIZE_SHIFT      8
 #define GITS_BASER_SIZE_MASK            0xff
@@ -83,7 +101,48 @@
 #define GITS_BASER_OUTER_CACHEABILITY_MASK   (0x7ULL << GITS_BASER_OUTER_CACHEABILITY_SHIFT)
 #define GITS_BASER_INNER_CACHEABILITY_MASK   (0x7ULL << GITS_BASER_INNER_CACHEABILITY_SHIFT)
 
+#define GIC_PAGE_SIZE_4K                0ULL
+#define GIC_PAGE_SIZE_16K               1ULL
+#define GIC_PAGE_SIZE_64K               2ULL
+#define GIC_PAGE_SIZE_MASK              3ULL
+
+#define __GITS_BASER_PSZ(sz)            \
+    (GIC_PAGE_SIZE_ ## sz << GITS_BASER_PAGE_SIZE_SHIFT)
+#define GITS_BASER_PAGE_SIZE_4K         __GITS_BASER_PSZ(4K)
+#define GITS_BASER_PAGE_SIZE_16K        __GITS_BASER_PSZ(16K)
+#define GITS_BASER_PAGE_SIZE_64K        __GITS_BASER_PSZ(64K)
+#define GITS_BASER_PAGE_SIZE_MASK       __GITS_BASER_PSZ(MASK)
+
+#define GITS_BASER_NR_PAGES(r)         (((r) & 0xff) + 1)
+
+#define GITS_BASER_PHYS_52_to_48(phys)					\
+	(((phys) & GENMASK_ULL(47, 16)) | (((phys) >> 48) & 0xf) << 12)
+#define GITS_BASER_ADDR_48_to_52(baser)					\
+	(((baser) & GENMASK_ULL(47, 16)) | (((baser) >> 12) & 0xf) << 48)
+
+#define GIC_BASER_CACHEABILITY(reg, inner_outer, type)			\
+	(GIC_BASER_CACHE_##type << reg##_##inner_outer##_CACHEABILITY_SHIFT)
+
+#define GIC_BASER_SHAREABILITY(reg, type)				\
+	(GIC_BASER_##type << reg##_SHAREABILITY_SHIFT)
+
 #define GITS_CBASER_SIZE_MASK           0xff
+#define GITS_CBASER_VALID               (1ULL << 63)
+#define GITS_CBASER_SHAREABILITY_SHIFT  (10)
+#define GITS_CBASER_INNER_CACHEABILITY_SHIFT    (59)
+#define GITS_CBASER_OUTER_CACHEABILITY_SHIFT    (53)
+#define GITS_CBASER_SHAREABILITY_MASK					\
+	GIC_BASER_SHAREABILITY(GITS_CBASER, SHAREABILITY_MASK)
+#define GITS_CBASER_INNER_CACHEABILITY_MASK				\
+	GIC_BASER_CACHEABILITY(GITS_CBASER, INNER, MASK)
+#define GITS_CBASER_OUTER_CACHEABILITY_MASK				\
+	GIC_BASER_CACHEABILITY(GITS_CBASER, OUTER, MASK)
+#define GITS_CBASER_CACHEABILITY_MASK GITS_CBASER_INNER_CACHEABILITY_MASK
+
+#define GITS_CBASER_InnerShareable					\
+	GIC_BASER_SHAREABILITY(GITS_CBASER, InnerShareable)
+
+#define GITS_CBASER_ADDRESS(cbaser)	((cbaser) & GENMASK_ULL(51, 12))
 
 /* ITS command definitions */
 #define ITS_CMD_SIZE                    32
@@ -101,8 +160,29 @@
 #define GITS_CMD_MOVALL                 0x0e
 #define GITS_CMD_DISCARD                0x0f
 
+/*
+ * ITS error numbers
+ */
+#define E_ITS_MOVI_UNMAPPED_INTERRUPT       0x010107
+#define E_ITS_MOVI_UNMAPPED_COLLECTION      0x010109
+#define E_ITS_INT_UNMAPPED_INTERRUPT        0x010307
+#define E_ITS_CLEAR_UNMAPPED_INTERRUPT      0x010507
+#define E_ITS_MAPD_DEVICE_OOR               0x010801
+#define E_ITS_MAPD_ITTSIZE_OOR              0x010802
+#define E_ITS_MAPC_PROCNUM_OOR              0x010902
+#define E_ITS_MAPC_COLLECTION_OOR           0x010903
+#define E_ITS_MAPTI_UNMAPPED_DEVICE         0x010a04
+#define E_ITS_MAPTI_ID_OOR                  0x010a05
+#define E_ITS_MAPTI_PHYSICALID_OOR          0x010a06
+#define E_ITS_INV_UNMAPPED_INTERRUPT        0x010c07
+#define E_ITS_INVALL_UNMAPPED_COLLECTION    0x010d09
+#define E_ITS_MOVALL_PROCNUM_OOR            0x010e01
+#define E_ITS_DISCARD_UNMAPPED_INTERRUPT    0x010f07
+
 #define ITS_DOORBELL_OFFSET             0x10040
 #define GICV3_ITS_SIZE                  SZ_128K
+#define ITS_TRANSLATION_OFFSET          0x10000
+#define GIC_ENCODE_SZ(n, w) (((unsigned long)(n) - 1) & GENMASK_ULL(((w) - 1), 0))
 
 #define ITS_TRANSLATION_OFFSET          0x10000
 
@@ -165,6 +245,10 @@ int gicv3_its_setup_collection(unsigned int cpu);
 /* Initialize and destroy the per-domain parts of the virtual ITS support. */
 int vgic_v3_its_init_domain(struct domain *d);
 void vgic_v3_its_free_domain(struct domain *d);
+void vgic_its_invalidate_cache(struct domain *d);
+void vgic_enable_lpis(struct vcpu *vcpu);
+int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq);
+int vgic_its_invall(struct vcpu *vcpu);
 
 /* Create the appropriate DT nodes for a hardware domain. */
 int gicv3_its_make_hwdom_dt_nodes(const struct domain *d,
@@ -198,6 +282,8 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
                                              uint32_t virt_lpi);
 void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
                                  uint32_t virt_lpi);
+uint32_t gicv3_its_get_host_lpi(struct domain *d, paddr_t vdoorbell_address,
+                                     uint32_t vdevid, uint32_t eventid);
 
 /* Map a ITS translation register to hwdom when IOMMU is enabled. */
 int gicv3_its_map_translation_register(struct domain *d);
@@ -266,6 +352,24 @@ static inline int vgic_v3_its_init_domain(struct domain *d)
 
 static inline void vgic_v3_its_free_domain(struct domain *d)
 {
+}
+
+static inline void vgic_its_invalidate_cache(struct domain *d)
+{
+}
+
+static inline void vgic_enable_lpis(struct vcpu *vcpu)
+{
+}
+
+static inline int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
+{
+    return 0;
+}
+
+static inline int vgic_its_invall(struct vcpu *vcpu)
+{
+    return 0;
 }
 
 static inline int gicv3_its_make_hwdom_dt_nodes(const struct domain *d,
