@@ -293,6 +293,9 @@ void __init arch_create_domUs(struct dt_device_node *node,
 
         d_cfg->arch.nr_spis = VGIC_DEF_NR_SPIS;
 
+        if ( is_pci_scan_enabled() )
+            d_cfg->flags |= XEN_DOMCTL_CDF_vpci;
+
         /*
          * The VPL011 virq is GUEST_VPL011_SPI, unless direct-map is
          * set, in which case it'll match the hardware.
