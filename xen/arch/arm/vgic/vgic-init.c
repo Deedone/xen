@@ -18,6 +18,7 @@
 #include <xen/lib.h>
 #include <xen/sched.h>
 #include <asm/new_vgic.h>
+#include <asm/gic_v3_its.h>
 
 #include "vgic.h"
 
@@ -132,7 +133,11 @@ int domain_vgic_register(struct domain *d, unsigned int *mmio_count)
 
 int domain_vgic_late_init(struct domain *d)
 {
+#ifdef CONFIG_HAS_ITS
+    return vgic_v3_its_init_domain(d);
+#else
     return 0;
+#endif
 }
 
 /**
@@ -183,6 +188,8 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
     }
 
     INIT_LIST_HEAD(&dist->lpi_list_head);
+    INIT_LIST_HEAD(&dist->lpi_translation_cache);
+    dist->lpi_list_count=0;
     spin_lock_init(&dist->lpi_list_lock);
 
     if ( dist->version == GIC_V2 )
