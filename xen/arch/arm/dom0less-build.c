@@ -334,6 +334,9 @@ int __init arch_parse_dom0less_node(struct dt_device_node *node,
 
         d_cfg->arch.nr_spis = vgic_def_nr_spis();
 
+        if ( is_pci_scan_enabled() )
+            d_cfg->flags |= XEN_DOMCTL_CDF_vpci;
+
         /*
          * The VPL011 virq is GUEST_VPL011_SPI, unless direct-map is
          * set, in which case it'll match the hardware.
