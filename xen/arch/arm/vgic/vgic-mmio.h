@@ -21,10 +21,21 @@ struct vgic_register_region {
     unsigned int len;
     unsigned int bits_per_irq;
     unsigned int access_flags;
+
+    union {
     unsigned long (*read)(struct vcpu *vcpu, paddr_t addr,
                           unsigned int len);
+    unsigned long (*its_read)(struct domain *d, struct vgic_its *its,
+                    paddr_t addr, unsigned int len);
+    };
+
+    union {
     void (*write)(struct vcpu *vcpu, paddr_t addr,
                   unsigned int len, unsigned long val);
+    void (*its_write)(struct domain *d, struct vgic_its *its,
+                paddr_t addr, unsigned int len,
+                unsigned long val);
+    };
 };
 
 extern struct mmio_handler_ops vgic_io_ops;

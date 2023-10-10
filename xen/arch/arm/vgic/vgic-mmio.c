@@ -585,6 +585,9 @@ static int dispatch_mmio_read(struct vcpu *vcpu, mmio_info_t *info,
     case IODEV_REDIST:
         data = region->read(iodev->redist_vcpu, addr, len);
         break;
+    case IODEV_ITS:
+        data = region->its_read(vcpu->domain, iodev->its, addr, len);;
+        break;
     }
 
     memcpy(r, &data, len);
@@ -612,6 +615,9 @@ static int dispatch_mmio_write(struct vcpu *vcpu, mmio_info_t *info,
         break;
     case IODEV_REDIST:
         region->write(iodev->redist_vcpu, addr, len, data);
+        break;
+    case IODEV_ITS:
+        region->its_write(vcpu->domain, iodev->its, addr, len, data);;
         break;
     }
 

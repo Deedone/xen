@@ -21,6 +21,8 @@
 #include <xen/list.h>
 #include <xen/mm.h>
 #include <xen/spinlock.h>
+#include <xen/rbtree.h>
+
 #define INTERRUPT_ID_BITS_SPIS  10
 #define INTERRUPT_ID_BITS_ITS   16
 #define VGIC_PRI_BITS           5
@@ -36,6 +38,7 @@
 #define VGIC_MIN_LPI            8192
 #define VGIC_V3_DIST_SIZE       SZ_64K
 #define VGIC_V3_REDIST_SIZE     (2 * SZ_64K)
+#define VGIC_V3_ITS_SIZE        (2 * SZ_64K)
 
 #define irq_is_ppi(irq) ((irq) >= VGIC_NR_SGIS && (irq) < VGIC_NR_PRIVATE_IRQS)
 #define irq_is_spi(irq) ((irq) >= VGIC_NR_PRIVATE_IRQS && \
@@ -97,6 +100,7 @@ struct vgic_irq {
 enum iodev_type {
     IODEV_DIST,
     IODEV_REDIST,
+    IODEV_ITS,
 };
 
 struct vgic_redist_region {
@@ -113,6 +117,35 @@ struct vgic_io_device {
     const struct vgic_register_region *regions;
     enum iodev_type iodev_type;
     unsigned int nr_regions;
+    struct vgic_its *its;
+};
+
+struct vgic_its {
+    /* The base address of the ITS control register frame */
+    paddr_t vgic_its_base;
+
+    bool enabled;
+    struct vgic_io_device iodev;
+    struct domain *domain;
+
+    /* These registers correspond to GITS_BASER{0,1} */
+    u64 baser_device_table;
+    u64 baser_coll_table;
+
+    /* Protects the command queue */
+    struct spinlock cmd_lock;
+    u64 cbaser;
+    u32 creadr;
+    u32 cwriter;
+
+    /* migration ABI revision in use */
+    u32 abi_rev;
+
+    /* Protects the device and collection lists */
+    struct spinlock its_lock;
+    struct list_head device_list;
+    struct list_head collection_list;
+    paddr_t doorbell_address;
 };
 
 struct vgic_dist {
@@ -148,6 +181,7 @@ struct vgic_dist {
     struct vgic_io_device   dist_iodev;
 
     bool                has_its;
+    struct vgic_its     *its;
 
     /*
      * Contains the attributes and gpa of the LPI configuration table.
@@ -156,11 +190,16 @@ struct vgic_dist {
      * GICv3 spec: 6.1.2 "LPI Configuration tables"
      */
     uint64_t            propbaser;
+    struct rb_root      its_devices; /* Devices mapped to an ITS */
+    spinlock_t          its_devices_lock; /* Protects the its_devices tree */
 
     /* Protects the lpi_list and the count value below. */
     spinlock_t          lpi_list_lock;
     struct list_head    lpi_list_head;
     unsigned int        lpi_list_count;
+
+	/* LPI translation cache */
+	struct list_head	lpi_translation_cache;
 };
 
 struct vgic_cpu {

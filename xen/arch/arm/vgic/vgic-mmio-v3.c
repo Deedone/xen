@@ -403,6 +403,40 @@ static unsigned long vgic_mmio_read_v3r_ctlr(struct vcpu *vcpu, paddr_t addr,
     return val;
 }
 
+static void vgic_mmio_write_v3r_ctlr(struct vcpu *vcpu, paddr_t addr,
+                                     unsigned int len, unsigned long val)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    uint32_t ctlr;
+
+    if ( !vgic_has_its(vcpu->domain) )
+        return;
+
+    if ( !(val & GICR_CTLR_ENABLE_LPIS) )
+    {
+        /*
+		 * Don't disable if RWP is set, as there already an
+		 * ongoing disable. Funky guest...
+		 */
+        ctlr = atomic_cmpxchg(&vgic_cpu->ctlr, GICR_CTLR_ENABLE_LPIS,
+                              GICR_CTLR_RWP);
+        if ( ctlr != GICR_CTLR_ENABLE_LPIS )
+            return;
+
+        vgic_flush_pending_lpis(vcpu);
+        vgic_its_invalidate_cache(vcpu->domain);
+        atomic_set(&vgic_cpu->ctlr, 0);
+    }
+    else
+    {
+        ctlr = atomic_cmpxchg(&vgic_cpu->ctlr, 0, GICR_CTLR_ENABLE_LPIS);
+        if ( ctlr != 0 )
+            return;
+
+        vgic_enable_lpis(vcpu);
+    }
+}
+
 bool vgic_lpis_enabled(struct vcpu *vcpu)
 {
     struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
@@ -561,6 +595,59 @@ static unsigned long vgic_mmio_read_sync(struct vcpu *vcpu, paddr_t addr,
     return !!atomic_read(&vcpu->arch.vgic.syncr_busy);
 }
 
+static void vgic_set_rdist_busy(struct vcpu *vcpu, bool busy)
+{
+    if ( busy )
+    {
+        atomic_inc(&vcpu->arch.vgic.syncr_busy);
+        smp_mb__after_atomic();
+    }
+    else
+    {
+        smp_mb__before_atomic();
+        atomic_dec(&vcpu->arch.vgic.syncr_busy);
+    }
+}
+
+static void vgic_mmio_write_invlpi(struct vcpu *vcpu, paddr_t addr,
+                                   unsigned int len, unsigned long val)
+{
+    struct vgic_irq *irq;
+
+    /*
+	 * If the guest wrote only to the upper 32bit part of the
+	 * register, drop the write on the floor, as it is only for
+	 * vPEs (which we don't support for obvious reasons).
+	 *
+	 * Also discard the access if LPIs are not enabled.
+	 */
+    if ( (addr & 4) || !vgic_lpis_enabled(vcpu) )
+        return;
+
+    vgic_set_rdist_busy(vcpu, true);
+
+    irq = vgic_get_irq(vcpu->domain, NULL, val & 0xffffffff);
+    if ( irq )
+    {
+        vgic_its_inv_lpi(vcpu->domain, irq);
+        vgic_put_irq(vcpu->domain, irq);
+    }
+
+    vgic_set_rdist_busy(vcpu, false);
+}
+
+static void vgic_mmio_write_invall(struct vcpu *vcpu, paddr_t addr,
+                                   unsigned int len, unsigned long val)
+{
+    /* See vgic_mmio_write_invlpi() for the early return rationale */
+    if ( (addr & 4) || !vgic_lpis_enabled(vcpu) )
+        return;
+
+    vgic_set_rdist_busy(vcpu, true);
+    vgic_its_invall(vcpu);
+    vgic_set_rdist_busy(vcpu, false);
+}
+
 static const struct vgic_register_region vgic_v3_dist_registers[] = {
     REGISTER_DESC_WITH_LENGTH(GICD_CTLR,
         vgic_mmio_read_v3_misc, vgic_mmio_write_v3_misc,
@@ -612,7 +699,7 @@ static const struct vgic_register_region vgic_v3_dist_registers[] = {
 static const struct vgic_register_region vgic_v3_rd_registers[] = {
     /* RD_base registers */
     REGISTER_DESC_WITH_LENGTH(GICR_CTLR,
-        vgic_mmio_read_v3r_ctlr, vgic_mmio_write_wi, 4,
+        vgic_mmio_read_v3r_ctlr, vgic_mmio_write_v3r_ctlr, 4,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_STATUSR,
         vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
@@ -633,10 +720,10 @@ static const struct vgic_register_region vgic_v3_rd_registers[] = {
         vgic_mmio_read_pendbase, vgic_mmio_write_pendbase, 8,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_INVLPIR,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 8,
+        vgic_mmio_read_raz, vgic_mmio_write_invlpi, 8,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_INVALLR,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 8,
+        vgic_mmio_read_raz, vgic_mmio_write_invall, 8,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_SYNCR,
         vgic_mmio_read_sync, vgic_mmio_write_wi, 4,

@@ -135,16 +135,27 @@ void vgic_vcpu_inject_lpi(struct domain *d, unsigned int virq)
      * the time. We cannot properly protect this with the current locking
      * scheme, but the future per-IRQ lock will solve this problem.
      */
+#ifdef CONFIG_NEW_VGIC
+    struct vgic_irq *p = vgic_get_irq(d, d->vcpu[0], virq);
+#else
     struct pending_irq *p = irq_to_pending(d->vcpu[0], virq);
+#endif
     unsigned int vcpu_id;
 
     if ( !p )
         return;
 
+#ifdef CONFIG_NEW_VGIC
+    vcpu_id = ACCESS_ONCE(p->target_vcpu->vcpu_id);
+#else
     vcpu_id = ACCESS_ONCE(p->lpi_vcpu_id);
+#endif
     if ( vcpu_id >= d->max_vcpus )
           return;
 
+#ifdef CONFIG_NEW_VGIC
+    vgic_put_irq(d, p);
+#endif
     vgic_inject_irq(d, d->vcpu[vcpu_id], virq, true);
 }
 
