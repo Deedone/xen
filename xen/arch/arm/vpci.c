@@ -80,7 +80,7 @@ static int vpci_mmio_write_root(struct vcpu *v, mmio_info_t *info, register_t r,
                                 void *p)
 {
     struct pci_host_bridge *bridge = p;
-    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(bridge, info->gpa, true);
+    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, true);
 
     ASSERT(!bridge == !is_hardware_domain(v->domain));
 
@@ -91,7 +91,7 @@ static int vpci_mmio_write_child(struct vcpu *v, mmio_info_t *info,
                                  register_t r, void *p)
 {
     struct pci_host_bridge *bridge = p;
-    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(bridge, info->gpa, false);
+    pci_sbdf_t sbdf = vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, false);
 
     ASSERT(!bridge == !is_hardware_domain(v->domain));
 
