@@ -592,6 +592,9 @@ int arch_vcpu_create(struct vcpu *v)
     v->arch.mdcr_el2 = HDCR_TDRA | HDCR_TDOSA | HDCR_TDA;
     if ( !(v->domain->options & XEN_DOMCTL_CDF_vpmu) )
         v->arch.mdcr_el2 |= HDCR_TPM | HDCR_TPMCR;
+    else
+        v->arch.mdcr_el2 |= (READ_SYSREG(PMCR_EL0) >> ARMV8_PMU_PMCR_N_SHIFT) &
+                             ARMV8_PMU_PMCR_N_MASK;
 
     if ( (rc = vcpu_vgic_init(v)) != 0 )
         goto fail;

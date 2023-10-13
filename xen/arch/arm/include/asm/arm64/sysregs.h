@@ -388,6 +388,9 @@
 #define DCZID_DZP_SHIFT              4
 #define DCZID_BS_SHIFT               0
 
+#define ARMV8_PMU_PMCR_N_SHIFT       11
+#define ARMV8_PMU_PMCR_N_MASK        0x1F
+
 /*
  * The ZCR_ELx_LEN_* definitions intentionally include bits [8:4] which
  * are reserved by the SVE architecture for future expansion of the LEN
