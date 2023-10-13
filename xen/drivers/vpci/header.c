@@ -966,7 +966,14 @@ static int cf_check init_bars(struct pci_dev *pdev)
     if ( cmd & PCI_COMMAND_MEMORY )
         pci_conf_write16(pdev->sbdf, PCI_COMMAND, cmd & ~PCI_COMMAND_MEMORY);
 
-    header->guest_cmd = cmd & ~PCI_COMMAND_MEMORY;
+   /*
+     * Clear PCI_COMMAND_MEMORY for DomUs, so they will always start with
+     * memory decoding disabled and to ensure that we will not call modify_bars()
+     * at the end of this function.
+     */
+    if ( !is_hwdom )
+        cmd &= ~PCI_COMMAND_MEMORY;
+    header->guest_cmd = cmd;
 
     /*
      * According to "PCI LOCAL BUS SPECIFICATION, REV. 3.0", section "6.2.2
