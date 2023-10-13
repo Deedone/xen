@@ -43,7 +43,7 @@ static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info, register_t *r,
 
     *r = invalid;
 
-    return 0;
+    return 1;
 }
 
 static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info,
@@ -79,7 +79,7 @@ static int vpci_mmio_write_root(struct vcpu *v, mmio_info_t *info,
 
     if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa,
                              true, &sbdf) )
-        return 0;
+        return 1;
 
     return vpci_mmio_write(v, info, r, sbdf);
 }
@@ -92,7 +92,7 @@ static int vpci_mmio_write_child(struct vcpu *v, mmio_info_t *info,
 
     if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa,
                              false, &sbdf) )
-        return 0;
+        return 1;
 
     return vpci_mmio_write(v, info, r, sbdf);
 }
