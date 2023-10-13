@@ -44,7 +44,7 @@ static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info, register_t *r,
 
     *r = invalid;
 
-    return 0;
+    return 1;
 }
 
 static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info, register_t *r,
@@ -218,4 +218,3 @@ unsigned int domain_vpci_get_num_mmio_handlers(struct domain *d)
  * indent-tabs-mode: nil
  * End:
  */
-
