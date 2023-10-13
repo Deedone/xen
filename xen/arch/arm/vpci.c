@@ -56,7 +56,7 @@ static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info, register_t *r,
 
     *r = invalid;
 
-    return 0;
+    return 1;
 }
 
 static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info,
@@ -64,11 +64,16 @@ static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info,
 {
     struct pci_host_bridge *bridge = p;
     pci_sbdf_t sbdf;
+    const uint8_t access_size = (1 << info->dabt.size) * 8;
+    const uint64_t access_mask = GENMASK_ULL(access_size - 1, 0);
 
     ASSERT(!bridge == !is_hardware_domain(v->domain));
 
     if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, true, &sbdf) )
+    {
+        *r = access_mask;
         return 1;
+    }
 
     return vpci_mmio_read(v, info, r, sbdf);
 }
@@ -78,11 +83,16 @@ static int vpci_mmio_read_child(struct vcpu *v, mmio_info_t *info,
 {
     struct pci_host_bridge *bridge = p;
     pci_sbdf_t sbdf;
+    const uint8_t access_size = (1 << info->dabt.size) * 8;
+    const uint64_t access_mask = GENMASK_ULL(access_size - 1, 0);
 
     ASSERT(!bridge == !is_hardware_domain(v->domain));
 
     if ( !vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, false, &sbdf) )
+    {
+        *r = access_mask;
         return 1;
+    }
 
     return vpci_mmio_read(v, info, r, sbdf);
 }
