@@ -59,6 +59,9 @@ domid_t get_initial_domain_id(void);
 #define is_domain_direct_mapped(d) ((d)->cdf & CDF_directmap)
 #define is_domain_using_staticmem(d) ((d)->cdf & CDF_staticmem)
 
+#define has_vpci(d) (((d)->options & XEN_DOMCTL_CDF_vpci) && \
+                     IS_ENABLED(CONFIG_HVM))
+
 /*
  * Arch-specifics.
  */
