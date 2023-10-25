@@ -750,7 +750,8 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
  * symbols, to take build-time config options (e.g. CONFIG_HVM) into account
  * for short-circuited emulations.
  */
-static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
+static bool emulation_flags_ok(const struct domain *d, unsigned int emflags,
+                               unsigned int cdf)
 {
     enum {
         CAP_PV          = BIT(0, U),
@@ -806,6 +807,25 @@ static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
         if ( (caps & configs[i].caps) == caps &&
              (emflags & ~configs[i].opt) == configs[i].min )
             return true;
+    if ( is_hvm_domain(d) )
+    {
+        if ( is_hardware_domain(d) &&
+             (!(cdf & XEN_DOMCTL_CDF_vpci) ||
+              emflags != (X86_EMU_LAPIC | X86_EMU_IOAPIC)) )
+            return false;
+        if ( !is_hardware_domain(d) &&
+             ((cdf & XEN_DOMCTL_CDF_vpci) ||
+              /* HVM PIRQ feature is user-selectable. */
+              ((emflags & ~X86_EMU_USE_PIRQ) !=
+               (X86_EMU_ALL & ~X86_EMU_USE_PIRQ) &&
+               emflags != X86_EMU_LAPIC)) )
+            return false;
+    }
+    else if ( emflags != 0 && emflags != X86_EMU_PIT )
+    {
+        /* PV or classic PVH. */
+        return false;
+    }
 
     return false;
 }
@@ -860,7 +880,7 @@ int arch_domain_create(struct domain *d,
         return -EINVAL;
     }
 
-    if ( !emulation_flags_ok(d, emflags) )
+    if ( !emulation_flags_ok(d, emflags, config->flags) )
     {
         printk(XENLOG_G_ERR
                "%pd: will not create %s %sdomain with emulators: %#x\n",

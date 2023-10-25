@@ -1053,7 +1053,7 @@ static struct domain *__init create_dom0(struct boot_info *bi)
             panic("Neither HAP nor Shadow available for PVH domain\n");
 
         dom0_cfg.arch.emulation_flags |=
-            XEN_X86_EMU_LAPIC | XEN_X86_EMU_IOAPIC | XEN_X86_EMU_VPCI;
+            XEN_X86_EMU_LAPIC | XEN_X86_EMU_IOAPIC;
     }
 
     if ( iommu_enabled )
