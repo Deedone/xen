@@ -743,7 +743,8 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
     return 0;
 }
 
-static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
+static bool emulation_flags_ok(const struct domain *d, unsigned int emflags,
+                               unsigned int cdf)
 {
 #ifdef CONFIG_HVM
     /* This doesn't catch !CONFIG_HVM case but it is better than nothing */
@@ -753,13 +754,15 @@ static bool emulation_flags_ok(const struct domain *d, uint32_t emflags)
     if ( is_hvm_domain(d) )
     {
         if ( is_hardware_domain(d) &&
-             emflags != (X86_EMU_VPCI | X86_EMU_LAPIC | X86_EMU_IOAPIC) )
+             (!(cdf & XEN_DOMCTL_CDF_vpci) ||
+              emflags != (X86_EMU_LAPIC | X86_EMU_IOAPIC)) )
             return false;
         if ( !is_hardware_domain(d) &&
-             /* HVM PIRQ feature is user-selectable. */
-             (emflags & ~X86_EMU_USE_PIRQ) !=
-             (X86_EMU_ALL & ~(X86_EMU_VPCI | X86_EMU_USE_PIRQ)) &&
-             emflags != X86_EMU_LAPIC )
+             ((cdf & XEN_DOMCTL_CDF_vpci) ||
+              /* HVM PIRQ feature is user-selectable. */
+              ((emflags & ~X86_EMU_USE_PIRQ) !=
+               (X86_EMU_ALL & ~X86_EMU_USE_PIRQ) &&
+               emflags != X86_EMU_LAPIC)) )
             return false;
     }
     else if ( emflags != 0 && emflags != X86_EMU_PIT )
@@ -821,7 +824,7 @@ int arch_domain_create(struct domain *d,
         return -EINVAL;
     }
 
-    if ( !emulation_flags_ok(d, emflags) )
+    if ( !emulation_flags_ok(d, emflags, config->flags) )
     {
         printk(XENLOG_G_ERR
                "%pd: will not create %s %sdomain with emulators: %#x\n",
