@@ -42,6 +42,165 @@ unsigned long extract_bytes(uint64_t data, unsigned int offset,
     return (data >> (offset * 8)) & GENMASK_ULL(num * 8 - 1, 0);
 }
 
+uint64_t update_64bit_reg(u64 reg, unsigned int offset, unsigned int len,
+                          unsigned long val)
+{
+    int lower = (offset & 4) * 8;
+    int upper = lower + 8 * len - 1;
+
+    reg &= ~GENMASK_ULL(upper, lower);
+    val &= GENMASK_ULL(len * 8 - 1, 0);
+
+    return reg | ((u64)val << lower);
+}
+
+static int match_mpidr(u64 sgi_aff, u16 sgi_cpu_mask, struct vcpu *vcpu)
+{
+    unsigned long affinity;
+    int level0;
+
+    /*
+     * Split the current VCPU's MPIDR into affinity level 0 and the
+     * rest as this is what we have to compare against.
+     */
+    affinity = vcpuid_to_vaffinity(vcpu->vcpu_id);
+    level0   = MPIDR_AFFINITY_LEVEL(affinity, 0);
+    affinity &= ~MPIDR_LEVEL_MASK;
+
+    /* bail out if the upper three levels don't match */
+    if ( sgi_aff != affinity )
+        return -1;
+
+    /* Is this VCPU's bit set in the mask ? */
+    if ( !(sgi_cpu_mask & BIT(level0, ULL)) )
+        return -1;
+
+    return level0;
+}
+
+#define SGI_AFFINITY_LEVEL(reg, level)                                         \
+    ((((reg) & (ICH_SGI_AFFx_MASK << ICH_SGI_AFFINITY_LEVEL(level))) >>        \
+      ICH_SGI_AFFINITY_LEVEL(level))                                           \
+     << MPIDR_LEVEL_SHIFT(level))
+
+static bool vgic_v3_emulate_sgi1r(struct cpu_user_regs *regs, uint64_t *r,
+                                  bool read)
+{
+    struct domain *d  = current->domain;
+    struct vcpu *vcpu = current;
+    struct vcpu *c_vcpu;
+    u16 target_cpus;
+    u64 mpidr;
+    int sgi;
+    int vcpu_id = vcpu->vcpu_id;
+    bool broadcast;
+    unsigned long flags;
+
+    if ( read )
+    {
+        gdprintk(XENLOG_WARNING, "Reading SGI1R_EL1 - WO register\n");
+        return false;
+    }
+
+    sgi         = (*r >> ICH_SGI_IRQ_SHIFT) & ICH_SGI_IRQ_MASK;
+    broadcast   = *r & BIT(ICH_SGI_IRQMODE_SHIFT, ULL);
+    target_cpus = (*r & ICH_SGI_TARGETLIST_MASK);
+
+    mpidr  = SGI_AFFINITY_LEVEL(*r, 3);
+    mpidr |= SGI_AFFINITY_LEVEL(*r, 2);
+    mpidr |= SGI_AFFINITY_LEVEL(*r, 1);
+
+    /*
+     * We iterate over all VCPUs to find the MPIDRs matching the request.
+     * If we have handled one CPU, we clear its bit to detect early
+     * if we are already finished. This avoids iterating through all
+     * VCPUs when most of the times we just signal a single VCPU.
+     */
+    for_each_vcpu(d, c_vcpu)
+    {
+        struct vgic_irq *irq;
+
+        /* Exit early if we have dealt with all requested CPUs */
+        if ( !broadcast && target_cpus == 0 )
+            break;
+
+        /* Don't signal the calling VCPU */
+        if ( broadcast && c_vcpu->vcpu_id == vcpu_id )
+            continue;
+
+        if ( !broadcast )
+        {
+            int level0;
+
+            level0 = match_mpidr(mpidr, target_cpus, c_vcpu);
+            if ( level0 == -1 )
+                continue;
+
+            /* remove this matching VCPU from the mask */
+            target_cpus &= ~BIT(level0, UL);
+        }
+
+        irq = vgic_get_irq(vcpu->domain, c_vcpu, sgi);
+
+        spin_lock_irqsave(&irq->irq_lock, flags);
+
+        if ( !irq->hw )
+        {
+            irq->pending_latch = true;
+            vgic_queue_irq_unlock(vcpu->domain, irq, flags);
+        }
+        else
+        {
+            printk(XENLOG_ERR "HW SGIs are not implemented\n");
+            BUG();
+            spin_unlock_irqrestore(&irq->irq_lock, flags);
+        }
+
+        vgic_put_irq(vcpu->domain, irq);
+    }
+
+    return true;
+}
+
+static bool vgic_v3_emulate_sysreg(struct cpu_user_regs *regs, union hsr hsr)
+{
+    struct hsr_sysreg sysreg = hsr.sysreg;
+
+    ASSERT(hsr.ec == HSR_EC_SYSREG);
+
+    if ( sysreg.read )
+        perfc_incr(vgic_sysreg_reads);
+    else
+        perfc_incr(vgic_sysreg_writes);
+
+    switch ( hsr.bits & HSR_SYSREG_REGS_MASK )
+    {
+    case HSR_SYSREG_ICC_SGI1R_EL1:
+        return vreg_emulate_sysreg(regs, hsr, vgic_v3_emulate_sgi1r);
+
+    default:
+        return false;
+    }
+}
+
+bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr)
+{
+    switch ( hsr.ec )
+    {
+#ifdef CONFIG_ARM_64
+    case HSR_EC_SYSREG:
+        return vgic_v3_emulate_sysreg(regs, hsr);
+#endif
+    case HSR_EC_CP15_64:
+        printk(XENLOG_ERR
+               "vgic_v3_emulate_reg: HSR_EC_CP15_64 not implemented");
+        BUG();
+        break;
+    default:
+        return false;
+    }
+}
+
 /*
  * The Revision field in the IIDR have the following meanings:
  *
