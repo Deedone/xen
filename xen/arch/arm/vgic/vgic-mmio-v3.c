@@ -22,6 +22,19 @@
 #include "vgic.h"
 #include "vgic-mmio.h"
 
+static struct vcpu *mpidr_to_vcpu(struct domain *d, unsigned long mpidr)
+{
+    struct vcpu *vcpu;
+
+    mpidr &= MPIDR_HWID_MASK;
+    for_each_vcpu(d, vcpu)
+    {
+        if ( mpidr == vcpuid_to_vaffinity(vcpu->vcpu_id) )
+            return vcpu;
+    }
+    return NULL;
+}
+
 /* extract @num bytes at @offset bytes offset in data */
 unsigned long extract_bytes(uint64_t data, unsigned int offset,
                             unsigned int num)
@@ -96,6 +109,50 @@ static void vgic_mmio_write_v3_misc(struct vcpu *vcpu, paddr_t addr,
         /* This is at best for documentation purposes... */
         return;
     }
+}
+
+static unsigned long vgic_mmio_read_irouter(struct vcpu *vcpu, paddr_t addr,
+                                            unsigned int len)
+{
+    int intid            = VGIC_ADDR_TO_INTID(addr, 64);
+    struct vgic_irq *irq = vgic_get_irq(vcpu->domain, NULL, intid);
+    unsigned long ret    = 0;
+
+    if ( !irq )
+        return 0;
+
+    /* The upper word is RAZ for us. */
+    if ( !(addr & 4) )
+        ret = extract_bytes(irq->mpidr, addr & 7, len);
+
+    vgic_put_irq(vcpu->domain, irq);
+    return ret;
+}
+
+static void vgic_mmio_write_irouter(struct vcpu *vcpu, paddr_t addr,
+                                    unsigned int len, unsigned long val)
+{
+    int intid = VGIC_ADDR_TO_INTID(addr, 64);
+    struct vgic_irq *irq;
+    unsigned long flags;
+
+    /* The upper word is WI for us since we don't implement Aff3. */
+    if ( addr & 4 )
+        return;
+
+    irq = vgic_get_irq(vcpu->domain, NULL, intid);
+
+    if ( !irq )
+        return;
+
+    spin_lock_irqsave(&irq->irq_lock, flags);
+
+    /* We only care about and preserve Aff0, Aff1 and Aff2. */
+    irq->mpidr       = val & GENMASK(23, 0);
+    irq->target_vcpu = mpidr_to_vcpu(vcpu->domain, irq->mpidr);
+
+    spin_unlock_irqrestore(&irq->irq_lock, flags);
+    vgic_put_irq(vcpu->domain, irq);
 }
 
 static bool vgic_mmio_vcpu_rdist_is_last(struct vcpu *vcpu)
@@ -206,7 +263,7 @@ static const struct vgic_register_region vgic_v3_dist_registers[] = {
         vgic_mmio_read_raz, vgic_mmio_write_wi, 1,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_BITS_PER_IRQ(GICD_IROUTER,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 64,
+        vgic_mmio_read_irouter, vgic_mmio_write_irouter, 64,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICD_IDREGS,
         vgic_mmio_read_v3_idregs, vgic_mmio_write_wi, 48,
