@@ -28,6 +28,7 @@
 #define VGIC_ADDR_UNDEF     INVALID_PADDR
 #define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == VGIC_ADDR_UNDEF)
 
+#define INTERRUPT_ID_BITS_SPIS  10
 #define VGIC_PRI_BITS       5
 
 #define vgic_irq_is_sgi(intid) ((intid) < VGIC_NR_SGIS)
