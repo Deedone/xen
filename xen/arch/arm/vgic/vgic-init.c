@@ -211,7 +211,7 @@ int vcpu_vgic_init(struct vcpu *v)
     if ( gic_hw_version() == GIC_V2 )
         vgic_v2_enable(v);
     else
-        ret = -ENXIO;
+        vgic_v3_enable(v);
 
     return ret;
 }

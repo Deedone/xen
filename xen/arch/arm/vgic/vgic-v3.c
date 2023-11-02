@@ -244,6 +244,12 @@ unsigned int vgic_v3_max_rdist_count(const struct domain *d)
                                      : GUEST_GICV3_RDIST_REGIONS;
 }
 
+void vgic_v3_enable(struct vcpu *vcpu)
+{
+    /* Get the show on the road... */
+    gic_hw_ops->update_hcr_status(GICH_HCR_EN, true);
+}
+
 int vgic_v3_map_resources(struct domain *d)
 {
     int rdist_count, i, ret;
