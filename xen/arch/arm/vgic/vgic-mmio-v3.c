@@ -22,9 +22,78 @@
 #include "vgic.h"
 #include "vgic-mmio.h"
 
+/*
+ * The Revision field in the IIDR have the following meanings:
+ *
+ * Revision 2: Interrupt groups are guest-configurable and signaled using
+ *            their configured groups.
+ */
+
+static unsigned long vgic_mmio_read_v3_misc(struct vcpu *vcpu, paddr_t addr,
+                                            unsigned int len)
+{
+    struct vgic_dist *vgic = &vcpu->domain->arch.vgic;
+    uint32_t value         = 0;
+
+    switch ( addr & 0x0c )
+    {
+    case GICD_CTLR:
+        if ( vgic->enabled )
+            value |= GICD_CTLR_ENABLE_G1A;
+        value |= GICD_CTLR_ARE_NS | GICD_CTLR_DS;
+        break;
+    case GICD_TYPER:
+        value = vgic->nr_spis + VGIC_NR_PRIVATE_IRQS;
+        value = (value >> 5) - 1;
+        value |= (INTERRUPT_ID_BITS_SPIS - 1) << 19;
+        break;
+    case GICD_TYPER2:
+        break;
+    case GICD_IIDR:
+        value = (PRODUCT_ID_KVM << 24) | (VARIANT_ID_XEN << 16) |
+                (IMPLEMENTER_ARM << 0);
+        break;
+    default:
+        return 0;
+    }
+
+    return value;
+}
+
+static void vgic_mmio_write_v3_misc(struct vcpu *vcpu, paddr_t addr,
+                                    unsigned int len, unsigned long val)
+{
+    struct vgic_dist *dist = &vcpu->domain->arch.vgic;
+
+    switch ( addr & 0x0c )
+    {
+    case GICD_CTLR:
+    {
+        bool was_enabled;
+
+        domain_lock(vcpu->domain);
+
+        was_enabled   = dist->enabled;
+
+        dist->enabled = val & GICD_CTLR_ENABLE_G1A;
+
+        if ( dist->enabled )
+            vgic_kick_vcpus(vcpu->domain);
+
+        domain_unlock(vcpu->domain);
+        break;
+    }
+    case GICD_TYPER:
+    case GICD_TYPER2:
+    case GICD_IIDR:
+        /* This is at best for documentation purposes... */
+        return;
+    }
+}
+
 static const struct vgic_register_region vgic_v3_dist_registers[] = {
     REGISTER_DESC_WITH_LENGTH(GICD_CTLR,
-        vgic_mmio_read_raz, vgic_mmio_write_wi,
+        vgic_mmio_read_v3_misc, vgic_mmio_write_v3_misc,
         16, VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICD_STATUSR,
         vgic_mmio_read_rao, vgic_mmio_write_wi, 4,

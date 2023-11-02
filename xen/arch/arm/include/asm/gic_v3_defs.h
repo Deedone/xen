@@ -25,6 +25,7 @@
  * Common GICD registers are defined in gic.h
  */
 
+#define GICD_TYPER2                  (0x00C)
 #define GICD_STATUSR                 (0x010)
 #define GICD_SETSPI_NSR              (0x040)
 #define GICD_CLRSPI_NSR              (0x048)
@@ -57,6 +58,7 @@
 #define GICD_TYPE_LPIS               (1U << 17)
 
 #define GICD_CTLR_RWP                (1UL << 31)
+#define GICD_CTLR_DS                 (1U << 6)
 #define GICD_CTLR_ARE_NS             (1U << 4)
 #define GICD_CTLR_ENABLE_G1A         (1U << 1)
 #define GICD_CTLR_ENABLE_G1          (1U << 0)
