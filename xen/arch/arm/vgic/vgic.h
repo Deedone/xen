@@ -70,12 +70,22 @@ int vgic_register_dist_iodev(struct domain *d, gfn_t dist_base_fn,
 #ifdef CONFIG_GICV3
 void vgic_v3_fold_lr_state(struct vcpu *vcpu);
 void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr);
+unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev);
+int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count);
 #else
 static inline void vgic_v3_fold_lr_state(struct vcpu *vcpu)
 {
 }
 static inline void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
 {
+}
+static inline unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev)
+{
+    return 0;
+}
+int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count)
+{
+    return 0;
 }
 #endif /* CONFIG_GICV3 */
 
