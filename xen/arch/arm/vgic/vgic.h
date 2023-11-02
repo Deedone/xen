@@ -67,8 +67,19 @@ void vgic_v2_enable(struct vcpu *vcpu);
 int vgic_v2_map_resources(struct domain *d);
 int vgic_register_dist_iodev(struct domain *d, gfn_t dist_base_fn,
                              enum vgic_type);
+#ifdef CONFIG_GICV3
+void vgic_v3_fold_lr_state(struct vcpu *vcpu);
+void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr);
+#else
+static inline void vgic_v3_fold_lr_state(struct vcpu *vcpu)
+{
+}
+static inline void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
+{
+}
+#endif /* CONFIG_GICV3 */
 
-#endif
+#endif /* __XEN_ARM_VGIC_VGIC_H__ */
 
 /*
  * Local variables:
