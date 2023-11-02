@@ -968,22 +968,13 @@ unsigned int vgic_max_vcpus(unsigned int domctl_vgic_version)
     {
     case XEN_DOMCTL_CONFIG_GIC_V2:
         return VGIC_V2_MAX_CPUS;
+    case XEN_DOMCTL_CONFIG_GIC_V3:
+        return VGIC_V3_MAX_CPUS;
 
     default:
         return 0;
     }
 }
-
-#ifdef CONFIG_GICV3
-/* Dummy implementation to allow building without actual vGICv3 support. */
-void vgic_v3_setup_hw(paddr_t dbase,
-                      unsigned int nr_rdist_regions,
-                      const struct rdist_region *regions,
-                      unsigned int intid_bits)
-{
-    panic("New VGIC implementation does not yet support GICv3\n");
-}
-#endif
 
 /*
  * Local variables:

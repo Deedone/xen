@@ -178,7 +178,7 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
     if ( dist->version == GIC_V2 )
         ret = vgic_v2_map_resources(d);
     else
-        ret = -ENXIO;
+        ret = vgic_v3_map_resources(d);
 
     if ( ret )
         return ret;

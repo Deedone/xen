@@ -14,10 +14,32 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <asm/new_vgic.h>
+#include <asm/gic_v3_defs.h>
 #include <asm/gic.h>
 #include <xen/sched.h>
 
 #include "vgic.h"
+
+static struct {
+    bool enabled;
+    /* Distributor interface address */
+    paddr_t dbase;
+    /* Re-distributor regions */
+    unsigned int nr_rdist_regions;
+    const struct rdist_region *regions;
+    unsigned int intid_bits; /* Number of interrupt ID bits */
+} vgic_v3_hw_data;
+
+void vgic_v3_setup_hw(paddr_t dbase, unsigned int nr_rdist_regions,
+                      const struct rdist_region *regions,
+                      unsigned int intid_bits)
+{
+    vgic_v3_hw_data.enabled          = true;
+    vgic_v3_hw_data.dbase            = dbase;
+    vgic_v3_hw_data.nr_rdist_regions = nr_rdist_regions;
+    vgic_v3_hw_data.regions          = regions;
+    vgic_v3_hw_data.intid_bits       = intid_bits;
+}
 
 /*
  * transfer the content of the LRs back into the corresponding ap_list:
@@ -203,4 +225,67 @@ void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr)
     lr_val.priority = irq->priority >> 3;
 
     gic_hw_ops->write_lr(lr, &lr_val);
+}
+
+unsigned int vgic_v3_max_rdist_count(const struct domain *d)
+{
+    /*
+     * Normally there is only one GICv3 redistributor region.
+     * The GICv3 DT binding provisions for multiple regions, since there are
+     * platforms out there which need those (multi-socket systems).
+     * For domain using the host memory layout, we have to live with the MMIO
+     * layout the hardware provides, so we have to copy the multiple regions
+     * - as the first region may not provide enough space to hold all
+     * redistributors we need.
+     * All the other domains will get a constructed memory map, so we can go
+     * with the architected single redistributor region.
+     */
+    return domain_use_host_layout(d) ? vgic_v3_hw_data.nr_rdist_regions
+                                     : GUEST_GICV3_RDIST_REGIONS;
+}
+
+int vgic_v3_map_resources(struct domain *d)
+{
+    int rdist_count, i, ret;
+
+    /* Allocate memory for Re-distributor regions */
+    rdist_count = vgic_v3_max_rdist_count(d);
+
+    /*
+     * For domain using the host memory layout, it gets the hardware
+     * address.
+     * Other domains get the virtual platform layout.
+     */
+    if ( domain_use_host_layout(d) )
+    {
+        d->arch.vgic.dbase = vgic_v3_hw_data.dbase;
+
+        for ( i = 0; i < vgic_v3_hw_data.nr_rdist_regions; i++ )
+        {
+            vgic_v3_set_redist_base(d, i, vgic_v3_hw_data.regions[i].base,
+                                    vgic_v3_hw_data.regions[i].size /
+                                        GICV3_GICR_SIZE);
+        }
+    }
+    else
+    {
+        d->arch.vgic.dbase = GUEST_GICV3_GICD_BASE;
+
+        /* A single Re-distributor region is mapped for the guest. */
+        BUILD_BUG_ON(GUEST_GICV3_RDIST_REGIONS != 1);
+
+        /* The first redistributor should contain enough space for all CPUs */
+        BUILD_BUG_ON((GUEST_GICV3_GICR0_SIZE / GICV3_GICR_SIZE) <
+                     MAX_VIRT_CPUS);
+        vgic_v3_set_redist_base(d, 0, GUEST_GICV3_GICR0_BASE,
+                                GUEST_GICV3_GICR0_SIZE / GICV3_GICR_SIZE);
+    }
+
+    /* Register mmio handle for the Distributor */
+    ret =
+        vgic_register_dist_iodev(d, gaddr_to_gfn(d->arch.vgic.dbase), VGIC_V3);
+
+    d->arch.vgic.ready = true;
+
+    return 0;
 }
