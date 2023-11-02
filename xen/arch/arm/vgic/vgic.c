@@ -520,7 +520,14 @@ retry:
 
 static void vgic_fold_lr_state(struct vcpu *vcpu)
 {
-    vgic_v2_fold_lr_state(vcpu);
+    if ( vcpu->domain->arch.vgic.version == GIC_V2 )
+    {
+        vgic_v2_fold_lr_state(vcpu);
+    }
+    else
+    {
+        vgic_v3_fold_lr_state(vcpu);
+    }
 }
 
 /* Requires the irq_lock to be held. */
@@ -529,7 +536,14 @@ static void vgic_populate_lr(struct vcpu *vcpu,
 {
     ASSERT(spin_is_locked(&irq->irq_lock));
 
-    vgic_v2_populate_lr(vcpu, irq, lr);
+    if ( vcpu->domain->arch.vgic.version == GIC_V2 )
+    {
+        vgic_v2_populate_lr(vcpu, irq, lr);
+    }
+    else
+    {
+        vgic_v3_populate_lr(vcpu, irq, lr);
+    }
 }
 
 static void vgic_set_underflow(struct vcpu *vcpu)
