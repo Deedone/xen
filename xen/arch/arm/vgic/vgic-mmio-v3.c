@@ -152,6 +152,19 @@ static unsigned long vgic_mmio_read_v3r_iidr(struct vcpu *vcpu, paddr_t addr,
            (IMPLEMENTER_ARM << 0);
 }
 
+static unsigned long vgic_mmio_read_v3_idregs(struct vcpu *vcpu, paddr_t addr,
+                                              unsigned int len)
+{
+    switch ( addr & 0xfff )
+    {
+    case GICD_ICPIDR2:
+        /* report a GICv3 compliant implementation */
+        return 0x3b;
+    }
+
+    return 0;
+}
+
 static const struct vgic_register_region vgic_v3_dist_registers[] = {
     REGISTER_DESC_WITH_LENGTH(GICD_CTLR,
         vgic_mmio_read_v3_misc, vgic_mmio_write_v3_misc,
@@ -196,7 +209,7 @@ static const struct vgic_register_region vgic_v3_dist_registers[] = {
         vgic_mmio_read_raz, vgic_mmio_write_wi, 64,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICD_IDREGS,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 48,
+        vgic_mmio_read_v3_idregs, vgic_mmio_write_wi, 48,
         VGIC_ACCESS_32bit),
 };
 
@@ -233,7 +246,7 @@ static const struct vgic_register_region vgic_v3_rd_registers[] = {
         vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_IDREGS,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 48,
+        vgic_mmio_read_v3_idregs, vgic_mmio_write_wi, 48,
         VGIC_ACCESS_32bit),
     /* SGI_base registers */
     REGISTER_DESC_WITH_LENGTH(SZ_64K + GICR_IGROUPR0,
