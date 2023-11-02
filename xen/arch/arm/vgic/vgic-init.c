@@ -209,9 +209,14 @@ int vcpu_vgic_init(struct vcpu *v)
     vgic_vcpu_early_init(v);
 
     if ( gic_hw_version() == GIC_V2 )
+    {
         vgic_v2_enable(v);
+    }
     else
+    {
         vgic_register_redist_iodev(v);
+        vgic_v3_enable(v);
+    }
 
     return ret;
 }
