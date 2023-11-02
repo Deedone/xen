@@ -31,6 +31,8 @@
 #define VGIC_MAX_SPI            1019
 #define VGIC_MAX_RESERVED       1023
 #define VGIC_MIN_LPI            8192
+#define VGIC_V3_DIST_SIZE       SZ_64K
+#define VGIC_V3_REDIST_SIZE     (2 * SZ_64K)
 
 #define irq_is_ppi(irq) ((irq) >= VGIC_NR_SGIS && (irq) < VGIC_NR_PRIVATE_IRQS)
 #define irq_is_spi(irq) ((irq) >= VGIC_NR_PRIVATE_IRQS && \
@@ -94,6 +96,14 @@ enum iodev_type {
     IODEV_REDIST,
 };
 
+struct vgic_redist_region {
+    uint32_t index;
+    paddr_t base;
+    uint32_t count; /* number of redistributors or 0 if single region */
+    uint32_t free_index; /* index of the next free redistributor */
+    struct list_head list;
+};
+
 struct vgic_io_device {
     gfn_t base_fn;
     struct vcpu *redist_vcpu;
@@ -121,11 +131,7 @@ struct vgic_dist {
         /* either a GICv2 CPU interface */
         paddr_t         cbase;
         /* or a number of GICv3 redistributor regions */
-        struct
-        {
-            paddr_t     vgic_redist_base;
-            paddr_t     vgic_redist_free_offset;
-        };
+        struct list_head rd_regions;
     };
     paddr_t             csize; /* CPU interface size */
     paddr_t             vbase; /* virtual CPU interface base address */
@@ -174,6 +180,8 @@ struct vgic_cpu {
      * parts of the redistributor.
      */
     struct vgic_io_device   rd_iodev;
+    struct vgic_redist_region *rdreg;
+    uint32_t rdreg_index;
     struct vgic_io_device   sgi_iodev;
 
     /* Contains the attributes and gpa of the LPI pending tables. */
