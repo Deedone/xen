@@ -22,6 +22,13 @@
 #include "vgic.h"
 #include "vgic-mmio.h"
 
+/* extract @num bytes at @offset bytes offset in data */
+unsigned long extract_bytes(uint64_t data, unsigned int offset,
+                            unsigned int num)
+{
+    return (data >> (offset * 8)) & GENMASK_ULL(num * 8 - 1, 0);
+}
+
 /*
  * The Revision field in the IIDR have the following meanings:
  *
@@ -91,6 +98,60 @@ static void vgic_mmio_write_v3_misc(struct vcpu *vcpu, paddr_t addr,
     }
 }
 
+static bool vgic_mmio_vcpu_rdist_is_last(struct vcpu *vcpu)
+{
+    struct vgic_dist *vgic    = &vcpu->domain->arch.vgic;
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    struct vgic_redist_region *iter, *rdreg = vgic_cpu->rdreg;
+
+    if ( !rdreg )
+        return false;
+
+    if ( vgic_cpu->rdreg_index < rdreg->free_index - 1 )
+    {
+        return false;
+    }
+    else if ( rdreg->count && vgic_cpu->rdreg_index == (rdreg->count - 1) )
+    {
+        struct list_head *rd_regions = &vgic->rd_regions;
+        paddr_t end = rdreg->base + rdreg->count * VGIC_V3_REDIST_SIZE;
+
+        /*
+         * the rdist is the last one of the redist region,
+         * check whether there is no other contiguous rdist region
+         */
+        list_for_each_entry(iter, rd_regions, list)
+        {
+            if ( iter->base == end && iter->free_index > 0 )
+                return false;
+        }
+    }
+    return true;
+}
+
+static unsigned long vgic_mmio_read_v3r_typer(struct vcpu *vcpu, paddr_t addr,
+                                              unsigned int len)
+{
+    unsigned long mpidr = vcpuid_to_vaffinity(vcpu->vcpu_id);
+    int target_vcpu_id  = vcpu->vcpu_id;
+    u64 value;
+
+    value = (u64)(mpidr & GENMASK(23, 0)) << 32;
+    value |= ((target_vcpu_id & 0xffff) << 8);
+
+    if ( vgic_mmio_vcpu_rdist_is_last(vcpu) )
+        value |= GICR_TYPER_LAST;
+
+    return extract_bytes(value, addr & 7, len);
+}
+
+static unsigned long vgic_mmio_read_v3r_iidr(struct vcpu *vcpu, paddr_t addr,
+                                             unsigned int len)
+{
+    return (PRODUCT_ID_KVM << 24) | (VARIANT_ID_XEN << 16) |
+           (IMPLEMENTER_ARM << 0);
+}
+
 static const struct vgic_register_region vgic_v3_dist_registers[] = {
     REGISTER_DESC_WITH_LENGTH(GICD_CTLR,
         vgic_mmio_read_v3_misc, vgic_mmio_write_v3_misc,
@@ -148,10 +209,10 @@ static const struct vgic_register_region vgic_v3_rd_registers[] = {
         vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_IIDR,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
+        vgic_mmio_read_v3r_iidr, vgic_mmio_write_wi, 4,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_TYPER,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 8,
+        vgic_mmio_read_v3r_typer, vgic_mmio_write_wi, 8,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_WAKER,
         vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
