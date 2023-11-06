@@ -67,4 +67,10 @@ static inline bool pci_check_bar(const struct pci_dev *pdev,
     return is_memory_hole(start, end);
 }
 
+/* PCI passthrough is always enabled on x86 so no special handling is needed */
+static inline bool arch_pci_device_physdevop(void)
+{
+    return false;
+}
+
 #endif /* __X86_PCI_H__ */
