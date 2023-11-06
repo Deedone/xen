@@ -199,6 +199,9 @@ struct vgic_cpu {
 
     /* Cache guest interrupt ID bits */
     uint32_t num_id_bits;
+
+    /* GICR_CTLR.{ENABLE_LPIS,RWP} */
+    atomic_t ctlr;
 };
 
 static inline paddr_t vgic_cpu_base(const struct vgic_dist *vgic)
