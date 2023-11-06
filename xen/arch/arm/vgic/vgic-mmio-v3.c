@@ -42,6 +42,18 @@ unsigned long extract_bytes(uint64_t data, unsigned int offset,
     return (data >> (offset * 8)) & GENMASK_ULL(num * 8 - 1, 0);
 }
 
+uint64_t update_64bit_reg(u64 reg, unsigned int offset, unsigned int len,
+                          unsigned long val)
+{
+    int lower = (offset & 4) * 8;
+    int upper = lower + 8 * len - 1;
+
+    reg &= ~GENMASK_ULL(upper, lower);
+    val &= GENMASK_ULL(len * 8 - 1, 0);
+
+    return reg | ((u64)val << lower);
+}
+
 static int match_mpidr(u64 sgi_aff, u16 sgi_cpu_mask, struct vcpu *vcpu)
 {
     unsigned long affinity;
@@ -369,6 +381,158 @@ static unsigned long vgic_mmio_read_v3_idregs(struct vcpu *vcpu, paddr_t addr,
     return 0;
 }
 
+bool vgic_lpis_enabled(struct vcpu *vcpu)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+
+    return atomic_read(&vgic_cpu->ctlr) == GICR_CTLR_ENABLE_LPIS;
+}
+
+/* We want to avoid outer shareable. */
+u64 vgic_sanitise_shareability(u64 field)
+{
+    switch ( field )
+    {
+    case GIC_BASER_OuterShareable:
+        return GIC_BASER_InnerShareable;
+    default:
+        return field;
+    }
+}
+
+/* Avoid any inner non-cacheable mapping. */
+u64 vgic_sanitise_inner_cacheability(u64 field)
+{
+    switch ( field )
+    {
+    case GIC_BASER_CACHE_nCnB:
+    case GIC_BASER_CACHE_nC:
+        return GIC_BASER_CACHE_RaWb;
+    default:
+        return field;
+    }
+}
+
+/* Non-cacheable or same-as-inner are OK. */
+u64 vgic_sanitise_outer_cacheability(u64 field)
+{
+    switch ( field )
+    {
+    case GIC_BASER_CACHE_SameAsInner:
+    case GIC_BASER_CACHE_nC:
+        return field;
+    default:
+        return GIC_BASER_CACHE_SameAsInner;
+    }
+}
+
+u64 vgic_sanitise_field(u64 reg, u64 field_mask, int field_shift,
+                        u64 (*sanitise_fn)(u64))
+{
+    u64 field = (reg & field_mask) >> field_shift;
+
+    field     = sanitise_fn(field) << field_shift;
+    return (reg & ~field_mask) | field;
+}
+
+#define PROPBASER_RES0_MASK                                                    \
+    (GENMASK_ULL(63, 59) | GENMASK_ULL(55, 52) | GENMASK_ULL(6, 5))
+#define PENDBASER_RES0_MASK                                                    \
+    (BIT(63, ULL) | GENMASK_ULL(61, 59) | GENMASK_ULL(55, 52) |                \
+     GENMASK_ULL(15, 12) | GENMASK_ULL(6, 0))
+
+static u64 vgic_sanitise_pendbaser(u64 reg)
+{
+    reg = vgic_sanitise_field(reg, GICR_PENDBASER_SHAREABILITY_MASK,
+                              GICR_PENDBASER_SHAREABILITY_SHIFT,
+                              vgic_sanitise_shareability);
+    reg = vgic_sanitise_field(reg, GICR_PENDBASER_INNER_CACHEABILITY_MASK,
+                              GICR_PENDBASER_INNER_CACHEABILITY_SHIFT,
+                              vgic_sanitise_inner_cacheability);
+    reg = vgic_sanitise_field(reg, GICR_PENDBASER_OUTER_CACHEABILITY_MASK,
+                              GICR_PENDBASER_OUTER_CACHEABILITY_SHIFT,
+                              vgic_sanitise_outer_cacheability);
+
+    reg &= ~PENDBASER_RES0_MASK;
+
+    return reg;
+}
+
+static u64 vgic_sanitise_propbaser(u64 reg)
+{
+    reg = vgic_sanitise_field(reg, GICR_PROPBASER_SHAREABILITY_MASK,
+                              GICR_PROPBASER_SHAREABILITY_SHIFT,
+                              vgic_sanitise_shareability);
+    reg = vgic_sanitise_field(reg, GICR_PROPBASER_INNER_CACHEABILITY_MASK,
+                              GICR_PROPBASER_INNER_CACHEABILITY_SHIFT,
+                              vgic_sanitise_inner_cacheability);
+    reg = vgic_sanitise_field(reg, GICR_PROPBASER_OUTER_CACHEABILITY_MASK,
+                              GICR_PROPBASER_OUTER_CACHEABILITY_SHIFT,
+                              vgic_sanitise_outer_cacheability);
+
+    reg &= ~PROPBASER_RES0_MASK;
+    return reg;
+}
+
+static unsigned long vgic_mmio_read_propbase(struct vcpu *vcpu, paddr_t addr,
+                                             unsigned int len)
+{
+    struct vgic_dist *dist = &vcpu->domain->arch.vgic;
+
+    return extract_bytes(dist->propbaser, addr & 7, len);
+}
+
+static void vgic_mmio_write_propbase(struct vcpu *vcpu, paddr_t addr,
+                                     unsigned int len, unsigned long val)
+{
+    struct vgic_dist *dist = &vcpu->domain->arch.vgic;
+    u64 old_propbaser, propbaser;
+
+    /* Storing a value with LPIs already enabled is undefined */
+    if ( vgic_lpis_enabled(vcpu) )
+        return;
+
+    do
+    {
+        old_propbaser = dist->propbaser;
+        propbaser     = old_propbaser;
+        propbaser     = update_64bit_reg(propbaser, addr & 4, len, val);
+        propbaser     = vgic_sanitise_propbaser(propbaser);
+    } while ( cmpxchg64(&dist->propbaser, old_propbaser, propbaser) !=
+              old_propbaser );
+}
+
+static unsigned long vgic_mmio_read_pendbase(struct vcpu *vcpu, paddr_t addr,
+                                             unsigned int len)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    u64 value                 = vgic_cpu->pendbaser;
+
+    value &= ~GICR_PENDBASER_PTZ;
+
+    return extract_bytes(value, addr & 7, len);
+}
+
+static void vgic_mmio_write_pendbase(struct vcpu *vcpu, paddr_t addr,
+                                     unsigned int len, unsigned long val)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    u64 old_pendbaser, pendbaser;
+
+    /* Storing a value with LPIs already enabled is undefined */
+    if ( vgic_lpis_enabled(vcpu) )
+        return;
+
+    do
+    {
+        old_pendbaser = vgic_cpu->pendbaser;
+        pendbaser     = old_pendbaser;
+        pendbaser     = update_64bit_reg(pendbaser, addr & 4, len, val);
+        pendbaser     = vgic_sanitise_pendbaser(pendbaser);
+    } while ( cmpxchg64(&vgic_cpu->pendbaser, old_pendbaser, pendbaser) !=
+              old_pendbaser );
+}
+
 static const struct vgic_register_region vgic_v3_dist_registers[] = {
     REGISTER_DESC_WITH_LENGTH(GICD_CTLR,
         vgic_mmio_read_v3_misc, vgic_mmio_write_v3_misc,
@@ -435,10 +599,10 @@ static const struct vgic_register_region vgic_v3_rd_registers[] = {
         vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_PROPBASER,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 8,
+        vgic_mmio_read_propbase, vgic_mmio_write_propbase, 8,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_PENDBASER,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 8,
+        vgic_mmio_read_pendbase, vgic_mmio_write_pendbase, 8,
         VGIC_ACCESS_64bit | VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_INVLPIR,
         vgic_mmio_read_raz, vgic_mmio_write_wi, 8,
