@@ -64,4 +64,10 @@ bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end);
 struct rangeset;
 int pci_sanitize_bar_memory(struct rangeset *r);
 
+/* PCI passthrough is always enabled on x86 so no special handling is needed */
+static inline bool arch_pci_device_physdevop(void)
+{
+    return false;
+}
+
 #endif /* __X86_PCI_H__ */
