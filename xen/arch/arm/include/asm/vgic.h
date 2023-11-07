@@ -325,6 +325,35 @@ extern bool vgic_migrate_irq(struct vcpu *old, struct vcpu *new, unsigned int ir
 extern void vgic_check_inflight_irqs_pending(struct domain *d, struct vcpu *v,
                                              unsigned int rank, uint32_t r);
 
+#ifdef CONFIG_HAS_ITS
+/*
+ * Describes a device which is using the ITS and is used by a guest.
+ * Since device IDs are per ITS (in contrast to vLPIs, which are per
+ * guest), we have to differentiate between different virtual ITSes.
+ * We use the doorbell address here, since this is a nice architectural
+ * property of MSIs in general and we can easily get to the base address
+ * of the ITS and look that up.
+ */
+struct vgic_its_device {
+    struct rb_node rbnode;
+    struct host_its *hw_its;
+    void *itt_addr;
+    paddr_t guest_doorbell;             /* Identifies the virtual ITS */
+    uint32_t host_devid;
+    uint32_t guest_devid;
+    uint32_t eventids;                  /* Number of event IDs (MSIs) */
+    uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
+    struct pending_irq *pend_irqs;      /* One struct per event */
+};
+
+struct vgic_its_device *vgic_its_alloc_device(int nr_events);
+void vgic_its_free_device(struct vgic_its_device *its_dev);
+int vgic_its_add_device(struct domain *d, struct vgic_its_device *its_dev);
+void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev);
+struct vgic_its_device* vgic_its_get_device(struct domain *d, paddr_t vdoorbell,
+                                         uint32_t vdevid);
+#endif /* CONFIG_HAS_ITS */
+
 #endif /* !CONFIG_NEW_VGIC */
 
 /*** Common VGIC functions used by Xen arch code ****/

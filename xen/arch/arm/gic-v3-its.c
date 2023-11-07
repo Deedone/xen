@@ -13,7 +13,6 @@
 #include <xen/iocap.h>
 #include <xen/libfdt/libfdt.h>
 #include <xen/mm.h>
-#include <xen/rbtree.h>
 #include <xen/sched.h>
 #include <xen/sizes.h>
 #include <asm/gic.h>
@@ -30,25 +29,6 @@
  */
 LIST_HEAD(host_its_list);
 
-/*
- * Describes a device which is using the ITS and is used by a guest.
- * Since device IDs are per ITS (in contrast to vLPIs, which are per
- * guest), we have to differentiate between different virtual ITSes.
- * We use the doorbell address here, since this is a nice architectural
- * property of MSIs in general and we can easily get to the base address
- * of the ITS and look that up.
- */
-struct its_device {
-    struct rb_node rbnode;
-    struct host_its *hw_its;
-    void *itt_addr;
-    paddr_t guest_doorbell;             /* Identifies the virtual ITS */
-    uint32_t host_devid;
-    uint32_t guest_devid;
-    uint32_t eventids;                  /* Number of event IDs (MSIs) */
-    uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
-    struct pending_irq *pend_irqs;      /* One struct per event */
-};
 
 bool gicv3_its_host_has_its(void)
 {
@@ -509,7 +489,7 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
  * TODO: Investigate the interaction when a guest removes a device while
  * some LPIs are still in flight.
  */
-static int remove_mapped_guest_device(struct its_device *dev)
+static int remove_mapped_guest_device(struct vgic_its_device *dev)
 {
     int ret = 0;
     unsigned int i;
@@ -530,10 +510,7 @@ static int remove_mapped_guest_device(struct its_device *dev)
         printk(XENLOG_WARNING "Can't unmap host ITS device 0x%x\n",
                dev->host_devid);
 
-    xfree(dev->itt_addr);
-    xfree(dev->pend_irqs);
-    xfree(dev->host_lpi_blocks);
-    xfree(dev);
+    vgic_its_free_device(dev);
 
     return 0;
 }
@@ -549,24 +526,6 @@ static struct host_its *gicv3_its_find_by_doorbell(paddr_t doorbell_address)
     }
 
     return NULL;
-}
-
-static int compare_its_guest_devices(struct its_device *dev,
-                                     paddr_t vdoorbell, uint32_t vdevid)
-{
-    if ( dev->guest_doorbell < vdoorbell )
-        return -1;
-
-    if ( dev->guest_doorbell > vdoorbell )
-        return 1;
-
-    if ( dev->guest_devid < vdevid )
-        return -1;
-
-    if ( dev->guest_devid > vdevid )
-        return 1;
-
-    return 0;
 }
 
 /*
@@ -616,8 +575,7 @@ int gicv3_its_map_guest_device(struct domain *d,
 {
     void *itt_addr = NULL;
     struct host_its *hw_its;
-    struct its_device *dev = NULL;
-    struct rb_node **new = &d->arch.vgic.its_devices.rb_node, *parent = NULL;
+    struct vgic_its_device *temp, *dev = NULL;
     int i, ret = -ENOENT;      /* "i" must be signed to check for >= 0 below. */
 
     hw_its = gicv3_its_find_by_doorbell(host_doorbell);
@@ -643,36 +601,22 @@ int gicv3_its_map_guest_device(struct domain *d,
 
     /* check for already existing mappings */
     spin_lock(&d->arch.vgic.its_devices_lock);
-    while ( *new )
+    temp = vgic_its_get_device(d, guest_doorbell, guest_devid);
+    if ( temp )
     {
-        struct its_device *temp;
-        int cmp;
+        if ( !valid )
+            vgic_its_delete_device(d, temp);
 
-        temp = rb_entry(*new, struct its_device, rbnode);
+        spin_unlock(&d->arch.vgic.its_devices_lock);
 
-        parent = *new;
-        cmp = compare_its_guest_devices(temp, guest_doorbell, guest_devid);
-        if ( !cmp )
+        if ( valid )
         {
-            if ( !valid )
-                rb_erase(&temp->rbnode, &d->arch.vgic.its_devices);
-
-            spin_unlock(&d->arch.vgic.its_devices_lock);
-
-            if ( valid )
-            {
-                printk(XENLOG_G_WARNING "d%d tried to remap guest ITS device 0x%x to host device 0x%x\n",
-                        d->domain_id, guest_devid, host_devid);
-                return -EBUSY;
-            }
-
-            return remove_mapped_guest_device(temp);
+            printk(XENLOG_G_WARNING "d%d tried to remap guest ITS device 0x%x to host device 0x%x\n",
+                    d->domain_id, guest_devid, host_devid);
+            return -EBUSY;
         }
 
-        if ( cmp > 0 )
-            new = &((*new)->rb_left);
-        else
-            new = &((*new)->rb_right);
+        return remove_mapped_guest_device(temp);
     }
 
     if ( !valid )
@@ -685,7 +629,7 @@ int gicv3_its_map_guest_device(struct domain *d,
     if ( !itt_addr )
         goto out_unlock;
 
-    dev = xzalloc(struct its_device);
+    dev = vgic_its_alloc_device(nr_events);
     if ( !dev )
         goto out_unlock;
 
@@ -701,13 +645,6 @@ int gicv3_its_map_guest_device(struct domain *d,
      * See the mailing list discussion for some background:
      * https://lists.xen.org/archives/html/xen-devel/2017-03/msg03645.html
      */
-    dev->pend_irqs = xzalloc_array(struct pending_irq, nr_events);
-    if ( !dev->pend_irqs )
-        goto out_unlock;
-
-    dev->host_lpi_blocks = xzalloc_array(uint32_t, nr_events);
-    if ( !dev->host_lpi_blocks )
-        goto out_unlock;
 
     ret = its_send_cmd_mapd(hw_its, host_devid, fls(nr_events - 1),
                             virt_to_maddr(itt_addr), true);
@@ -721,8 +658,7 @@ int gicv3_its_map_guest_device(struct domain *d,
     dev->host_devid = host_devid;
     dev->eventids = nr_events;
 
-    rb_link_node(&dev->rbnode, parent, new);
-    rb_insert_color(&dev->rbnode, &d->arch.vgic.its_devices);
+    vgic_its_add_device(d, dev);
 
     spin_unlock(&d->arch.vgic.its_devices_lock);
 
@@ -768,117 +704,27 @@ out_unlock:
 
 out:
     if ( dev )
-    {
-        xfree(dev->pend_irqs);
-        xfree(dev->host_lpi_blocks);
-    }
+        vgic_its_free_device(dev);
+
     xfree(itt_addr);
-    xfree(dev);
 
     return ret;
 }
 
-/* Must be called with the its_device_lock held. */
-static struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
-                                         uint32_t vdevid)
+uint32_t gicv3_its_get_host_lpi(struct domain *d, paddr_t vdoorbell_address,
+                                     uint32_t vdevid, uint32_t eventid)
 {
-    struct rb_node *node = d->arch.vgic.its_devices.rb_node;
-    struct its_device *dev;
-
-    ASSERT(spin_is_locked(&d->arch.vgic.its_devices_lock));
-
-    while (node)
-    {
-        int cmp;
-
-        dev = rb_entry(node, struct its_device, rbnode);
-        cmp = compare_its_guest_devices(dev, vdoorbell, vdevid);
-
-        if ( !cmp )
-            return dev;
-
-        if ( cmp > 0 )
-            node = node->rb_left;
-        else
-            node = node->rb_right;
-    }
-
-    return NULL;
-}
-
-static struct pending_irq *get_event_pending_irq(struct domain *d,
-                                                 paddr_t vdoorbell_address,
-                                                 uint32_t vdevid,
-                                                 uint32_t eventid,
-                                                 uint32_t *host_lpi)
-{
-    struct its_device *dev;
-    struct pending_irq *pirq = NULL;
+    struct vgic_its_device *dev;
+    uint32_t host_lpi = INVALID_LPI;
 
     spin_lock(&d->arch.vgic.its_devices_lock);
-    dev = get_its_device(d, vdoorbell_address, vdevid);
-    if ( dev && eventid < dev->eventids )
-    {
-        pirq = &dev->pend_irqs[eventid];
-        if ( host_lpi )
-            *host_lpi = dev->host_lpi_blocks[eventid / LPI_BLOCK] +
-                        (eventid % LPI_BLOCK);
-    }
+    dev = vgic_its_get_device(d, vdoorbell_address, vdevid);
+    if ( dev )
+        host_lpi = dev->host_lpi_blocks[eventid / LPI_BLOCK] +
+                   (eventid % LPI_BLOCK);
+
     spin_unlock(&d->arch.vgic.its_devices_lock);
-
-    return pirq;
-}
-
-struct pending_irq *gicv3_its_get_event_pending_irq(struct domain *d,
-                                                    paddr_t vdoorbell_address,
-                                                    uint32_t vdevid,
-                                                    uint32_t eventid)
-{
-    return get_event_pending_irq(d, vdoorbell_address, vdevid, eventid, NULL);
-}
-
-int gicv3_remove_guest_event(struct domain *d, paddr_t vdoorbell_address,
-                             uint32_t vdevid, uint32_t eventid)
-{
-    uint32_t host_lpi = INVALID_LPI;
-
-    if ( !get_event_pending_irq(d, vdoorbell_address, vdevid, eventid,
-                                &host_lpi) )
-        return -EINVAL;
-
-    if ( host_lpi == INVALID_LPI )
-        return -EINVAL;
-
-    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
-
-    return 0;
-}
-
-/*
- * Connects the event ID for an already assigned device to the given VCPU/vLPI
- * pair. The corresponding physical LPI is already mapped on the host side
- * (when assigning the physical device to the guest), so we just connect the
- * target VCPU/vLPI pair to that interrupt to inject it properly if it fires.
- * Returns a pointer to the already allocated struct pending_irq that is
- * meant to be used by that event.
- */
-struct pending_irq *gicv3_assign_guest_event(struct domain *d,
-                                             paddr_t vdoorbell_address,
-                                             uint32_t vdevid, uint32_t eventid,
-                                             uint32_t virt_lpi)
-{
-    struct pending_irq *pirq;
-    uint32_t host_lpi = INVALID_LPI;
-
-    pirq = get_event_pending_irq(d, vdoorbell_address, vdevid, eventid,
-                                 &host_lpi);
-
-    if ( !pirq )
-        return NULL;
-
-    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, virt_lpi);
-
-    return pirq;
+    return host_lpi;
 }
 
 int gicv3_its_deny_access(struct domain *d)

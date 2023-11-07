@@ -128,26 +128,6 @@ uint64_t gicv3_get_redist_address(unsigned int cpu, bool use_pta)
         return per_cpu(lpi_redist, cpu).redist_id << 16;
 }
 
-void vgic_vcpu_inject_lpi(struct domain *d, unsigned int virq)
-{
-    /*
-     * TODO: this assumes that the struct pending_irq stays valid all of
-     * the time. We cannot properly protect this with the current locking
-     * scheme, but the future per-IRQ lock will solve this problem.
-     */
-    struct pending_irq *p = irq_to_pending(d->vcpu[0], virq);
-    unsigned int vcpu_id;
-
-    if ( !p )
-        return;
-
-    vcpu_id = ACCESS_ONCE(p->lpi_vcpu_id);
-    if ( vcpu_id >= d->max_vcpus )
-          return;
-
-    vgic_inject_irq(d, d->vcpu[vcpu_id], virq, true);
-}
-
 /*
  * Handle incoming LPIs, which are a bit special, because they are potentially
  * numerous and also only get injected into guests. Treat them specially here,
