@@ -35,6 +35,7 @@
 #define GITS_BASER5                     0x128
 #define GITS_BASER6                     0x130
 #define GITS_BASER7                     0x138
+#define GITS_IDREGS_BASE                0xffd0
 #define GITS_PIDR2                      GICR_PIDR2
 
 /* Register bits */

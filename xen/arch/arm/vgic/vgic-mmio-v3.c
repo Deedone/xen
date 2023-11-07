@@ -22,6 +22,16 @@
 #include "vgic.h"
 #include "vgic-mmio.h"
 
+bool vgic_has_its(struct domain *d)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+
+    if ( dist->version != GIC_V3 )
+        return false;
+
+    return false;
+}
+
 static struct vcpu *mpidr_to_vcpu(struct domain *d, unsigned long mpidr)
 {
     struct vcpu *vcpu;
@@ -381,6 +391,46 @@ static unsigned long vgic_mmio_read_v3_idregs(struct vcpu *vcpu, paddr_t addr,
     return 0;
 }
 
+static unsigned long vgic_mmio_read_v3r_ctlr(struct vcpu *vcpu, paddr_t addr,
+                                             unsigned int len)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    unsigned long val;
+
+    val = atomic_read(&vgic_cpu->ctlr);
+    val |= GICR_CTLR_IR | GICR_CTLR_CES;
+
+    return val;
+}
+
+static void vgic_mmio_write_v3r_ctlr(struct vcpu *vcpu, paddr_t addr,
+                                     unsigned int len, unsigned long val)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    uint32_t ctlr;
+
+    if ( !vgic_has_its(vcpu->domain) )
+        return;
+
+    if ( !(val & GICR_CTLR_ENABLE_LPIS) )
+    {
+        /*
+		 * Don't disable if RWP is set, as there already an
+		 * ongoing disable. Funky guest...
+		 */
+        ctlr = atomic_cmpxchg(&vgic_cpu->ctlr, GICR_CTLR_ENABLE_LPIS,
+                              GICR_CTLR_RWP);
+        if ( ctlr != GICR_CTLR_ENABLE_LPIS )
+            return;
+    }
+    else
+    {
+        ctlr = atomic_cmpxchg(&vgic_cpu->ctlr, 0, GICR_CTLR_ENABLE_LPIS);
+        if ( ctlr != 0 )
+            return;
+    }
+}
+
 bool vgic_lpis_enabled(struct vcpu *vcpu)
 {
     struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
@@ -584,7 +634,7 @@ static const struct vgic_register_region vgic_v3_dist_registers[] = {
 static const struct vgic_register_region vgic_v3_rd_registers[] = {
     /* RD_base registers */
     REGISTER_DESC_WITH_LENGTH(GICR_CTLR,
-        vgic_mmio_read_raz, vgic_mmio_write_wi, 4,
+        vgic_mmio_read_v3r_ctlr, vgic_mmio_write_v3r_ctlr, 4,
         VGIC_ACCESS_32bit),
     REGISTER_DESC_WITH_LENGTH(GICR_STATUSR,
         vgic_mmio_read_raz, vgic_mmio_write_wi, 4,

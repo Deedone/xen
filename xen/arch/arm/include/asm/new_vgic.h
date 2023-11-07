@@ -34,6 +34,7 @@
 #define VGIC_MIN_LPI            8192
 #define VGIC_V3_DIST_SIZE       SZ_64K
 #define VGIC_V3_REDIST_SIZE     (2 * SZ_64K)
+#define VGIC_V3_ITS_SIZE        (2 * SZ_64K)
 
 #define irq_is_ppi(irq) ((irq) >= VGIC_NR_SGIS && (irq) < VGIC_NR_PRIVATE_IRQS)
 #define irq_is_spi(irq) ((irq) >= VGIC_NR_PRIVATE_IRQS && \
@@ -95,6 +96,7 @@ struct vgic_irq {
 enum iodev_type {
     IODEV_DIST,
     IODEV_REDIST,
+    IODEV_ITS,
 };
 
 struct vgic_redist_region {
@@ -111,6 +113,16 @@ struct vgic_io_device {
     const struct vgic_register_region *regions;
     enum iodev_type iodev_type;
     unsigned int nr_regions;
+    struct vgic_its *its;
+};
+
+struct vgic_its {
+    /* The base address of the ITS control register frame */
+    paddr_t vgic_its_base;
+
+    bool enabled;
+    struct vgic_io_device iodev;
+    paddr_t doorbell_address;
 };
 
 struct vgic_dist {
@@ -150,6 +162,7 @@ struct vgic_dist {
     struct vgic_io_device   dist_iodev;
 
     bool                has_its;
+    struct vgic_its     *its;
 
     /*
      * Contains the attributes and gpa of the LPI configuration table.
