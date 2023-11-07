@@ -266,6 +266,200 @@ static bool write_itte(struct virt_its *its, uint32_t devid,
     return true;
 }
 
+static struct pending_irq *get_event_pending_irq(struct domain *d,
+                                                 paddr_t vdoorbell_address,
+                                                 uint32_t vdevid,
+                                                 uint32_t eventid)
+{
+    struct vgic_its_device *dev;
+    struct pending_irq *pirq = NULL;
+
+    spin_lock(&d->arch.vgic.its_devices_lock);
+    dev = vgic_its_get_device(d, vdoorbell_address, vdevid);
+    if ( dev && eventid < dev->eventids )
+        pirq = &dev->pend_irqs[eventid];
+
+    spin_unlock(&d->arch.vgic.its_devices_lock);
+
+    return pirq;
+}
+
+static int remove_guest_event(struct domain *d, paddr_t vdoorbell_address,
+                             uint32_t vdevid, uint32_t eventid)
+{
+    uint32_t host_lpi = INVALID_LPI;
+
+    host_lpi = gicv3_its_get_host_lpi(d, vdoorbell_address, vdevid, eventid);
+    if ( host_lpi == INVALID_LPI )
+        return -EINVAL;
+
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
+
+    return 0;
+}
+
+/*
+ * Connects the event ID for an already assigned device to the given VCPU/vLPI
+ * pair. The corresponding physical LPI is already mapped on the host side
+ * (when assigning the physical device to the guest), so we just connect the
+ * target VCPU/vLPI pair to that interrupt to inject it properly if it fires.
+ * Returns a pointer to the already allocated struct pending_irq that is
+ * meant to be used by that event.
+ */
+static struct pending_irq *assign_guest_event(struct domain *d,
+                                             paddr_t vdoorbell_address,
+                                             uint32_t vdevid, uint32_t eventid,
+                                             uint32_t virt_lpi)
+{
+    struct pending_irq *pirq;
+    uint32_t host_lpi = INVALID_LPI;
+
+    host_lpi = gicv3_its_get_host_lpi(d, vdoorbell_address, vdevid, eventid);
+    if ( host_lpi == INVALID_LPI )
+        return NULL;
+    pirq = get_event_pending_irq(d, vdoorbell_address, vdevid, eventid);
+    if ( !pirq )
+        return NULL;
+
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, virt_lpi);
+
+    return pirq;
+}
+
+static int compare_its_guest_devices(struct vgic_its_device *dev,
+                                     paddr_t vdoorbell, uint32_t vdevid)
+{
+    if ( dev->guest_doorbell < vdoorbell )
+        return -1;
+
+    if ( dev->guest_doorbell > vdoorbell )
+        return 1;
+
+    if ( dev->guest_devid < vdevid )
+        return -1;
+
+    if ( dev->guest_devid > vdevid )
+        return 1;
+
+    return 0;
+}
+
+/* Must be called with the its_device_lock held. */
+struct vgic_its_device *vgic_its_get_device(struct domain *d, paddr_t vdoorbell,
+                                         uint32_t vdevid)
+{
+    struct rb_node *node = d->arch.vgic.its_devices.rb_node;
+    struct vgic_its_device *dev;
+
+    ASSERT(spin_is_locked(&d->arch.vgic.its_devices_lock));
+
+    while (node)
+    {
+        int cmp;
+
+        dev = rb_entry(node, struct vgic_its_device, rbnode);
+        cmp = compare_its_guest_devices(dev, vdoorbell, vdevid);
+
+        if ( !cmp )
+            return dev;
+
+        if ( cmp > 0 )
+            node = node->rb_left;
+        else
+            node = node->rb_right;
+    }
+
+    return NULL;
+}
+
+struct vgic_its_device *vgic_its_alloc_device(int nr_events)
+{
+    struct vgic_its_device *dev;
+
+    dev = xzalloc(struct vgic_its_device);
+    if ( !dev )
+        goto fail;
+
+    dev->pend_irqs = xzalloc_array(struct pending_irq, nr_events);
+    if ( !dev->pend_irqs )
+        goto fail_pend;
+
+    dev->host_lpi_blocks = xzalloc_array(uint32_t, nr_events);
+    if ( !dev->host_lpi_blocks )
+        goto fail_host_lpi;
+    
+    return dev;
+fail_host_lpi:
+    xfree(dev->pend_irqs);
+fail_pend:
+    xfree(dev);
+fail:
+    return NULL;
+}
+
+void vgic_its_free_device(struct vgic_its_device *its_dev)
+{
+    xfree(its_dev->pend_irqs);
+    xfree(its_dev->host_lpi_blocks);
+    xfree(its_dev);
+}
+
+int vgic_its_add_device(struct domain *d, struct vgic_its_device *its_dev)
+{
+    struct rb_node **new = &d->arch.vgic.its_devices.rb_node, *parent = NULL;
+    while ( *new )
+    {
+        struct vgic_its_device *temp;
+        int cmp;
+
+        temp = rb_entry(*new, struct vgic_its_device, rbnode);
+
+        parent = *new;
+        cmp = compare_its_guest_devices(temp, its_dev->guest_doorbell,
+                                        its_dev->guest_devid);
+        if ( !cmp )
+        {
+            printk(XENLOG_ERR "Trying to add an already existing ITS device vdoorbell %lx vdevid %d\n", 
+                its_dev->guest_doorbell, its_dev->guest_devid);
+            return -EINVAL;
+        }
+
+        if ( cmp > 0 )
+            new = &((*new)->rb_left);
+        else
+            new = &((*new)->rb_right);
+    }
+
+    rb_link_node(&its_dev->rbnode, parent, new);
+    rb_insert_color(&its_dev->rbnode, &d->arch.vgic.its_devices);
+    return 0;
+}
+
+void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev)
+{
+    rb_erase(&its_dev->rbnode, &d->arch.vgic.its_devices);
+}
+
+void vgic_vcpu_inject_lpi(struct domain *d, unsigned int virq)
+{
+    /*
+     * TODO: this assumes that the struct pending_irq stays valid all of
+     * the time. We cannot properly protect this with the current locking
+     * scheme, but the future per-IRQ lock will solve this problem.
+     */
+    struct pending_irq *p = irq_to_pending(d->vcpu[0], virq);
+    unsigned int vcpu_id;
+
+    if ( !p )
+        return;
+
+    vcpu_id = ACCESS_ONCE(p->lpi_vcpu_id);
+    if ( vcpu_id >= d->max_vcpus )
+          return;
+
+    vgic_inject_irq(d, d->vcpu[vcpu_id], virq, true);
+}
+
 /**************************************
  * Functions that handle ITS commands *
  **************************************/
@@ -349,7 +543,7 @@ static int its_handle_clear(struct virt_its *its, uint64_t *cmdptr)
     if ( !read_itte(its, devid, eventid, &vcpu, &vlpi) )
         goto out_unlock;
 
-    p = gicv3_its_get_event_pending_irq(its->d, its->doorbell_address,
+    p = get_event_pending_irq(its->d, its->doorbell_address,
                                         devid, eventid);
     /* Protect against an invalid LPI number. */
     if ( unlikely(!p) )
@@ -471,7 +665,7 @@ static int its_handle_inv(struct virt_its *its, uint64_t *cmdptr)
     if ( vlpi == INVALID_LPI )
         goto out_unlock_its;
 
-    p = gicv3_its_get_event_pending_irq(d, its->doorbell_address,
+    p = get_event_pending_irq(d, its->doorbell_address,
                                         devid, eventid);
     if ( unlikely(!p) )
         goto out_unlock_its;
@@ -615,7 +809,7 @@ static int its_discard_event(struct virt_its *its,
     spin_unlock_irqrestore(&vcpu->arch.vgic.lock, flags);
 
     /* Remove the corresponding host LPI entry */
-    return gicv3_remove_guest_event(its->d, its->doorbell_address,
+    return remove_guest_event(its->d, its->doorbell_address,
                                     vdevid, vevid);
 }
 
@@ -744,7 +938,7 @@ static int its_handle_mapti(struct virt_its *its, uint64_t *cmdptr)
      * determined by the same device ID and event ID on the host side.
      * This returns us the corresponding, still unused pending_irq.
      */
-    pirq = gicv3_assign_guest_event(its->d, its->doorbell_address,
+    pirq = assign_guest_event(its->d, its->doorbell_address,
                                     devid, eventid, intid);
     if ( !pirq )
         goto out_remove_mapping;
@@ -785,7 +979,7 @@ static int its_handle_mapti(struct virt_its *its, uint64_t *cmdptr)
      * cleanup and return an error here in any case.
      */
 out_remove_host_entry:
-    gicv3_remove_guest_event(its->d, its->doorbell_address, devid, eventid);
+    remove_guest_event(its->d, its->doorbell_address, devid, eventid);
 
 out_remove_mapping:
     spin_lock(&its->its_lock);
@@ -819,7 +1013,7 @@ static int its_handle_movi(struct virt_its *its, uint64_t *cmdptr)
     if ( !nvcpu )
         goto out_unlock;
 
-    p = gicv3_its_get_event_pending_irq(its->d, its->doorbell_address,
+    p = get_event_pending_irq(its->d, its->doorbell_address,
                                         devid, eventid);
     if ( unlikely(!p) )
         goto out_unlock;
