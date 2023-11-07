@@ -112,6 +112,9 @@
 #define GICR_NSACR                   (0x0E00)
 
 #define GICR_CTLR_ENABLE_LPIS        (1U << 0)
+#define GICR_CTLR_CES                (1UL << 1)
+#define GICR_CTLR_IR                 (1UL << 2)
+#define GICR_CTLR_RWP                (1UL << 3)
 
 #define GICR_TYPER_PLPIS             (1U << 0)
 #define GICR_TYPER_VLPIS             (1U << 1)
