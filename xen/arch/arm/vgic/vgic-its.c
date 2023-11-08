@@ -63,6 +63,47 @@ static struct vgic_its_device *find_its_device(struct vgic_its *its, u32 device_
 #define VGIC_ITS_TYPER_DEVBITS          16
 #define VGIC_ITS_TYPER_ITE_SIZE         8
 
+/*
+ * Create a snapshot of the current LPIs targeting @vcpu, so that we can
+ * enumerate those LPIs without holding any lock.
+ * Returns their number and puts the kmalloc'ed array into intid_ptr.
+ */
+int vgic_copy_lpi_list(struct domain *d, struct vcpu *vcpu, u32 **intid_ptr)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+    struct vgic_irq *irq;
+    unsigned long flags;
+    u32 *intids;
+    int irq_count, i = 0;
+
+    /*
+     * There is an obvious race between allocating the array and LPIs
+     * being mapped/unmapped. If we ended up here as a result of a
+     * command, we're safe (locks are held, preventing another
+     * command). If coming from another path (such as enabling LPIs),
+     * we must be careful not to overrun the array.
+     */
+    irq_count = ACCESS_ONCE(dist->lpi_list_count);
+    intids    = xmalloc_array(u32, irq_count);
+    if ( !intids )
+        return -ENOMEM;
+
+    spin_lock_irqsave(&dist->lpi_list_lock, flags);
+    list_for_each_entry(irq, &dist->lpi_list_head, lpi_list)
+    {
+        if ( i == irq_count )
+            break;
+        /* We don't need to "get" the IRQ, as we hold the list lock. */
+        if ( vcpu && irq->target_vcpu != vcpu )
+            continue;
+        intids[i++] = irq->intid;
+    }
+    spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
+
+    *intid_ptr = intids;
+    return i;
+}
+
 /* Requires the its_lock to be held. */
 static void its_free_ite(struct domain *d, struct its_ite *ite)
 {
@@ -282,6 +323,62 @@ static unsigned long vgic_mmio_read_its_iidr(struct domain *d,
     val = (its->abi_rev << GITS_IIDR_REV_SHIFT) & GITS_IIDR_REV_MASK;
     val |= (PRODUCT_ID_KVM << GITS_IIDR_PRODUCTID_SHIFT) | IMPLEMENTER_ARM;
     return val;
+}
+
+/*
+ * Sync the pending table pending bit of LPIs targeting @vcpu
+ * with our own data structures. This relies on the LPI being
+ * mapped before.
+ */
+static int its_sync_lpi_pending_table(struct vcpu *vcpu)
+{
+    paddr_t pendbase = GICR_PENDBASER_ADDRESS(vcpu->arch.vgic.pendbaser);
+    struct vgic_irq *irq;
+    int last_byte_offset = -1;
+    int ret              = 0;
+    u32 *intids;
+    int nr_irqs, i;
+    unsigned long flags;
+    u8 pendmask;
+
+    nr_irqs = vgic_copy_lpi_list(vcpu->domain, vcpu, &intids);
+    if ( nr_irqs < 0 )
+        return nr_irqs;
+
+    for ( i = 0; i < nr_irqs; i++ )
+    {
+        int byte_offset, bit_nr;
+
+        byte_offset = intids[i] / BITS_PER_BYTE;
+        bit_nr      = intids[i] % BITS_PER_BYTE;
+
+        /*
+         * For contiguously allocated LPIs chances are we just read
+         * this very same byte in the last iteration. Reuse that.
+         */
+        if ( byte_offset != last_byte_offset )
+        {
+            ret = access_guest_memory_by_gpa(vcpu->domain,
+                                             pendbase + byte_offset, &pendmask,
+                                             1, false);
+            if ( ret )
+            {
+                xfree(intids);
+                return ret;
+            }
+            last_byte_offset = byte_offset;
+        }
+
+        irq = vgic_get_irq(vcpu->domain, NULL, intids[i]);
+        spin_lock_irqsave(&irq->irq_lock, flags);
+        irq->pending_latch = pendmask & (1U << bit_nr);
+        vgic_queue_irq_unlock(vcpu->domain, irq, flags);
+        vgic_put_irq(vcpu->domain, irq);
+    }
+
+    xfree(intids);
+
+    return ret;
 }
 
 static unsigned long vgic_mmio_read_its_typer(struct domain *d,
@@ -563,6 +660,13 @@ static struct vgic_register_region its_registers[] = {
                         vgic_mmio_read_its_idregs, its_mmio_write_wi, 0x30,
                         VGIC_ACCESS_32bit),
 };
+
+/* This is called on setting the LPI enable bit in the redistributor. */
+void vgic_enable_lpis(struct vcpu *vcpu)
+{
+    if ( !(vcpu->arch.vgic.pendbaser & GICR_PENDBASER_PTZ) )
+        its_sync_lpi_pending_table(vcpu);
+}
 
 static int vgic_register_its_iodev(struct domain *d, struct vgic_its *its,
                                    u64 addr)
