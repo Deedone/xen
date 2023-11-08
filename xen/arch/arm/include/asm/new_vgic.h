@@ -122,7 +122,24 @@ struct vgic_its {
 
     bool enabled;
     struct vgic_io_device iodev;
+    struct list_head device_list;
     paddr_t doorbell_address;
+};
+
+struct vgic_its_device {
+    struct list_head dev_list;
+    struct domain *d;
+
+    /* the head for the list of ITTEs */
+    struct list_head itt_head;
+    u32 num_eventid_bits;
+    void* itt_addr;
+    struct host_its *hw_its;
+    paddr_t guest_doorbell;             /* Identifies the virtual ITS */
+    uint32_t host_devid;
+    uint32_t guest_devid;
+    uint32_t eventids;                  /* Number of event IDs (MSIs) */
+    uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
 };
 
 struct vgic_dist {
@@ -171,6 +188,7 @@ struct vgic_dist {
      * GICv3 spec: 6.1.2 "LPI Configuration tables"
      */
     uint64_t            propbaser;
+    spinlock_t          its_devices_lock; /* Protects the its_devices list */
 
     /* Protects the lpi_list and the count value below. */
     spinlock_t          lpi_list_lock;
@@ -226,6 +244,15 @@ static inline paddr_t vgic_dist_base(const struct vgic_dist *vgic)
 {
     return vgic->dbase;
 }
+
+#ifdef CONFIG_HAS_ITS
+struct vgic_its_device *vgic_its_alloc_device(int nr_events);
+void vgic_its_free_device(struct vgic_its_device *its_dev);
+int vgic_its_add_device(struct domain *d, struct vgic_its_device *its_dev);
+void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev);
+struct vgic_its_device* vgic_its_get_device(struct domain *d, paddr_t vdoorbell,
+                                         uint32_t vdevid);
+#endif
 
 #endif /* __ASM_ARM_NEW_VGIC_H */
 
