@@ -44,6 +44,14 @@ struct its_ite {
     u32 event_id;
 };
 
+struct vgic_translation_cache_entry {
+    struct list_head entry;
+    paddr_t db;
+    u32 devid;
+    u32 eventid;
+    struct vgic_irq *irq;
+};
+
 /*
  * Find and returns a device in the device table for an ITS.
  * Must be called with the its_devices_lock mutex held.
@@ -152,6 +160,144 @@ int vgic_copy_lpi_list(struct domain *d, struct vcpu *vcpu, u32 **intid_ptr)
     return i;
 }
 
+void __vgic_put_lpi_locked(struct domain *d, struct vgic_irq *irq)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+
+    if ( !atomic_dec_and_test(&irq->refcount) )
+    {
+        return;
+    };
+
+    list_del(&irq->lpi_list);
+    dist->lpi_list_count--;
+
+    xfree(irq);
+}
+
+static struct vgic_irq *__vgic_its_check_cache(struct vgic_dist *dist,
+                                               paddr_t db, u32 devid,
+                                               u32 eventid)
+{
+    struct vgic_translation_cache_entry *cte, *fcte;
+
+    list_for_each_entry(cte, &dist->lpi_translation_cache, entry)
+    {
+        /*
+         * If we hit a NULL entry, there is nothing after this
+         * point.
+         */
+        if ( !cte->irq )
+            break;
+
+        if ( cte->db != db || cte->devid != devid || cte->eventid != eventid )
+            continue;
+
+        /*
+         * Move this entry to the head, as it is the most
+         * recently used.
+         */
+        fcte = list_first_entry(&dist->lpi_translation_cache,
+                                struct vgic_translation_cache_entry, entry);
+
+        if ( fcte->irq != cte->irq )
+            list_move(&cte->entry, &dist->lpi_translation_cache);
+
+        return cte->irq;
+    }
+
+    return NULL;
+}
+
+static struct vgic_irq *vgic_its_check_cache(struct domain *d, paddr_t db,
+					     u32 devid, u32 eventid)
+{
+	struct vgic_dist *dist = &d->arch.vgic;
+	struct vgic_irq *irq;
+
+	spin_lock(&dist->lpi_list_lock);
+	irq = __vgic_its_check_cache(dist, db, devid, eventid);
+	spin_unlock(&dist->lpi_list_lock);
+
+	return irq;
+}
+
+static void vgic_its_cache_translation(struct domain *d, struct vgic_its *its,
+                                       u32 devid, u32 eventid,
+                                       struct vgic_irq *irq)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+    struct vgic_translation_cache_entry *cte;
+    unsigned long flags;
+    paddr_t db;
+
+    /* Do not cache a directly injected interrupt */
+    if ( irq->hw )
+        return;
+
+    spin_lock_irqsave(&dist->lpi_list_lock, flags);
+
+    if ( unlikely(list_empty(&dist->lpi_translation_cache)) )
+        goto out;
+
+    /*
+     * We could have raced with another CPU caching the same
+     * translation behind our back, so let's check it is not in
+     * already
+     */
+    db = its->vgic_its_base + GITS_TRANSLATER;
+    if ( __vgic_its_check_cache(dist, db, devid, eventid) )
+        goto out;
+
+    /* Always reuse the last entry (LRU policy) */
+    cte = list_last_entry(&dist->lpi_translation_cache, typeof(*cte), entry);
+
+    /*
+     * Caching the translation implies having an extra reference
+     * to the interrupt, so drop the potential reference on what
+     * was in the cache, and increment it on the new interrupt.
+     */
+    if ( cte->irq )
+        __vgic_put_lpi_locked(d, cte->irq);
+
+    vgic_get_irq_kref(irq);
+
+    cte->db      = db;
+    cte->devid   = devid;
+    cte->eventid = eventid;
+    cte->irq     = irq;
+
+    /* Move the new translation to the head of the list */
+    list_move(&cte->entry, &dist->lpi_translation_cache);
+
+out:
+    spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
+}
+
+void vgic_its_invalidate_cache(struct domain *d)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+    struct vgic_translation_cache_entry *cte;
+    unsigned long flags;
+
+    spin_lock_irqsave(&dist->lpi_list_lock, flags);
+
+    list_for_each_entry(cte, &dist->lpi_translation_cache, entry)
+    {
+        /*
+         * If we hit a NULL entry, there is nothing after this
+         * point.
+         */
+        if ( !cte->irq )
+            break;
+
+        __vgic_put_lpi_locked(d, cte->irq);
+        cte->irq = NULL;
+    }
+
+    spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
+}
+
 /* Requires the its_lock to be held. */
 static void its_free_ite(struct domain *d, struct its_ite *ite)
 {
@@ -183,6 +329,8 @@ void vgic_its_free_device(struct vgic_its_device *device)
      */
     list_for_each_entry_safe(ite, temp, &device->itt_head, ite_list)
         its_free_ite(d, ite);
+
+    vgic_its_invalidate_cache(d);
 
     list_del(&device->dev_list);
     xfree(device);
@@ -351,6 +499,8 @@ static void vgic_mmio_write_its_ctlr(struct domain *d, struct vgic_its *its,
         goto out;
 
     its->enabled = !!(val & GITS_CTLR_ENABLE);
+    if ( !its->enabled )
+        vgic_its_invalidate_cache(d);
 
     /*
      * Try to process any pending commands. This function bails out early
@@ -742,6 +892,48 @@ out:
     return ret;
 }
 
+/* Default is 16 cached LPIs per vcpu */
+#define LPI_DEFAULT_PCPU_CACHE_SIZE 16
+
+void vgic_lpi_translation_cache_init(struct domain *d)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+    unsigned int sz;
+    int i;
+
+    if ( !list_empty(&dist->lpi_translation_cache) )
+        return;
+
+    sz = d->max_vcpus * LPI_DEFAULT_PCPU_CACHE_SIZE;
+
+    for ( i = 0; i < sz; i++ )
+    {
+        struct vgic_translation_cache_entry *cte;
+
+        /* An allocation failure is not fatal */
+        cte = xzalloc(struct vgic_translation_cache_entry);
+        if ( WARN_ON(!cte) )
+            break;
+
+        INIT_LIST_HEAD(&cte->entry);
+        list_add(&cte->entry, &dist->lpi_translation_cache);
+    }
+}
+
+void vgic_lpi_translation_cache_destroy(struct domain *d)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+    struct vgic_translation_cache_entry *cte, *tmp;
+
+    vgic_its_invalidate_cache(d);
+
+    list_for_each_entry_safe(cte, tmp, &dist->lpi_translation_cache, entry)
+    {
+        list_del(&cte->entry);
+        xfree(cte);
+    }
+}
+
 #define INITIAL_BASER_VALUE                                                    \
     (GIC_BASER_CACHEABILITY(GITS_BASER, INNER, RaWb) |                         \
      GIC_BASER_CACHEABILITY(GITS_BASER, OUTER, SameAsInner) |                  \
@@ -762,6 +954,8 @@ static int vgic_its_create(struct domain *d, u64 addr)
         return -ENOMEM;
 
     d->arch.vgic.its = its;
+
+    vgic_lpi_translation_cache_init(d);
 
     spin_lock_init(&its->its_lock);
     spin_lock_init(&its->cmd_lock);
@@ -829,6 +1023,7 @@ void vgic_v3_its_free_domain(struct domain *d)
 
     vgic_its_free_device_list(d, its);
     vgic_its_free_collection_list(d, its);
+    vgic_lpi_translation_cache_destroy(d);
 
     spin_unlock(&d->arch.vgic.its_devices_lock);
     spin_unlock(&its->its_lock);
