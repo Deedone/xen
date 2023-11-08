@@ -212,6 +212,9 @@ struct vgic_dist {
     spinlock_t          lpi_list_lock;
     struct list_head    lpi_list_head;
     unsigned int        lpi_list_count;
+
+    /* LPI translation cache */
+    struct list_head	lpi_translation_cache;
 };
 
 struct vgic_cpu {
