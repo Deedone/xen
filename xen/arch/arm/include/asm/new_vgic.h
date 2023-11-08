@@ -122,7 +122,25 @@ struct vgic_its {
 
     bool enabled;
     struct vgic_io_device iodev;
+    struct domain *domain;
+
+    /* These registers correspond to GITS_BASER{0,1} */
+    u64 baser_device_table;
+    u64 baser_coll_table;
+
+    /* Protects the command queue */
+    struct spinlock cmd_lock;
+    u64 cbaser;
+    u32 creadr;
+    u32 cwriter;
+
+    /* migration ABI revision in use */
+    u32 abi_rev;
+
+    /* Protects the device and collection lists */
+    struct spinlock its_lock;
     struct list_head device_list;
+    struct list_head collection_list;
     paddr_t doorbell_address;
 };
 
