@@ -264,12 +264,17 @@ static inline paddr_t vgic_dist_base(const struct vgic_dist *vgic)
 }
 
 #ifdef CONFIG_HAS_ITS
+void vgic_enable_lpis(struct vcpu *vcpu);
 struct vgic_its_device *vgic_its_alloc_device(int nr_events);
 void vgic_its_free_device(struct vgic_its_device *its_dev);
 int vgic_its_add_device(struct domain *d, struct vgic_its_device *its_dev);
 void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev);
 struct vgic_its_device* vgic_its_get_device(struct domain *d, paddr_t vdoorbell,
                                          uint32_t vdevid);
+#else
+static inline void vgic_enable_lpis(struct vcpu *vcpu)
+{
+}
 #endif
 
 #endif /* __ASM_ARM_NEW_VGIC_H */
