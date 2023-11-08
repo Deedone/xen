@@ -80,6 +80,11 @@ bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr);
 unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev);
 int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count);
 int vgic_register_redist_iodev(struct vcpu *vcpu);
+u64 vgic_sanitise_field(u64 reg, u64 field_mask, int field_shift,
+			u64 (*sanitise_fn)(u64));
+u64 vgic_sanitise_shareability(u64 field);
+u64 vgic_sanitise_inner_cacheability(u64 field);
+u64 vgic_sanitise_outer_cacheability(u64 field);
 #else
 static inline void vgic_v3_fold_lr_state(struct vcpu *vcpu)
 {

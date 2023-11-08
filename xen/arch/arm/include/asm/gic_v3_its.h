@@ -36,7 +36,16 @@
 #define GITS_BASER6                     0x130
 #define GITS_BASER7                     0x138
 #define GITS_IDREGS_BASE                0xffd0
+#define GITS_PIDR0                      0xffe0
+#define GITS_PIDR1                      0xffe4
 #define GITS_PIDR2                      GICR_PIDR2
+#define GITS_PIDR4                      0xffd0
+#define GITS_CIDR0                      0xfff0
+#define GITS_CIDR1                      0xfff4
+#define GITS_CIDR2                      0xfff8
+#define GITS_CIDR3                      0xfffc
+
+#define GITS_TRANSLATER                 0x10040
 
 /* Register bits */
 #define GITS_VALID_BIT                  BIT(63, UL)
@@ -50,6 +59,11 @@
 #define GITS_TYPER_DEVICE_ID_BITS(r)    ((((r) & GITS_TYPER_DEVIDS_MASK) >> \
                                                  GITS_TYPER_DEVIDS_SHIFT) + 1)
 
+#define GITS_IIDR_REV_SHIFT             12
+#define GITS_IIDR_REV_MASK              (0xf << GITS_IIDR_REV_SHIFT)
+#define GITS_IIDR_REV(r)                (((r) >> GITS_IIDR_REV_SHIFT) & 0xf)
+#define GITS_IIDR_PRODUCTID_SHIFT       24
+
 #define GITS_TYPER_IDBITS_SHIFT         8
 #define GITS_TYPER_IDBITS_MASK          (0x1fUL << GITS_TYPER_IDBITS_SHIFT)
 #define GITS_TYPER_EVENT_ID_BITS(r)     ((((r) & GITS_TYPER_IDBITS_MASK) >> \
@@ -61,10 +75,12 @@
                                                  GITS_TYPER_ITT_SIZE_SHIFT) + 1)
 #define GITS_TYPER_PHYSICAL             (1U << 0)
 
+#define GITS_BASER_VALID                (1ULL << 63)
 #define GITS_BASER_INDIRECT             BIT(62, UL)
 #define GITS_BASER_INNER_CACHEABILITY_SHIFT        59
 #define GITS_BASER_TYPE_SHIFT           56
 #define GITS_BASER_TYPE_MASK            (7ULL << GITS_BASER_TYPE_SHIFT)
+#define GITS_BASER_TYPE(r)              (((r) >> GITS_BASER_TYPE_SHIFT) & 7)
 #define GITS_BASER_OUTER_CACHEABILITY_SHIFT        53
 #define GITS_BASER_TYPE_NONE            0UL
 #define GITS_BASER_TYPE_DEVICE          1UL
@@ -77,6 +93,7 @@
 #define GITS_BASER_ENTRY_SIZE_SHIFT     48
 #define GITS_BASER_ENTRY_SIZE(reg)                                       \
                         ((((reg) >> GITS_BASER_ENTRY_SIZE_SHIFT) & 0x1f) + 1)
+#define GITS_BASER_ENTRY_SIZE_MASK      GENMASK_ULL(52, 48)
 #define GITS_BASER_SHAREABILITY_SHIFT   10
 #define GITS_BASER_PAGE_SIZE_SHIFT      8
 #define GITS_BASER_SIZE_MASK            0xff
@@ -84,7 +101,48 @@
 #define GITS_BASER_OUTER_CACHEABILITY_MASK   (0x7ULL << GITS_BASER_OUTER_CACHEABILITY_SHIFT)
 #define GITS_BASER_INNER_CACHEABILITY_MASK   (0x7ULL << GITS_BASER_INNER_CACHEABILITY_SHIFT)
 
+#define GIC_PAGE_SIZE_4K                0ULL
+#define GIC_PAGE_SIZE_16K               1ULL
+#define GIC_PAGE_SIZE_64K               2ULL
+#define GIC_PAGE_SIZE_MASK              3ULL
+
+#define __GITS_BASER_PSZ(sz)            \
+    (GIC_PAGE_SIZE_ ## sz << GITS_BASER_PAGE_SIZE_SHIFT)
+#define GITS_BASER_PAGE_SIZE_4K         __GITS_BASER_PSZ(4K)
+#define GITS_BASER_PAGE_SIZE_16K        __GITS_BASER_PSZ(16K)
+#define GITS_BASER_PAGE_SIZE_64K        __GITS_BASER_PSZ(64K)
+#define GITS_BASER_PAGE_SIZE_MASK       __GITS_BASER_PSZ(MASK)
+
+#define GITS_BASER_NR_PAGES(r)         (((r) & 0xff) + 1)
+
+#define GITS_BASER_PHYS_52_to_48(phys)					\
+	(((phys) & GENMASK_ULL(47, 16)) | (((phys) >> 48) & 0xf) << 12)
+#define GITS_BASER_ADDR_48_to_52(baser)					\
+	(((baser) & GENMASK_ULL(47, 16)) | (((baser) >> 12) & 0xf) << 48)
+
+#define GIC_BASER_CACHEABILITY(reg, inner_outer, type)			\
+	(GIC_BASER_CACHE_##type << reg##_##inner_outer##_CACHEABILITY_SHIFT)
+
+#define GIC_BASER_SHAREABILITY(reg, type)				\
+	(GIC_BASER_##type << reg##_SHAREABILITY_SHIFT)
+
 #define GITS_CBASER_SIZE_MASK           0xff
+#define GITS_CBASER_VALID               (1ULL << 63)
+#define GITS_CBASER_SHAREABILITY_SHIFT  (10)
+#define GITS_CBASER_INNER_CACHEABILITY_SHIFT    (59)
+#define GITS_CBASER_OUTER_CACHEABILITY_SHIFT    (53)
+#define GITS_CBASER_SHAREABILITY_MASK					\
+	GIC_BASER_SHAREABILITY(GITS_CBASER, SHAREABILITY_MASK)
+#define GITS_CBASER_INNER_CACHEABILITY_MASK				\
+	GIC_BASER_CACHEABILITY(GITS_CBASER, INNER, MASK)
+#define GITS_CBASER_OUTER_CACHEABILITY_MASK				\
+	GIC_BASER_CACHEABILITY(GITS_CBASER, OUTER, MASK)
+#define GITS_CBASER_CACHEABILITY_MASK GITS_CBASER_INNER_CACHEABILITY_MASK
+
+#define GITS_CBASER_InnerShareable					\
+	GIC_BASER_SHAREABILITY(GITS_CBASER, InnerShareable)
+
+#define GITS_CBASER_ADDRESS(cbaser)	((cbaser) & GENMASK_ULL(51, 12))
 
 /* ITS command definitions */
 #define ITS_CMD_SIZE                    32
@@ -104,6 +162,8 @@
 
 #define ITS_DOORBELL_OFFSET             0x10040
 #define GICV3_ITS_SIZE                  SZ_128K
+#define ITS_TRANSLATION_OFFSET          0x10000
+#define GIC_ENCODE_SZ(n, w) (((unsigned long)(n) - 1) & GENMASK_ULL(((w) - 1), 0))
 
 #include <xen/device_tree.h>
 #include <xen/rbtree.h>
