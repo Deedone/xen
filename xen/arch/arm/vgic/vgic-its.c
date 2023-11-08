@@ -33,6 +33,92 @@ static unsigned long its_mmio_read_raz(struct domain *d, struct vgic_its *its,
     return 0;
 }
 
+/*
+ * Find and returns a device in the device table for an ITS.
+ * Must be called with the its_devices_lock mutex held.
+ */
+static struct vgic_its_device *find_its_device(struct vgic_its *its, u32 device_id)
+{
+    struct vgic_its_device *device;
+
+    list_for_each_entry(device, &its->device_list, dev_list)
+        if ( device_id == device->guest_devid )
+            return device;
+
+    return NULL;
+}
+
+/* Requires the its_devices_lock to be held. */
+void vgic_its_free_device(struct vgic_its_device *device)
+{
+    struct domain *d = device->d;
+    
+    BUG_ON(!d);
+    list_del(&device->dev_list);
+    xfree(device);
+}
+
+/* Must be called with its_devices_lock mutex held */
+struct vgic_its_device* vgic_its_get_device(struct domain *d, paddr_t vdoorbell,
+                                         uint32_t vdevid)
+{
+    struct vgic_its *its = d->arch.vgic.its;
+    struct vgic_its_device *device;
+
+    if ( !its )
+        return NULL;
+
+    device = find_its_device(its, vdevid);
+    if ( !device )
+        return NULL;
+
+    return device;
+}
+
+/* Must be called with its_devices_lock mutex held */
+struct vgic_its_device *vgic_its_alloc_device(int nr_events)
+{
+    struct vgic_its_device *device;
+
+    device = xzalloc(struct vgic_its_device);
+    if ( !device )
+        goto fail;
+
+    INIT_LIST_HEAD(&device->itt_head);
+
+    device->host_lpi_blocks = xzalloc_array(uint32_t, nr_events);
+    if ( !device->host_lpi_blocks )
+        goto fail_host_lpi;
+
+    return device;
+fail_host_lpi:
+    xfree(device);
+fail:
+    return NULL;
+}
+
+/* Must be called with its_devices_lock mutex held */
+int vgic_its_add_device(struct domain *d, struct vgic_its_device *its_dev)
+{
+    struct vgic_its *its = d->arch.vgic.its;
+    if ( !its )
+        return -EINVAL;
+
+    list_add_tail(&its_dev->dev_list, &its->device_list);
+
+    return 0;
+}
+
+/* Must be called with its_devices_lock mutex held */
+void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev)
+{
+    struct vgic_its *its = d->arch.vgic.its;
+    if ( !its )
+        return;
+
+    list_del(&its_dev->dev_list);
+}
+
 static void its_mmio_write_wi(struct domain *d, struct vgic_its *its,
                               paddr_t addr, unsigned int len, unsigned long val)
 {
