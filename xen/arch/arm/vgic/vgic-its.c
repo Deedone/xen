@@ -63,6 +63,54 @@ static struct vgic_its_device *find_its_device(struct vgic_its *its, u32 device_
 #define VGIC_ITS_TYPER_DEVBITS          16
 #define VGIC_ITS_TYPER_ITE_SIZE         8
 
+#define GIC_LPI_OFFSET              8192
+
+#define LPI_PROP_ENABLE_BIT(p) ((p)&LPI_PROP_ENABLED)
+#define LPI_PROP_PRIORITY(p)   ((p)&0xfc)
+
+/*
+ * Reads the configuration data for a given LPI from guest memory and
+ * updates the fields in struct vgic_irq.
+ * If filter_vcpu is not NULL, applies only if the IRQ is targeting this
+ * VCPU. Unconditionally applies if filter_vcpu is NULL.
+ */
+static int update_lpi_config(struct domain *d, struct vgic_irq *irq,
+                             struct vcpu *filter_vcpu, bool needs_inv)
+{
+    u64 propbase = GICR_PROPBASER_ADDRESS(d->arch.vgic.propbaser);
+    u8 prop;
+    int ret;
+    unsigned long flags;
+
+    ret = access_guest_memory_by_gpa(d, propbase + irq->intid - GIC_LPI_OFFSET,
+                                     &prop, 1, false);
+
+    if ( ret )
+        return ret;
+
+    spin_lock_irqsave(&irq->irq_lock, flags);
+
+    if ( !filter_vcpu || filter_vcpu == irq->target_vcpu )
+    {
+        irq->priority = LPI_PROP_PRIORITY(prop);
+        irq->enabled  = LPI_PROP_ENABLE_BIT(prop);
+
+        if ( !irq->hw )
+        {
+            vgic_queue_irq_unlock(d, irq, flags);
+            return 0;
+        }
+    }
+
+    spin_unlock_irqrestore(&irq->irq_lock, flags);
+
+    /* GICv4 style VLPIS are not yet supported */
+    WARN_ON(irq->hw);
+
+    return 0;
+}
+
+
 /*
  * Create a snapshot of the current LPIs targeting @vcpu, so that we can
  * enumerate those LPIs without holding any lock.
