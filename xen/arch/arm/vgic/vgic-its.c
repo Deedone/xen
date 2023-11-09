@@ -168,7 +168,7 @@ static int update_lpi_config(struct domain *d, struct vgic_irq *irq,
     return 0;
 }
 
-static int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq)
+int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq)
 {
     struct vcpu *vcpu;
     int byte_offset, bit_nr;

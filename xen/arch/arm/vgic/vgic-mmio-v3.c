@@ -29,7 +29,7 @@ bool vgic_has_its(struct domain *d)
     if ( dist->version != GIC_V3 )
         return false;
 
-    return false;
+    return dist->has_its;
 }
 
 static struct vcpu *mpidr_to_vcpu(struct domain *d, unsigned long mpidr)
@@ -211,6 +211,29 @@ bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr)
     }
 }
 
+void vgic_flush_pending_lpis(struct vcpu *vcpu)
+{
+    struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic;
+    struct vgic_irq *irq, *tmp;
+    unsigned long flags;
+
+    spin_lock_irqsave(&vgic_cpu->ap_list_lock, flags);
+
+    list_for_each_entry_safe(irq, tmp, &vgic_cpu->ap_list_head, ap_list)
+    {
+        if ( irq->intid >= VGIC_MIN_LPI )
+        {
+            spin_lock(&irq->irq_lock);
+            list_del(&irq->ap_list);
+            irq->vcpu = NULL;
+            spin_unlock(&irq->irq_lock);
+            vgic_put_irq(vcpu->domain, irq);
+        }
+    }
+
+    spin_unlock_irqrestore(&vgic_cpu->ap_list_lock, flags);
+}
+
 /*
  * The Revision field in the IIDR have the following meanings:
  *
@@ -234,7 +257,15 @@ static unsigned long vgic_mmio_read_v3_misc(struct vcpu *vcpu, paddr_t addr,
     case GICD_TYPER:
         value = vgic->nr_spis + VGIC_NR_PRIVATE_IRQS;
         value = (value >> 5) - 1;
-        value |= (INTERRUPT_ID_BITS_SPIS - 1) << 19;
+        if ( vgic_has_its(vcpu->domain) )
+        {
+            value |= (INTERRUPT_ID_BITS_ITS - 1) << 19;
+            value |= GICD_TYPE_LPIS;
+        }
+        else
+        {
+            value |= (INTERRUPT_ID_BITS_SPIS - 1) << 19;
+        }
         break;
     case GICD_TYPER2:
         break;
@@ -365,6 +396,9 @@ static unsigned long vgic_mmio_read_v3r_typer(struct vcpu *vcpu, paddr_t addr,
     value = (u64)(mpidr & GENMASK(23, 0)) << 32;
     value |= ((target_vcpu_id & 0xffff) << 8);
 
+    if ( vgic_has_its(vcpu->domain) )
+        value |= GICR_TYPER_PLPIS;
+
     if ( vgic_mmio_vcpu_rdist_is_last(vcpu) )
         value |= GICR_TYPER_LAST;
 
@@ -422,12 +456,18 @@ static void vgic_mmio_write_v3r_ctlr(struct vcpu *vcpu, paddr_t addr,
                               GICR_CTLR_RWP);
         if ( ctlr != GICR_CTLR_ENABLE_LPIS )
             return;
+
+        vgic_flush_pending_lpis(vcpu);
+        vgic_its_invalidate_cache(vcpu->domain);
+        atomic_set(&vgic_cpu->ctlr, 0);
     }
     else
     {
         ctlr = atomic_cmpxchg(&vgic_cpu->ctlr, 0, GICR_CTLR_ENABLE_LPIS);
         if ( ctlr != 0 )
             return;
+
+        vgic_enable_lpis(vcpu);
     }
 }
 
