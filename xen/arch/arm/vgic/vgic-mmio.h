@@ -153,4 +153,19 @@ unsigned long extract_bytes(uint64_t data, unsigned int offset,
 uint64_t update_64bit_reg(u64 reg, unsigned int offset, unsigned int len,
 		     unsigned long val);
 
+#ifdef CONFIG_HAS_ITS
+int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq);
+int vgic_its_invall(struct vcpu *vcpu);
+#else
+static inline int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
+{
+    return 0;
+}
+
+static inline int vgic_its_invall(struct vcpu *vcpu)
+{
+    return 0;
+}
+#endif
+
 #endif
