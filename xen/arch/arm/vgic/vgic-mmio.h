@@ -156,6 +156,7 @@ uint64_t update_64bit_reg(u64 reg, unsigned int offset, unsigned int len,
 #ifdef CONFIG_HAS_ITS
 int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq);
 int vgic_its_invall(struct vcpu *vcpu);
+void vgic_its_invalidate_cache(struct domain *d);
 #else
 static inline int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
 {
@@ -165,6 +166,10 @@ static inline int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
 static inline int vgic_its_invall(struct vcpu *vcpu)
 {
     return 0;
+}
+
+static inline void vgic_its_invalidate_cache(struct domain *d)
+{
 }
 #endif
 
