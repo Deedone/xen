@@ -309,7 +309,7 @@ static uint32_t its_get_host_devid(struct domain *d, uint32_t guest_devid)
         };
         const struct pci_dev *pdev;
 
-        pcidevs_lock();
+        read_lock(&d->pci_lock);
         for_each_pdev( d, pdev )
         {
             /* Replace virtual SBDF with the physical one. */
@@ -318,9 +318,10 @@ static uint32_t its_get_host_devid(struct domain *d, uint32_t guest_devid)
 #endif
             {
                 host_devid = dt_msi_map_id(pdev->sbdf.sbdf);
+                break;
             }
         }
-        pcidevs_unlock();
+        read_unlock(&d->pci_lock);
     }
 
     return host_devid;
@@ -338,7 +339,7 @@ paddr_t its_get_host_doorbell(struct virt_its *its, uint32_t guest_devid)
     if ( !pci_passthrough_enabled )
         return its->doorbell_address;
 
-    pcidevs_lock();
+    read_lock(&its->d->pci_lock);
     for_each_pdev( its->d, pdev )
     {
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
@@ -347,9 +348,10 @@ paddr_t its_get_host_doorbell(struct virt_its *its, uint32_t guest_devid)
         {
             /* Replace virtual SBDF with the physical one. */
             host_devid = pdev->sbdf.sbdf;
+            break;
         }
     }
-    pcidevs_unlock();
+    read_unlock(&its->d->pci_lock);
 
     bridge = pci_find_host_bridge(PCI_SEG(host_devid), PCI_BUS(host_devid));
     if ( unlikely(!bridge) )
@@ -1540,6 +1542,10 @@ static int vgic_v3_its_init_virtual(struct domain *d, paddr_t guest_addr,
     if ( !its )
         return -ENOMEM;
 
+    /* TODO: look up the max value from the spec */
+    ASSERT(devid_bits <= 0x20);
+    ASSERT(evid_bits <= 0x20);
+
     base_attr  = GIC_BASER_InnerShareable << GITS_BASER_SHAREABILITY_SHIFT;
     base_attr |= GIC_BASER_CACHE_SameAsInner << GITS_BASER_OUTER_CACHEABILITY_SHIFT;
     base_attr |= GIC_BASER_CACHE_RaWaWb << GITS_BASER_INNER_CACHEABILITY_SHIFT;
@@ -1594,9 +1600,8 @@ unsigned int vgic_v3_its_count(const struct domain *d)
     struct host_its *hw_its;
     unsigned int ret = 0;
 
-    /* Only Dom0 can use emulated ITSes so far. */
     if ( !is_hardware_domain(d) )
-        return 0;
+        return d->arch.vgic.has_its ? 1 : 0;
 
     list_for_each_entry(hw_its, &host_its_list, entry)
         ret++;
@@ -1610,47 +1615,34 @@ unsigned int vgic_v3_its_count(const struct domain *d)
  */
 int vgic_v3_its_init_domain(struct domain *d)
 {
+    struct host_its *hw_its;
     int ret;
-    static unsigned int devid_bits = 0x20;
-    static unsigned int evid_bits = 0x20;
 
     INIT_LIST_HEAD(&d->arch.vgic.vits_list);
     spin_lock_init(&d->arch.vgic.its_devices_lock);
     d->arch.vgic.its_devices = RB_ROOT;
 
-    if ( is_hardware_domain(d) )
+    list_for_each_entry(hw_its, &host_its_list, entry)
     {
-        struct host_its *hw_its;
-
-        list_for_each_entry(hw_its, &host_its_list, entry)
-        {
-            /*
-             * For each host ITS create a virtual ITS using the same
-             * base and thus doorbell address.
-             * Use the same number of device ID and event ID bits as the host.
-             */
-            ret = vgic_v3_its_init_virtual(d, hw_its->addr, hw_its->addr,
-                                           hw_its->devid_bits,
-                                           hw_its->evid_bits);
-            if ( ret )
-                return ret;
-            else
-                d->arch.vgic.has_its = true;
-
-            if ( hw_its->devid_bits > devid_bits )
-                devid_bits = hw_its->devid_bits;
-            if ( hw_its->evid_bits > evid_bits )
-                evid_bits = hw_its->evid_bits;
-        }
-    }
-    else
-    {
-        ret = vgic_v3_its_init_virtual(d, GUEST_GICV3_ITS_BASE,
-                                       devid_bits, evid_bits);
+        /*
+         * For each host ITS create a virtual ITS using the same
+         * base and thus doorbell address.
+         * Use the same number of device ID and event ID bits as the host.
+         */
+        ret = vgic_v3_its_init_virtual(d, is_hardware_domain(d)
+                                          ? hw_its->addr
+                                          : GUEST_GICV3_ITS_BASE,
+                                       hw_its->addr,
+                                       hw_its->devid_bits,
+                                       hw_its->evid_bits);
         if ( ret )
             return ret;
         else
             d->arch.vgic.has_its = true;
+
+        if ( !is_hardware_domain(d) )
+            /* XXX: At the moment we only support a single hardware ITS */
+            break;
     }
 
     return 0;
