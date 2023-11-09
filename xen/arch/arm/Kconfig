@@ -90,8 +90,8 @@ config GICV3
 	  If unsure, use the default setting.
 
 config HAS_ITS
-        bool "GICv3 ITS MSI controller support (UNSUPPORTED)" if UNSUPPORTED
-        depends on GICV3 && !NEW_VGIC && !ARM_32
+        bool "GICv3 ITS MSI controller support (UNSUPPORTED on old VGIC)" if UNSUPPORTED || NEW_VGIC
+        depends on GICV3 && !ARM_32
 
 config OVERLAY_DTB
 	bool "DTB overlay support (UNSUPPORTED)" if UNSUPPORTED
