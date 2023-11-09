@@ -239,6 +239,7 @@ struct vgic_cpu {
     struct vgic_io_device   rd_iodev;
     struct vgic_redist_region *rdreg;
     uint32_t rdreg_index;
+    atomic_t syncr_busy;
     struct vgic_io_device   sgi_iodev;
 
     /* Contains the attributes and gpa of the LPI pending tables. */
