@@ -52,6 +52,9 @@ struct vgic_translation_cache_entry {
     struct vgic_irq *irq;
 };
 
+#define its_is_collection_mapped(coll)                                         \
+    ((coll) && ((coll)->target_addr != COLLECTION_NOT_MAPPED))
+
 /*
  * Find and returns a device in the device table for an ITS.
  * Must be called with the its_devices_lock mutex held.
@@ -71,7 +74,54 @@ static struct vgic_its_device *find_its_device(struct vgic_its *its, u32 device_
 #define VGIC_ITS_TYPER_DEVBITS          16
 #define VGIC_ITS_TYPER_ITE_SIZE         8
 
+/*
+ * Find and returns an interrupt translation table entry (ITTE) for a given
+ * Device ID/Event ID pair on an ITS.
+ * Must be called with the its_lock mutex held.
+ */
+static struct its_ite *find_ite(struct vgic_its *its, u32 device_id,
+                                u32 event_id)
+{
+    struct vgic_its_device *device;
+    struct its_ite *ite;
+
+    spin_lock(&its->domain->arch.vgic.its_devices_lock);
+    device = find_its_device(its, device_id);
+    spin_unlock(&its->domain->arch.vgic.its_devices_lock);
+    if ( device == NULL )
+        return NULL;
+
+    list_for_each_entry(ite, &device->itt_head, ite_list)
+        if ( ite->event_id == event_id )
+            return ite;
+
+    return NULL;
+}
+
+/* To be used as an iterator this macro misses the enclosing parentheses */
+#define for_each_lpi_its(dev, ite, its)                                        \
+    list_for_each_entry(dev, &(its)->device_list, dev_list)                    \
+        list_for_each_entry(ite, &(dev)->itt_head, ite_list)
+
 #define GIC_LPI_OFFSET              8192
+
+#define VITS_TYPER_IDBITS           16
+#define VITS_TYPER_DEVBITS          16
+#define VITS_DTE_MAX_DEVID_OFFSET   (BIT(14, UL) - 1)
+#define VITS_ITE_MAX_EVENTID_OFFSET (BIT(16, UL) - 1)
+
+static struct its_collection *find_collection(struct vgic_its *its, int coll_id)
+{
+    struct its_collection *collection;
+
+    list_for_each_entry(collection, &its->collection_list, coll_list)
+    {
+        if ( coll_id == collection->collection_id )
+            return collection;
+    }
+
+    return NULL;
+}
 
 #define LPI_PROP_ENABLE_BIT(p) ((p)&LPI_PROP_ENABLED)
 #define LPI_PROP_PRIORITY(p)   ((p)&0xfc)
@@ -118,6 +168,156 @@ static int update_lpi_config(struct domain *d, struct vgic_irq *irq,
     return 0;
 }
 
+static int vgic_v3_lpi_sync_pending_status(struct domain *d, struct vgic_irq *irq)
+{
+    struct vcpu *vcpu;
+    int byte_offset, bit_nr;
+    paddr_t pendbase, ptr;
+    bool status;
+    u8 val;
+    int ret;
+    unsigned long flags;
+
+retry:
+    vcpu = irq->target_vcpu;
+    if ( !vcpu )
+        return 0;
+
+    pendbase    = GICR_PENDBASER_ADDRESS(vcpu->arch.vgic.pendbaser);
+
+    byte_offset = irq->intid / BITS_PER_BYTE;
+    bit_nr      = irq->intid % BITS_PER_BYTE;
+    ptr         = pendbase + byte_offset;
+
+    ret         = access_guest_memory_by_gpa(d, ptr, &val, 1, false);
+    if ( ret )
+        return ret;
+
+    status = val & (1 << bit_nr);
+
+    spin_lock_irqsave(&irq->irq_lock, flags);
+    if ( irq->target_vcpu != vcpu )
+    {
+        spin_unlock_irqrestore(&irq->irq_lock, flags);
+        goto retry;
+    }
+    irq->pending_latch = status;
+    vgic_queue_irq_unlock(vcpu->domain, irq, flags);
+
+    if ( status )
+    {
+        /* clear consumed data */
+        val &= ~(1 << bit_nr);
+        ret = access_guest_memory_by_gpa(d, ptr, &val, 1, true);
+        if ( ret )
+            return ret;
+    }
+    return 0;
+}
+
+/*
+ * Creates a new (reference to a) struct vgic_irq for a given LPI.
+ * If this LPI is already mapped on another ITS, we increase its refcount
+ * and return a pointer to the existing structure.
+ * If this is a "new" LPI, we allocate and initialize a new struct vgic_irq.
+ * This function returns a pointer to the _unlocked_ structure.
+ */
+static struct vgic_irq *vgic_add_lpi(struct domain *d, struct vgic_its *its,
+                                     u32 intid, u32 devid, u32 eventid,
+                                     struct vcpu *vcpu)
+{
+    struct vgic_dist *dist = &d->arch.vgic;
+    struct vgic_irq *irq   = vgic_get_irq(d, NULL, intid), *oldirq;
+    uint32_t host_lpi;
+    unsigned long flags;
+    int ret;
+
+    /* In this case there is no put, since we keep the reference. */
+    if ( irq )
+        return irq;
+
+    host_lpi = gicv3_its_get_host_lpi(its->domain,
+                                      its->vgic_its_base + ITS_DOORBELL_OFFSET,
+                                      devid, eventid);
+
+    if ( host_lpi == INVALID_LPI )
+        return ERR_PTR(-EINVAL);
+
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, intid);
+
+    irq = xzalloc(struct vgic_irq);
+
+    if ( !irq )
+        return ERR_PTR(-ENOMEM);
+
+    memset(irq, 0, sizeof(*irq));
+
+    INIT_LIST_HEAD(&irq->lpi_list);
+    INIT_LIST_HEAD(&irq->ap_list);
+    spin_lock_init(&irq->irq_lock);
+
+    irq->config = VGIC_CONFIG_EDGE;
+    atomic_set(&irq->refcount, 1);
+    irq->intid       = intid;
+    irq->target_vcpu = vcpu;
+
+    spin_lock_irqsave(&dist->lpi_list_lock, flags);
+
+    /*
+     * There could be a race with another vgic_add_lpi(), so we need to
+     * check that we don't add a second list entry with the same LPI.
+     */
+    list_for_each_entry(oldirq, &dist->lpi_list_head, lpi_list)
+    {
+        if ( oldirq->intid != intid )
+            continue;
+
+        /* Someone was faster with adding this LPI, lets use that. */
+        gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
+        irq = oldirq;
+
+        /*
+         * This increases the refcount, the caller is expected to
+         * call vgic_put_irq() on the returned pointer once it's
+         * finished with the IRQ.
+         */
+        vgic_get_irq_kref(irq);
+
+        goto out_unlock;
+    }
+
+    list_add_tail(&irq->lpi_list, &dist->lpi_list_head);
+    dist->lpi_list_count++;
+
+out_unlock:
+    spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
+
+    /*
+     * We "cache" the configuration table entries in our struct vgic_irq's.
+     * However we only have those structs for mapped IRQs, so we read in
+     * the respective config data from memory here upon mapping the LPI.
+     *
+     * Should any of these fail, behave as if we couldn't create the LPI
+     * by dropping the refcount and returning the error.
+     */
+    ret = update_lpi_config(d, irq, NULL, false);
+    if ( ret )
+    {
+        vgic_put_irq(d, irq);
+        gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
+        return ERR_PTR(ret);
+    }
+
+    ret = vgic_v3_lpi_sync_pending_status(d, irq);
+    if ( ret )
+    {
+        vgic_put_irq(d, irq);
+        gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
+        return ERR_PTR(ret);
+    }
+
+    return irq;
+}
 
 /*
  * Create a snapshot of the current LPIs targeting @vcpu, so that we can
@@ -160,6 +360,57 @@ int vgic_copy_lpi_list(struct domain *d, struct vcpu *vcpu, u32 **intid_ptr)
     return i;
 }
 
+static int update_affinity(struct vgic_irq *irq, struct vcpu *vcpu)
+{
+    int ret = 0;
+    unsigned long flags;
+
+    spin_lock_irqsave(&irq->irq_lock, flags);
+    irq->target_vcpu = vcpu;
+    spin_unlock_irqrestore(&irq->irq_lock, flags);
+
+    /* GICv4 style VLPIS are not yet supported */
+    WARN_ON(irq->hw);
+
+    return ret;
+}
+
+/*
+ * Promotes the ITS view of affinity of an ITTE (which redistributor this LPI
+ * is targeting) to the VGIC's view, which deals with target VCPUs.
+ * Needs to be called whenever either the collection for a LPIs has
+ * changed or the collection itself got retargeted.
+ */
+static void update_affinity_ite(struct domain *d, struct its_ite *ite)
+{
+    struct vcpu *vcpu;
+
+    if ( !its_is_collection_mapped(ite->collection) )
+        return;
+
+    vcpu = d->vcpu[ite->collection->target_addr];
+    update_affinity(ite->irq, vcpu);
+}
+
+/*
+ * Updates the target VCPU for every LPI targeting this collection.
+ * Must be called with the its_lock mutex held.
+ */
+static void update_affinity_collection(struct domain *d, struct vgic_its *its,
+                                       struct its_collection *coll)
+{
+    struct vgic_its_device *device;
+    struct its_ite *ite;
+
+    for_each_lpi_its(device, ite, its)
+    {
+        if ( !ite->collection || coll != ite->collection )
+            continue;
+
+        update_affinity_ite(d, ite);
+    }
+}
+
 void __vgic_put_lpi_locked(struct domain *d, struct vgic_irq *irq)
 {
     struct vgic_dist *dist = &d->arch.vgic;
@@ -174,6 +425,7 @@ void __vgic_put_lpi_locked(struct domain *d, struct vgic_irq *irq)
 
     xfree(irq);
 }
+
 
 static struct vgic_irq *__vgic_its_check_cache(struct vgic_dist *dist,
                                                paddr_t db, u32 devid,
@@ -298,6 +550,18 @@ void vgic_its_invalidate_cache(struct domain *d)
     spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
 }
 
+static u32 max_lpis_propbaser(u64 propbaser)
+{
+    int nr_idbits = (propbaser & 0x1f) + 1;
+
+    return 1U << min(nr_idbits, INTERRUPT_ID_BITS_ITS);
+}
+
+static u64 its_cmd_mask_field(u64 *its_cmd, int word, int shift, int size)
+{
+    return (le64_to_cpu(its_cmd[word]) >> shift) & (BIT(size, ULL) - 1);
+}
+
 /* Requires the its_lock to be held. */
 static void its_free_ite(struct domain *d, struct its_ite *ite)
 {
@@ -313,6 +577,194 @@ static void its_free_ite(struct domain *d, struct its_ite *ite)
     }
 
     xfree(ite);
+}
+
+/* Must be called with its_lock mutex held */
+static struct its_ite *vgic_its_alloc_ite(struct vgic_its_device *device,
+                                          struct its_collection *collection,
+                                          u32 event_id)
+{
+    struct its_ite *ite;
+
+    ite = xzalloc(struct its_ite);
+    if ( !ite )
+        return ERR_PTR(-ENOMEM);
+
+    ite->event_id   = event_id;
+    ite->collection = collection;
+
+    list_add_tail(&ite->ite_list, &device->itt_head);
+    return ite;
+}
+
+#define its_cmd_get_command(cmd)     its_cmd_mask_field(cmd, 0, 0, 8)
+#define its_cmd_get_deviceid(cmd)    its_cmd_mask_field(cmd, 0, 32, 32)
+#define its_cmd_get_size(cmd)        (its_cmd_mask_field(cmd, 1, 0, 5) + 1)
+#define its_cmd_get_id(cmd)          its_cmd_mask_field(cmd, 1, 0, 32)
+#define its_cmd_get_physical_id(cmd) its_cmd_mask_field(cmd, 1, 32, 32)
+#define its_cmd_get_collection(cmd)  its_cmd_mask_field(cmd, 2, 0, 16)
+#define its_cmd_get_ittaddr(cmd)     (its_cmd_mask_field(cmd, 2, 8, 44) << 8)
+#define its_cmd_get_target_addr(cmd) its_cmd_mask_field(cmd, 2, 16, 32)
+#define its_cmd_get_validbit(cmd)    its_cmd_mask_field(cmd, 2, 63, 1)
+
+/*
+ * Check whether a guest physical address is owned by it
+*/
+static bool __is_visible_gfn_locked(struct vgic_its *its, paddr_t gpa)
+{
+    gfn_t gfn = gaddr_to_gfn(gpa);
+    volatile struct domain *d;
+    struct page_info *page;
+
+    page = mfn_to_page(gfn_to_mfn(its->domain, gfn));
+    if ( !page )
+        return false;
+
+    d = page_get_owner(page);
+    if ( !d )
+        return false;
+
+    return d == its->domain;
+}
+
+/*
+ * Check whether an event ID can be stored in the corresponding Interrupt
+ * Translation Table, which starts at device->itt_addr.
+ */
+static bool vgic_its_check_event_id(struct vgic_its *its,
+                                    struct vgic_its_device *device, u32 event_id)
+{
+    int ite_esz = VGIC_ITS_TYPER_ITE_SIZE;
+    paddr_t gpa;
+
+    /* max table size is: BIT_ULL(device->num_eventid_bits) * ite_esz */
+    if ( event_id >= BIT(device->num_eventid_bits, ULL) )
+        return false;
+
+    gpa = (paddr_t)device->itt_addr + event_id * ite_esz;
+    return __is_visible_gfn_locked(its, gpa);
+}
+
+/*
+ * Check whether an ID can be stored into the corresponding guest table.
+ * For a direct table this is pretty easy, but gets a bit nasty for
+ * indirect tables. We check whether the resulting guest physical address
+ * is actually valid (covered by a memslot and guest accessible).
+ * For this we have to read the respective first level entry.
+ */
+static bool vgic_its_check_id(struct vgic_its *its, u64 baser, u32 id,
+                              paddr_t *eaddr)
+{
+    int l1_tbl_size = GITS_BASER_NR_PAGES(baser) * SZ_64K;
+    u64 indirect_ptr, type = GITS_BASER_TYPE(baser);
+    paddr_t base = GITS_BASER_ADDR_48_to_52(baser);
+    int esz      = GITS_BASER_ENTRY_SIZE(baser);
+    int index;
+
+    switch ( type )
+    {
+    case GITS_BASER_TYPE_DEVICE:
+        if ( id >= BIT(VITS_TYPER_DEVBITS, ULL) )
+            return false;
+        break;
+    case GITS_BASER_TYPE_COLLECTION:
+        /* as GITS_TYPER.CIL == 0, ITS supports 16-bit collection ID */
+        if ( id >= BIT(16, ULL) )
+            return false;
+        break;
+    default:
+        return false;
+    }
+
+    if ( !(baser & GITS_BASER_INDIRECT) )
+    {
+        paddr_t addr;
+
+        if ( id >= (l1_tbl_size / esz) )
+            return false;
+
+        addr = base + id * esz;
+
+        if ( eaddr )
+            *eaddr = addr;
+
+        return __is_visible_gfn_locked(its, addr);
+    }
+
+    /* calculate and check the index into the 1st level */
+    index = id / (SZ_64K / esz);
+    if ( index >= (l1_tbl_size / sizeof(u64)) )
+        return false;
+
+    /* Each 1st level entry is represented by a 64-bit value. */
+    if ( access_guest_memory_by_gpa(its->domain,
+                                    base + index * sizeof(indirect_ptr),
+                                    &indirect_ptr, sizeof(indirect_ptr), 0) )
+        return false;
+
+    indirect_ptr = le64_to_cpu(indirect_ptr);
+
+    /* check the valid bit of the first level entry */
+    if ( !(indirect_ptr & BIT(63, ULL)) )
+        return false;
+
+    /* Mask the guest physical address and calculate the frame number. */
+    indirect_ptr &= GENMASK_ULL(51, 16);
+
+    /* Find the address of the actual entry */
+    index = id % (SZ_64K / esz);
+    indirect_ptr += index * esz;
+
+    if ( eaddr )
+        *eaddr = indirect_ptr;
+
+    return __is_visible_gfn_locked(its, indirect_ptr);
+}
+
+/*
+ * Add a new collection into the ITS collection table.
+ * Returns 0 on success, and a negative error value for generic errors.
+ */
+static int vgic_its_alloc_collection(struct vgic_its *its,
+                                     struct its_collection **colp, u32 coll_id)
+{
+    struct its_collection *collection;
+
+    collection = xzalloc(struct its_collection);
+    if ( !collection )
+        return -ENOMEM;
+
+    collection->collection_id = coll_id;
+    collection->target_addr   = COLLECTION_NOT_MAPPED;
+
+    list_add_tail(&collection->coll_list, &its->collection_list);
+    *colp = collection;
+
+    return 0;
+}
+
+
+static void vgic_its_free_collection(struct vgic_its *its, u32 coll_id)
+{
+    struct its_collection *collection;
+    struct vgic_its_device *device;
+    struct its_ite *ite;
+
+    /*
+     * Clearing the mapping for that collection ID removes the
+     * entry from the list. If there wasn't any before, we can
+     * go home early.
+     */
+    collection = find_collection(its, coll_id);
+    if ( !collection )
+        return;
+
+    for_each_lpi_its( device, ite, its)
+        if ( ite->collection && ite->collection->collection_id == coll_id )
+        ite->collection = NULL;
+
+    list_del(&collection->coll_list);
+    xfree(collection);
 }
 
 /* Requires the its_devices_lock to be held. */
@@ -352,10 +804,7 @@ static void vgic_its_free_collection_list(struct domain *d,
     struct its_collection *cur, *temp;
 
     list_for_each_entry_safe(cur, temp, &its->collection_list, coll_list)
-    {
-        list_del(&cur->coll_list);
-        xfree(cur);
-    }
+        vgic_its_free_collection(its, cur->collection_id);
 }
 
 /* Must be called with its_devices_lock mutex held */
@@ -420,14 +869,443 @@ void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev)
 }
 
 /*
+ * MAPD maps or unmaps a device ID to Interrupt Translation Tables (ITTs).
+ * Must be called with the its_lock mutex held.
+ */
+
+static int vgic_its_cmd_handle_mapd(struct domain *d, struct vgic_its *its,
+                                    u64 *its_cmd)
+{
+    uint32_t guest_devid = its_cmd_get_deviceid(its_cmd);
+    bool valid           = its_cmd_get_validbit(its_cmd);
+    u8 num_eventid_bits  = its_cmd_get_size(its_cmd);
+    paddr_t itt_addr     = its_cmd_get_ittaddr(its_cmd);
+    int ret = 0;
+    struct vgic_its_device *device;
+
+    if ( !vgic_its_check_id(its, its->baser_device_table, guest_devid, NULL) )
+        return E_ITS_MAPD_DEVICE_OOR;
+
+    if ( valid && num_eventid_bits > VITS_TYPER_IDBITS )
+        return E_ITS_MAPD_ITTSIZE_OOR;
+
+    /*
+     * There is no easy and clean way for Xen to know the ITS device ID of a
+     * particular (PCI) device, so we have to rely on the guest telling
+     * us about it. For *now* we are just using the device ID *Dom0* uses,
+     * because the driver there has the actual knowledge.
+     * Eventually this will be replaced with a dedicated hypercall to
+     * announce pass-through of devices.
+     */
+    if ( is_hardware_domain(its->domain) )
+    {
+        ret = gicv3_its_map_guest_device(its->domain, its->doorbell_address,
+                                        guest_devid,
+                                        its->vgic_its_base + ITS_DOORBELL_OFFSET,
+                                        guest_devid, BIT(num_eventid_bits, UL),
+                                        valid);
+    }
+
+    if ( !ret && valid ) {
+        device = vgic_its_get_device(d, its->vgic_its_base + ITS_DOORBELL_OFFSET, guest_devid);
+
+        device->itt_addr = (void *)itt_addr;
+        device->num_eventid_bits = num_eventid_bits;
+    }
+
+    return ret;
+}
+
+/*
+ * The MAPC command maps collection IDs to redistributors.
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_mapc(struct domain *d, struct vgic_its *its,
+                                    u64 *its_cmd)
+{
+    u16 coll_id;
+    u32 target_addr;
+    struct its_collection *collection;
+    bool valid;
+
+    valid       = its_cmd_get_validbit(its_cmd);
+    coll_id     = its_cmd_get_collection(its_cmd);
+    target_addr = its_cmd_get_target_addr(its_cmd);
+
+    if ( target_addr >= d->max_vcpus )
+        return E_ITS_MAPC_PROCNUM_OOR;
+
+    if ( !valid )
+    {
+        vgic_its_free_collection(its, coll_id);
+        vgic_its_invalidate_cache(d);
+    }
+    else
+    {
+        collection = find_collection(its, coll_id);
+
+        if ( !collection )
+        {
+            int ret;
+
+            if ( !vgic_its_check_id(its, its->baser_coll_table, coll_id, NULL) )
+                return E_ITS_MAPC_COLLECTION_OOR;
+
+            ret = vgic_its_alloc_collection(its, &collection, coll_id);
+            if ( ret )
+                return ret;
+            collection->target_addr = target_addr;
+        }
+        else
+        {
+            collection->target_addr = target_addr;
+            update_affinity_collection(d, its, collection);
+        }
+    }
+
+    return 0;
+}
+
+
+/*
+ * The MAPTI and MAPI commands map LPIs to ITTEs.
+ * Must be called with its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_mapi(struct domain *d, struct vgic_its *its,
+                                    u64 *its_cmd)
+{
+    u32 device_id = its_cmd_get_deviceid(its_cmd);
+    u32 event_id  = its_cmd_get_id(its_cmd);
+    u32 coll_id   = its_cmd_get_collection(its_cmd);
+    struct its_ite *ite;
+    struct vcpu *vcpu = NULL;
+    struct vgic_its_device *device;
+    struct its_collection *collection, *new_coll = NULL;
+    struct vgic_irq *irq;
+    int lpi_nr;
+
+    spin_lock(&d->arch.vgic.its_devices_lock);
+    device = find_its_device(its, device_id);
+    spin_unlock(&d->arch.vgic.its_devices_lock);
+    if ( !device )
+        return E_ITS_MAPTI_UNMAPPED_DEVICE;
+
+    if ( !vgic_its_check_event_id(its, device, event_id) )
+        return E_ITS_MAPTI_ID_OOR;
+
+    if ( its_cmd_get_command(its_cmd) == GITS_CMD_MAPTI )
+        lpi_nr = its_cmd_get_physical_id(its_cmd);
+    else
+        lpi_nr = event_id;
+    if ( lpi_nr < GIC_LPI_OFFSET ||
+         lpi_nr >= max_lpis_propbaser(d->arch.vgic.propbaser) )
+        return E_ITS_MAPTI_PHYSICALID_OOR;
+
+    /* If there is an existing mapping, behavior is UNPREDICTABLE. */
+    if ( find_ite(its, device_id, event_id) )
+        return 0;
+
+    collection = find_collection(its, coll_id);
+    if ( !collection )
+    {
+        int ret;
+
+        if ( !vgic_its_check_id(its, its->baser_coll_table, coll_id, NULL) )
+            return E_ITS_MAPC_COLLECTION_OOR;
+
+        ret = vgic_its_alloc_collection(its, &collection, coll_id);
+        if ( ret )
+            return ret;
+        new_coll = collection;
+    }
+
+    ite = vgic_its_alloc_ite(device, collection, event_id);
+    if ( IS_ERR(ite) )
+    {
+        if ( new_coll )
+            vgic_its_free_collection(its, coll_id);
+        return PTR_ERR(ite);
+    }
+
+    if ( its_is_collection_mapped(collection) )
+        vcpu = d->vcpu[collection->target_addr];
+
+    irq = vgic_add_lpi(d, its, lpi_nr, device_id, event_id, vcpu);
+    if ( IS_ERR(irq) )
+    {
+        if ( new_coll )
+            vgic_its_free_collection(its, coll_id);
+        its_free_ite(d, ite);
+        return PTR_ERR(irq);
+    }
+    ite->irq = irq;
+
+    return 0;
+}
+
+/*
+ * The MOVI command moves an ITTE to a different collection.
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_movi(struct domain *d, struct vgic_its *its,
+                                    u64 *its_cmd)
+{
+    u32 device_id = its_cmd_get_deviceid(its_cmd);
+    u32 event_id  = its_cmd_get_id(its_cmd);
+    u32 coll_id   = its_cmd_get_collection(its_cmd);
+    struct vcpu *vcpu;
+    struct its_ite *ite;
+    struct its_collection *collection;
+
+    ite = find_ite(its, device_id, event_id);
+    if ( !ite )
+        return E_ITS_MOVI_UNMAPPED_INTERRUPT;
+
+    if ( !its_is_collection_mapped(ite->collection) )
+        return E_ITS_MOVI_UNMAPPED_COLLECTION;
+
+    collection = find_collection(its, coll_id);
+    if ( !its_is_collection_mapped(collection) )
+        return E_ITS_MOVI_UNMAPPED_COLLECTION;
+
+    ite->collection = collection;
+    vcpu            = d->vcpu[collection->target_addr];
+
+    vgic_its_invalidate_cache(d);
+
+    return update_affinity(ite->irq, vcpu);
+}
+
+/*
+ * The DISCARD command frees an Interrupt Translation Table Entry (ITTE).
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_discard(struct domain *d, struct vgic_its *its,
+                                       u64 *its_cmd)
+{
+    u32 device_id = its_cmd_get_deviceid(its_cmd);
+    u32 event_id  = its_cmd_get_id(its_cmd);
+    struct its_ite *ite;
+
+    ite = find_ite(its, device_id, event_id);
+    if ( ite && its_is_collection_mapped(ite->collection) )
+    {
+        /*
+         * Though the spec talks about removing the pending state, we
+         * don't bother here since we clear the ITTE anyway and the
+         * pending state is a property of the ITTE struct.
+         */
+        vgic_its_invalidate_cache(d);
+
+        its_free_ite(d, ite);
+        return 0;
+    }
+
+    return E_ITS_DISCARD_UNMAPPED_INTERRUPT;
+}
+
+/*
+ * The CLEAR command removes the pending state for a particular LPI.
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_clear(struct domain *d, struct vgic_its *its,
+                                     u64 *its_cmd)
+{
+    u32 device_id = its_cmd_get_deviceid(its_cmd);
+    u32 event_id  = its_cmd_get_id(its_cmd);
+    struct its_ite *ite;
+
+    ite = find_ite(its, device_id, event_id);
+    if ( !ite )
+        return E_ITS_CLEAR_UNMAPPED_INTERRUPT;
+
+    ite->irq->pending_latch = false;
+
+    /* GICv4 style VLPIS are not yet supported */
+    WARN_ON(ite->irq->hw);
+
+    return 0;
+}
+
+/*
+ * The MOVALL command moves the pending state of all IRQs targeting one
+ * redistributor to another. We don't hold the pending state in the VCPUs,
+ * but in the IRQs instead, so there is really not much to do for us here.
+ * However the spec says that no IRQ must target the old redistributor
+ * afterwards, so we make sure that no LPI is using the associated target_vcpu.
+ * This command affects all LPIs in the system that target that redistributor.
+ */
+static int vgic_its_cmd_handle_movall(struct domain *d, struct vgic_its *its,
+                                      u64 *its_cmd)
+{
+    u32 target1_addr = its_cmd_get_target_addr(its_cmd);
+    u32 target2_addr = its_cmd_mask_field(its_cmd, 3, 16, 32);
+    struct vcpu *vcpu1, *vcpu2;
+    struct vgic_irq *irq;
+    u32 *intids;
+    int irq_count, i;
+
+    if ( target1_addr >= d->max_vcpus || target2_addr >= d->max_vcpus )
+        return E_ITS_MOVALL_PROCNUM_OOR;
+
+    if ( target1_addr == target2_addr )
+        return 0;
+
+    vcpu1     = d->vcpu[target1_addr];
+    vcpu2     = d->vcpu[target2_addr];
+
+    irq_count = vgic_copy_lpi_list(d, vcpu1, &intids);
+    if ( irq_count < 0 )
+        return irq_count;
+
+    for ( i = 0; i < irq_count; i++ )
+    {
+        irq = vgic_get_irq(d, NULL, intids[i]);
+
+        update_affinity(irq, vcpu2);
+
+        vgic_put_irq(d, irq);
+    }
+
+    vgic_its_invalidate_cache(d);
+
+    xfree(intids);
+    return 0;
+}
+
+int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
+{
+    return update_lpi_config(d, irq, NULL, true);
+}
+
+/*
+ * The INV command syncs the configuration bits from the memory table.
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_inv(struct domain *d, struct vgic_its *its,
+                                   u64 *its_cmd)
+{
+    u32 device_id = its_cmd_get_deviceid(its_cmd);
+    u32 event_id  = its_cmd_get_id(its_cmd);
+    struct its_ite *ite;
+
+    ite = find_ite(its, device_id, event_id);
+    if ( !ite )
+        return E_ITS_INV_UNMAPPED_INTERRUPT;
+
+    return vgic_its_inv_lpi(d, ite->irq);
+}
+
+/**
+ * vgic_its_invall - invalidate all LPIs targetting a given vcpu
+ * @vcpu: the vcpu for which the RD is targetted by an invalidation
+ *
+ * Contrary to the INVALL command, this targets a RD instead of a
+ * collection, and we don't need to hold the its_lock, since no ITS is
+ * involved here.
+ */
+int vgic_its_invall(struct vcpu *vcpu)
+{
+    struct domain *d = vcpu->domain;
+    int irq_count, i = 0;
+    u32 *intids;
+
+    irq_count = vgic_copy_lpi_list(d, vcpu, &intids);
+    if ( irq_count < 0 )
+        return irq_count;
+
+    for ( i = 0; i < irq_count; i++ )
+    {
+        struct vgic_irq *irq = vgic_get_irq(d, NULL, intids[i]);
+        if ( !irq )
+            continue;
+        update_lpi_config(d, irq, vcpu, false);
+        vgic_put_irq(d, irq);
+    }
+
+    xfree(intids);
+    return 0;
+}
+
+/*
+ * The INVALL command requests flushing of all IRQ data in this collection.
+ * Find the VCPU mapped to that collection, then iterate over the VM's list
+ * of mapped LPIs and update the configuration for each IRQ which targets
+ * the specified vcpu. The configuration will be read from the in-memory
+ * configuration table.
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_invall(struct domain *d, struct vgic_its *its,
+                                      u64 *its_cmd)
+{
+    u32 coll_id = its_cmd_get_collection(its_cmd);
+    struct its_collection *collection;
+    struct vcpu *vcpu;
+
+    collection = find_collection(its, coll_id);
+    if ( !its_is_collection_mapped(collection) )
+        return E_ITS_INVALL_UNMAPPED_COLLECTION;
+
+    vcpu = d->vcpu[collection->target_addr];
+    vgic_its_invall(vcpu);
+
+    return 0;
+}
+
+/*
  * This function is called with the its_cmd lock held, but the ITS data
  * structure lock dropped.
  */
 static int vgic_its_handle_command(struct domain *d, struct vgic_its *its,
                                    u64 *its_cmd)
 {
+    int ret = -ENODEV;
 
-    return -ENODEV;
+    spin_lock(&its->its_lock);
+    switch ( its_cmd_get_command(its_cmd) )
+    {
+    case GITS_CMD_MAPD:
+        ret = vgic_its_cmd_handle_mapd(d, its, its_cmd);
+        break;
+    case GITS_CMD_MAPC:
+        ret = vgic_its_cmd_handle_mapc(d, its, its_cmd);
+        break;
+    case GITS_CMD_MAPI:
+        ret = vgic_its_cmd_handle_mapi(d, its, its_cmd);
+        break;
+    case GITS_CMD_MAPTI:
+        ret = vgic_its_cmd_handle_mapi(d, its, its_cmd);
+        break;
+    case GITS_CMD_MOVI:
+        ret = vgic_its_cmd_handle_movi(d, its, its_cmd);
+        break;
+    case GITS_CMD_DISCARD:
+        ret = vgic_its_cmd_handle_discard(d, its, its_cmd);
+        break;
+    case GITS_CMD_CLEAR:
+        ret = vgic_its_cmd_handle_clear(d, its, its_cmd);
+        break;
+    case GITS_CMD_MOVALL:
+        ret = vgic_its_cmd_handle_movall(d, its, its_cmd);
+        break;
+    case GITS_CMD_INV:
+        ret = vgic_its_cmd_handle_inv(d, its, its_cmd);
+        break;
+    case GITS_CMD_INVALL:
+        ret = vgic_its_cmd_handle_invall(d, its, its_cmd);
+        break;
+    case GITS_CMD_SYNC:
+        /* we ignore this command: we are in sync all of the time */
+        ret = 0;
+        break;
+    default:
+        printk("Unknown GITS command\n");
+        ret = -EINVAL;
+        break;
+    }
+    spin_unlock(&its->its_lock);
+
+    return ret;
 }
 
 #define ITS_CMD_BUFFER_SIZE(baser) ((((baser)&0xff) + 1) << 12)
