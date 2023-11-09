@@ -160,6 +160,25 @@
 #define GITS_CMD_MOVALL                 0x0e
 #define GITS_CMD_DISCARD                0x0f
 
+/*
+ * ITS error numbers
+ */
+#define E_ITS_MOVI_UNMAPPED_INTERRUPT       0x010107
+#define E_ITS_MOVI_UNMAPPED_COLLECTION      0x010109
+#define E_ITS_INT_UNMAPPED_INTERRUPT        0x010307
+#define E_ITS_CLEAR_UNMAPPED_INTERRUPT      0x010507
+#define E_ITS_MAPD_DEVICE_OOR               0x010801
+#define E_ITS_MAPD_ITTSIZE_OOR              0x010802
+#define E_ITS_MAPC_PROCNUM_OOR              0x010902
+#define E_ITS_MAPC_COLLECTION_OOR           0x010903
+#define E_ITS_MAPTI_UNMAPPED_DEVICE         0x010a04
+#define E_ITS_MAPTI_ID_OOR                  0x010a05
+#define E_ITS_MAPTI_PHYSICALID_OOR          0x010a06
+#define E_ITS_INV_UNMAPPED_INTERRUPT        0x010c07
+#define E_ITS_INVALL_UNMAPPED_COLLECTION    0x010d09
+#define E_ITS_MOVALL_PROCNUM_OOR            0x010e01
+#define E_ITS_DISCARD_UNMAPPED_INTERRUPT    0x010f07
+
 #define ITS_DOORBELL_OFFSET             0x10040
 #define GICV3_ITS_SIZE                  SZ_128K
 #define ITS_TRANSLATION_OFFSET          0x10000

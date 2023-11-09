@@ -29,6 +29,7 @@
 #define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == VGIC_ADDR_UNDEF)
 
 #define INTERRUPT_ID_BITS_SPIS  10
+#define INTERRUPT_ID_BITS_ITS   16
 #define VGIC_PRI_BITS       5
 
 #define vgic_irq_is_sgi(intid) ((intid) < VGIC_NR_SGIS)
@@ -77,6 +78,7 @@ void vgic_v3_populate_lr(struct vcpu *vcpu, struct vgic_irq *irq, int lr);
 void vgic_v3_enable(struct vcpu *vcpu);
 int vgic_v3_map_resources(struct domain *d);
 bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr);
+bool vgic_lpis_enabled(struct vcpu *vcpu);
 unsigned int vgic_v3_init_dist_iodev(struct vgic_io_device *dev);
 int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count);
 int vgic_register_redist_iodev(struct vcpu *vcpu);
@@ -110,6 +112,10 @@ static inline bool vgic_v3_emulate_reg(struct cpu_user_regs *regs, union hsr hsr
 static inline int vgic_v3_set_redist_base(struct domain *d, u32 index, u64 addr, u32 count)
 {
     return 0;
+}
+static inline bool vgic_lpis_enabled(struct vcpu *vcpu)
+{
+    return false;
 }
 static inline int vgic_register_redist_iodev(struct vcpu *vcpu)
 {
