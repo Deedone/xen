@@ -557,6 +557,81 @@ static u32 max_lpis_propbaser(u64 propbaser)
     return 1U << min(nr_idbits, INTERRUPT_ID_BITS_ITS);
 }
 
+int vgic_its_resolve_lpi(struct domain *d, struct vgic_its *its, u32 devid,
+                         u32 eventid, struct vgic_irq **irq)
+{
+    struct vcpu *vcpu;
+    struct its_ite *ite;
+
+    if ( !its->enabled )
+        return -EBUSY;
+
+    ite = find_ite(its, devid, eventid);
+    if ( !ite || !its_is_collection_mapped(ite->collection) )
+        return E_ITS_INT_UNMAPPED_INTERRUPT;
+
+    vcpu = d->vcpu[ite->collection->target_addr];
+    if ( !vcpu )
+        return E_ITS_INT_UNMAPPED_INTERRUPT;
+
+    if ( !vgic_lpis_enabled(vcpu) )
+        return -EBUSY;
+
+    vgic_its_cache_translation(d, its, devid, eventid, ite->irq);
+
+    *irq = ite->irq;
+    return 0;
+}
+
+int vgic_its_inject_cached_translation(struct domain *d, struct vgic_its *its, u32 devid, u32 eventid)
+{
+	struct vgic_irq *irq;
+	unsigned long flags;
+	paddr_t db;
+
+	db = its->vgic_its_base + GITS_TRANSLATER;
+	irq = vgic_its_check_cache(d, db, devid, eventid);
+	if (!irq)
+		return -EWOULDBLOCK;
+
+	spin_lock_irqsave(&irq->irq_lock, flags);
+	irq->pending_latch = true;
+	vgic_queue_irq_unlock(d, irq, flags);
+
+	return 0;
+}
+
+/*
+ * Find the target VCPU and the LPI number for a given devid/eventid pair
+ * and make this IRQ pending, possibly injecting it.
+ * Must be called with the its_lock mutex held.
+ * Returns 0 on success, a positive error value for any ITS mapping
+ * related errors and negative error values for generic errors.
+ */
+static int vgic_its_trigger_msi(struct domain *d, struct vgic_its *its,
+                                u32 devid, u32 eventid)
+{
+    struct vgic_irq *irq = NULL;
+    unsigned long flags;
+    int err;
+
+	if (!vgic_its_inject_cached_translation(d, its, devid, eventid))
+		return 1;
+
+    err = vgic_its_resolve_lpi(d, its, devid, eventid, &irq);
+    if ( err )
+        return err;
+
+    /* GICv4 style VLPIS are not yet supported */
+    WARN_ON(irq->hw);
+
+    spin_lock_irqsave(&irq->irq_lock, flags);
+    irq->pending_latch = true;
+    vgic_queue_irq_unlock(d, irq, flags);
+
+    return 0;
+}
+
 static u64 its_cmd_mask_field(u64 *its_cmd, int word, int shift, int size)
 {
     return (le64_to_cpu(its_cmd[word]) >> shift) & (BIT(size, ULL) - 1);
@@ -868,6 +943,27 @@ void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev)
     list_del(&its_dev->dev_list);
 }
 
+void vgic_vcpu_inject_lpi(struct domain *d, unsigned int virq)
+{
+    /*
+     * TODO: this assumes that the struct pending_irq stays valid all of
+     * the time. We cannot properly protect this with the current locking
+     * scheme, but the future per-IRQ lock will solve this problem.
+     */
+    struct vgic_irq *p = vgic_get_irq(d, d->vcpu[0], virq);
+    unsigned int vcpu_id;
+
+    if ( !p )
+        return;
+
+    vcpu_id = ACCESS_ONCE(p->target_vcpu->vcpu_id);
+    if ( vcpu_id >= d->max_vcpus )
+          return;
+
+    vgic_put_irq(d, p);
+    vgic_inject_irq(d, d->vcpu[vcpu_id], virq, true);
+}
+
 /*
  * MAPD maps or unmaps a device ID to Interrupt Translation Tables (ITTs).
  * Must be called with the its_lock mutex held.
@@ -1173,6 +1269,19 @@ static int vgic_its_cmd_handle_movall(struct domain *d, struct vgic_its *its,
     return 0;
 }
 
+/*
+ * The INT command injects the LPI associated with that DevID/EvID pair.
+ * Must be called with the its_lock mutex held.
+ */
+static int vgic_its_cmd_handle_int(struct domain *d, struct vgic_its *its,
+                                   u64 *its_cmd)
+{
+    u32 msi_data  = its_cmd_get_id(its_cmd);
+    u64 msi_devid = its_cmd_get_deviceid(its_cmd);
+
+    return vgic_its_trigger_msi(d, its, msi_devid, msi_data);
+}
+
 int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
 {
     return update_lpi_config(d, irq, NULL, true);
@@ -1287,6 +1396,9 @@ static int vgic_its_handle_command(struct domain *d, struct vgic_its *its,
         break;
     case GITS_CMD_MOVALL:
         ret = vgic_its_cmd_handle_movall(d, its, its_cmd);
+        break;
+    case GITS_CMD_INT:
+        ret = vgic_its_cmd_handle_int(d, its, its_cmd);
         break;
     case GITS_CMD_INV:
         ret = vgic_its_cmd_handle_inv(d, its, its_cmd);
