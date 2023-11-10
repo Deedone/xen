@@ -257,6 +257,10 @@ int vgic_v3_map_resources(struct domain *d)
     /* Allocate memory for Re-distributor regions */
     rdist_count = vgic_v3_max_rdist_count(d);
 
+    /*For compatibility with hwdom dt node creation*/
+    d->arch.vgic.nr_regions = rdist_count;
+    d->arch.vgic.rdist_regions = xzalloc_array(struct rdist_region, rdist_count);
+
     /*
      * For domain using the host memory layout, it gets the hardware
      * address.
@@ -268,6 +272,8 @@ int vgic_v3_map_resources(struct domain *d)
 
         for ( i = 0; i < vgic_v3_hw_data.nr_rdist_regions; i++ )
         {
+            d->arch.vgic.rdist_regions[i].base = vgic_v3_hw_data.regions[i].base;
+            d->arch.vgic.rdist_regions[i].size = vgic_v3_hw_data.regions[i].size;
             vgic_v3_set_redist_base(d, i, vgic_v3_hw_data.regions[i].base,
                                     vgic_v3_hw_data.regions[i].size /
                                         GICV3_GICR_SIZE);
@@ -276,6 +282,8 @@ int vgic_v3_map_resources(struct domain *d)
     else
     {
         d->arch.vgic.dbase = GUEST_GICV3_GICD_BASE;
+        d->arch.vgic.rdist_regions[0].base = GUEST_GICV3_GICR0_BASE;
+        d->arch.vgic.rdist_regions[0].size = GUEST_GICV3_GICR0_SIZE;
 
         /* A single Re-distributor region is mapped for the guest. */
         BUILD_BUG_ON(GUEST_GICV3_RDIST_REGIONS != 1);
