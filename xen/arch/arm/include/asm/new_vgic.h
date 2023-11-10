@@ -21,6 +21,7 @@
 #include <xen/list.h>
 #include <xen/mm.h>
 #include <xen/spinlock.h>
+#include <asm/gic_v3_defs.h>
 
 #define VGIC_V3_MAX_CPUS        255
 #define VGIC_V2_MAX_CPUS        8
@@ -135,6 +136,10 @@ struct vgic_dist {
     };
     paddr_t             csize; /* CPU interface size */
     paddr_t             vbase; /* virtual CPU interface base address */
+
+    /* for compatibility with guests DT creation*/
+    uint32_t nr_regions;
+    struct rdist_region *rdist_regions;
 
     /* distributor enabled */
     bool                enabled;
