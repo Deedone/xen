@@ -540,7 +540,7 @@ vgic_get_mmio_region(struct vcpu *vcpu, struct vgic_io_device *iodev,
 
     region = vgic_find_mmio_region(iodev->regions, iodev->nr_regions,
                                    addr - gfn_to_gaddr(iodev->base_fn));
-    if ( !region || !check_region(vcpu->domain, region, addr, len) )
+    if ( !region || !check_region(vcpu->domain, region, addr - gfn_to_gaddr(iodev->base_fn), len) )
         return NULL;
 
     return region;
@@ -565,13 +565,13 @@ static int dispatch_mmio_read(struct vcpu *vcpu, mmio_info_t *info,
     switch (iodev->iodev_type)
     {
     case IODEV_DIST:
-        data = region->read(vcpu, addr, len);
+        data = region->read(vcpu, addr - gfn_to_gaddr(iodev->base_fn), len);
         break;
     case IODEV_REDIST:
-        data = region->read(iodev->redist_vcpu, addr, len);
+        data = region->read(iodev->redist_vcpu, addr - gfn_to_gaddr(iodev->base_fn), len);
         break;
     case IODEV_ITS:
-        data = region->its_read(vcpu->domain, iodev->its, addr, len);;
+        data = region->its_read(vcpu->domain, iodev->its, addr - gfn_to_gaddr(iodev->base_fn), len);;
         break;
     }
 
@@ -596,13 +596,13 @@ static int dispatch_mmio_write(struct vcpu *vcpu, mmio_info_t *info,
     switch (iodev->iodev_type)
     {
     case IODEV_DIST:
-        region->write(vcpu, addr, len, data);
+        region->write(vcpu, addr - gfn_to_gaddr(iodev->base_fn), len, data);
         break;
     case IODEV_REDIST:
-        region->write(iodev->redist_vcpu, addr, len, data);
+        region->write(iodev->redist_vcpu, addr - gfn_to_gaddr(iodev->base_fn), len, data);
         break;
     case IODEV_ITS:
-        region->its_write(vcpu->domain, iodev->its, addr, len, data);
+        region->its_write(vcpu->domain, iodev->its, addr - gfn_to_gaddr(iodev->base_fn), len, data);
         break;
     }
 
