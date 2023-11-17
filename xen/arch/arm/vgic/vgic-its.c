@@ -2000,6 +2000,18 @@ int vgic_v3_its_init_domain(struct domain *d)
                 d->arch.vgic.has_its = true;
         }
     }
+    else
+    {
+        ret = vgic_its_create(d, GUEST_GICV3_ITS_BASE);
+        if ( ret )
+            return ret;
+        else
+            d->arch.vgic.has_its = true;
+
+        ret = gicv3_its_map_translation_register(d);
+        if ( ret )
+            return ret;
+    }
 
     return 0;
 }
