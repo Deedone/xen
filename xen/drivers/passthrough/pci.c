@@ -758,7 +758,7 @@ int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
          * For devices not discovered by Xen during boot, add vPCI handlers
          * when Dom0 first informs Xen about such devices.
          */
-        ret = vpci_assign_device(pdev);
+        ret = vpci_assign_device(pdev, NULL);
         if ( ret )
         {
             list_del(&pdev->domain_list);
@@ -884,7 +884,7 @@ static int deassign_device(struct domain *d, uint16_t seg, uint8_t bus,
     }
 
     write_lock(&d->pci_lock);
-    vpci_deassign_device(pdev);
+    vpci_deassign_device(pdev, NULL);
     write_unlock(&d->pci_lock);
 
     devfn = pdev->devfn;
@@ -1264,7 +1264,7 @@ static void __hwdom_init setup_one_hwdom_device(const struct setup_hwdom *ctxt,
               PCI_SLOT(devfn) == PCI_SLOT(pdev->devfn) );
 
     write_lock(&ctxt->d->pci_lock);
-    err = vpci_assign_device(pdev);
+    err = vpci_assign_device(pdev, NULL);
     write_unlock(&ctxt->d->pci_lock);
     if ( err )
         printk(XENLOG_ERR "setup of vPCI for d%d failed: %d\n",
@@ -1571,7 +1571,8 @@ static int device_assigned(u16 seg, u8 bus, u8 devfn)
 }
 
 /* Caller should hold the pcidevs_lock */
-static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
+static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag,
+                         pci_sbdf_t *vsbdf)
 {
     const struct domain_iommu *hd = dom_iommu(d);
     struct pci_dev *pdev;
@@ -1625,7 +1626,7 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
     }
 
     write_lock(&d->pci_lock);
-    rc = vpci_assign_device(pdev);
+    rc = vpci_assign_device(pdev, vsbdf);
     write_unlock(&d->pci_lock);
 
  done:
@@ -1790,6 +1791,7 @@ int iommu_do_pci_domctl(
     u8 bus, devfn;
     int ret = 0;
     uint32_t machine_sbdf;
+    pci_sbdf_t virtual_sbdf;
 
     switch ( domctl->cmd )
     {
@@ -1849,6 +1851,7 @@ int iommu_do_pci_domctl(
             break;
 
         machine_sbdf = domctl->u.assign_device.u.pci.machine_sbdf;
+        virtual_sbdf.sbdf = domctl->u.assign_device.u.pci.virtual_sbdf;
 
         ret = xsm_assign_device(XSM_HOOK, d, machine_sbdf);
         if ( ret )
@@ -1878,11 +1881,13 @@ int iommu_do_pci_domctl(
             }
         }
         else if ( !ret )
-            ret = assign_device(d, seg, bus, devfn, flags);
+            ret = assign_device(d, seg, bus, devfn, flags, &virtual_sbdf);
         pcidevs_unlock();
         if ( ret == -ERESTART )
             ret = hypercall_create_continuation(__HYPERVISOR_domctl,
                                                 "h", u_domctl);
+
+        domctl->u.assign_device.u.pci.virtual_sbdf = virtual_sbdf.sbdf;
         break;
 
     case XEN_DOMCTL_deassign_device:
