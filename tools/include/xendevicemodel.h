@@ -237,6 +237,20 @@ int xendevicemodel_inject_msi(
     uint32_t msi_data);
 
 /**
+ * This function injects an MSI into a guest.
+ *
+ * @parm dmod a handle to an open devicemodel interface.
+ * @parm domid the domain id to be serviced
+ * @parm msi_addr the MSI address (0xfeexxxxx)
+ * @parm source_id the PCI SBDF of the source device
+ * @parm msi_data the MSI data
+ * @return 0 on success, -1 on failure.
+*/
+int xendevicemodel_inject_msi2(
+    xendevicemodel_handle *dmod, domid_t domid, uint64_t msi_addr, uint32_t source_id,
+    uint32_t data, unsigned int source_id_valid);
+
+/**
  * This function enables tracking of changes in the VRAM area.
  *
  * The following is done atomically:
