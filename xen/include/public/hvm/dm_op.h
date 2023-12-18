@@ -444,6 +444,17 @@ struct xen_dm_op_nr_vcpus {
 };
 typedef struct xen_dm_op_nr_vcpus xen_dm_op_nr_vcpus_t;
 
+#define XEN_DMOP_inject_msi2 21
+#define XEN_DMOP_MSI_SOURCE_ID_VALID (1u << 0)
+
+struct xen_dm_op_inject_msi2 {
+    uint64_aligned_t addr;
+    uint32_t data;
+    uint32_t source_id; /* PCI SBDF */
+    uint32_t flags;
+};
+typedef struct xen_dm_op_inject_msi2 xen_dm_op_inject_msi2_t;
+
 struct xen_dm_op {
     uint32_t op;
     uint32_t pad;
@@ -463,6 +474,7 @@ struct xen_dm_op {
         xen_dm_op_set_mem_type_t set_mem_type;
         xen_dm_op_inject_event_t inject_event;
         xen_dm_op_inject_msi_t inject_msi;
+        xen_dm_op_inject_msi2_t inject_msi2;
         xen_dm_op_map_mem_type_to_ioreq_server_t map_mem_type_to_ioreq_server;
         xen_dm_op_remote_shutdown_t remote_shutdown;
         xen_dm_op_relocate_memory_t relocate_memory;
