@@ -27,6 +27,7 @@ int dm_op(const struct dmop_args *op_args)
         [XEN_DMOP_set_ioreq_server_state]           = sizeof(struct xen_dm_op_set_ioreq_server_state),
         [XEN_DMOP_destroy_ioreq_server]             = sizeof(struct xen_dm_op_destroy_ioreq_server),
         [XEN_DMOP_set_irq_level]                    = sizeof(struct xen_dm_op_set_irq_level),
+        [XEN_DMOP_inject_msi2]                      = sizeof(struct xen_dm_op_inject_msi2),
         [XEN_DMOP_nr_vcpus]                         = sizeof(struct xen_dm_op_nr_vcpus),
     };
 
@@ -112,6 +113,20 @@ int dm_op(const struct dmop_args *op_args)
         break;
     }
 
+    case XEN_DMOP_inject_msi2:
+    {
+        const struct xen_dm_op_inject_msi2 *data =
+            &op.u.inject_msi2;
+
+        if ( !(data->flags & XEN_DMOP_MSI_SOURCE_ID_VALID) )
+        {
+            rc = -EINVAL;
+            break;
+        }
+        rc = vgic_its_trigger_msi(d, data->addr, data->source_id, data->data);
+        break;
+
+    }
     case XEN_DMOP_nr_vcpus:
     {
         struct xen_dm_op_nr_vcpus *data = &op.u.nr_vcpus;

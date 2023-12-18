@@ -344,6 +344,7 @@ int dm_op(const struct dmop_args *op_args)
         [XEN_DMOP_set_mem_type]                     = sizeof(struct xen_dm_op_set_mem_type),
         [XEN_DMOP_inject_event]                     = sizeof(struct xen_dm_op_inject_event),
         [XEN_DMOP_inject_msi]                       = sizeof(struct xen_dm_op_inject_msi),
+        [XEN_DMOP_inject_msi2]                      = sizeof(struct xen_dm_op_inject_msi2),
         [XEN_DMOP_map_mem_type_to_ioreq_server]     = sizeof(struct xen_dm_op_map_mem_type_to_ioreq_server),
         [XEN_DMOP_remote_shutdown]                  = sizeof(struct xen_dm_op_remote_shutdown),
         [XEN_DMOP_relocate_memory]                  = sizeof(struct xen_dm_op_relocate_memory),
@@ -535,6 +536,19 @@ int dm_op(const struct dmop_args *op_args)
         if ( data->pad )
             break;
 
+        rc = hvm_inject_msi(d, data->addr, data->data);
+        break;
+    }
+
+    case XEN_DMOP_inject_msi2:
+    {
+        const struct xen_dm_op_inject_msi2 *data =
+            &op.u.inject_msi2;
+
+        if ( !(data->flags & XEN_DMOP_MSI_SOURCE_ID_VALID) )
+        {
+            printk(XENLOG_WARNING "XEN_DMOP_inject_msi2: source_id is ignored\n");
+        }
         rc = hvm_inject_msi(d, data->addr, data->data);
         break;
     }
