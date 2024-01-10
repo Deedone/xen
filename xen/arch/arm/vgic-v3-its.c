@@ -1608,6 +1608,41 @@ static int vgic_v3_its_init_virtual(struct domain *d, paddr_t guest_addr,
     return 0;
 }
 
+int vgic_its_trigger_msi(struct domain *d, paddr_t doorbell_address,
+                                u32 devid, u32 eventid)
+{
+    struct vcpu *vcpu;
+    struct virt_its *pos, *temp;
+    struct virt_its *its = NULL;
+    uint32_t vlpi;
+    bool ret;
+
+    list_for_each_entry_safe( pos, temp, &d->arch.vgic.vits_list, vits_list )
+    {
+        if ( pos->doorbell_address == doorbell_address )
+        {
+            its = pos;
+            break;
+        }
+    }
+
+    if ( !its )
+        return -EINVAL;
+
+    spin_lock(&its->its_lock);
+    ret = read_itte(its, devid, eventid, &vcpu, &vlpi);
+    spin_unlock(&its->its_lock);
+    if ( !ret )
+        return -1;
+
+    if ( vlpi == INVALID_LPI )
+        return -1;
+
+    vgic_vcpu_inject_lpi(its->d, vlpi);
+
+    return 0;
+}
+
 unsigned int vgic_v3_its_count(const struct domain *d)
 {
     struct host_its *hw_its;

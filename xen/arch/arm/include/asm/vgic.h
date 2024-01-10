@@ -330,6 +330,12 @@ extern bool vgic_migrate_irq(struct vcpu *old, struct vcpu *new, unsigned int ir
 extern void vgic_check_inflight_irqs_pending(struct domain *d, struct vcpu *v,
                                              unsigned int rank, uint32_t r);
 
+#ifdef CONFIG_HAS_ITS
+int vgic_its_trigger_msi(struct domain *d, paddr_t doorbell_address,
+                                u32 devid, u32 eventid);
+
+#endif /* CONFIG_HAS_ITS */
+
 #endif /* !CONFIG_NEW_VGIC */
 
 /*** Common VGIC functions used by Xen arch code ****/
