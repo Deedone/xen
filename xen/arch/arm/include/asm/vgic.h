@@ -352,6 +352,9 @@ int vgic_its_add_device(struct domain *d, struct vgic_its_device *its_dev);
 void vgic_its_delete_device(struct domain *d, struct vgic_its_device *its_dev);
 struct vgic_its_device* vgic_its_get_device(struct domain *d, paddr_t vdoorbell,
                                          uint32_t vdevid);
+int vgic_its_trigger_msi(struct domain *d, paddr_t doorbell_address,
+                                u32 devid, u32 eventid);
+
 #endif /* CONFIG_HAS_ITS */
 
 #endif /* !CONFIG_NEW_VGIC */
