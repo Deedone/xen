@@ -70,6 +70,20 @@ static inline bool arch_pci_device_physdevop(void)
     return false;
 }
 
+static inline uint64_t pci_get_new_bar_addr(const struct pci_dev *pdev,
+                                            uint64_t size, bool is_64bit,
+                                            bool prefetch)
+{
+    return 0;
+}
+
+static inline int pci_reserve_bar_range(const struct pci_dev *pdev,
+                                        uint64_t addr, uint64_t size,
+                                        bool prefetch)
+{
+    return 0;
+}
+
 /* Unlike ARM, HW domain does not ever use vpci for x86 */
 static inline bool hwdom_uses_vpci(void)
 {
