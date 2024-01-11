@@ -21,6 +21,7 @@
 #include <xen/rwlock.h>
 #include <xen/sched.h>
 #include <xen/vmap.h>
+#include <xen/resource.h>
 
 #include <asm/setup.h>
 
@@ -232,6 +233,25 @@ static int pci_bus_find_domain_nr(struct dt_device_node *dev)
     return domain;
 }
 
+static int __init add_bar_range(const struct dt_device_node *dev,
+                                uint32_t flags, uint64_t addr, uint64_t len,
+                                void *data)
+{
+    struct pci_host_bridge *bridge = data;
+
+    /* Ensure we are not using bits in a rangeset */
+    BUILD_BUG_ON(sizeof(unsigned long) != sizeof(uint64_t));
+
+    if ( !(flags & IORESOURCE_MEM) )
+        return 0;
+
+    if ( flags & IORESOURCE_PREFETCH )
+        return rangeset_add_range(bridge->bar_ranges_prefetch, addr,
+                                  addr + len - 1);
+    else
+        return rangeset_add_range(bridge->bar_ranges, addr, addr + len - 1);
+}
+
 struct pci_host_bridge * __init
 pci_host_common_probe(struct dt_device_node *dev,
                       const struct pci_ecam_ops *ops,
@@ -281,6 +301,18 @@ pci_host_common_probe(struct dt_device_node *dev,
 
         bridge->child_cfg = cfg;
         bridge->child_ops = &child_ops->pci_ops;
+    }
+
+    bridge->bar_ranges = rangeset_new(NULL, "BAR ranges",
+                                      RANGESETF_prettyprint_hex);
+    bridge->bar_ranges_prefetch = rangeset_new(NULL,
+                                               "BAR ranges (prefetchable)",
+                                               RANGESETF_prettyprint_hex);
+    if ( bridge->bar_ranges && bridge->bar_ranges_prefetch )
+    {
+        err = dt_for_each_range(bridge->dt_node, add_bar_range, bridge);
+        if ( err )
+            goto err_child;
     }
 
     pci_add_host_bridge(bridge);
@@ -476,6 +508,66 @@ bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end)
 
     return bar_data.is_valid;
 }
+
+/*
+ * Find suitable place for an uninitialized bar of specified size in the
+ * host bridge ranges
+ */
+uint64_t __init pci_get_new_bar_addr(const struct pci_dev *pdev, uint64_t size,
+                                     bool is_64bit, bool prefetch)
+{
+    struct pci_host_bridge *bridge;
+    struct rangeset *range;
+    uint64_t addr = 0, end = GB(4);
+
+    /* Make sure we can store addr in a rangeset */
+    BUILD_BUG_ON(sizeof(addr) != sizeof(unsigned long));
+
+    bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
+    if ( !bridge )
+        return 0;
+
+    range = prefetch ? bridge->bar_ranges_prefetch : bridge->bar_ranges;
+
+    if ( size < PAGE_SIZE )
+        size = PAGE_SIZE;
+
+    if ( is_64bit )
+    {
+        addr = GB(4);
+        end = ~0;
+    }
+
+    if ( !rangeset_claim_aligned_range(range, size, &addr, end) )
+        return addr;
+
+    printk(XENLOG_ERR "Failed to claim BAR range %lx-%lx from rangeset\n",
+           addr, addr + size - 1);
+
+    return 0;
+}
+
+/*
+ * Remove already used memory from the host bridge bar ranges
+ */
+int __init pci_reserve_bar_range(const struct pci_dev *pdev, uint64_t addr,
+                                 uint64_t size, bool prefetch)
+{
+    struct pci_host_bridge *bridge;
+    struct rangeset *range;
+
+    /* Make sure we can store addr in a rangeset */
+    BUILD_BUG_ON(sizeof(addr) != sizeof(unsigned long));
+
+    bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
+    if ( !bridge )
+        return 0;
+
+    range = prefetch ? bridge->bar_ranges_prefetch : bridge->bar_ranges;
+
+    return rangeset_remove_range(range, addr, addr + size - 1);
+}
+
 /*
  * Local variables:
  * mode: C

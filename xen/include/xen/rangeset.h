@@ -61,6 +61,17 @@ int __must_check rangeset_add_range(
     struct rangeset *r, unsigned long s, unsigned long e);
 int __must_check rangeset_claim_range(struct rangeset *r, unsigned long size,
                                       unsigned long *s);
+
+/*
+ * Find a range subset that starts at or after s, ends before e,
+ * and is aligned to the size.
+ * If such subset is present it is removed from the rangeset and
+ * it's start is written to s, otherwise s is set to 0.
+ */
+int __must_check rangeset_claim_aligned_range(struct rangeset *r,
+                                              unsigned long size,
+                                              unsigned long *s,
+                                              unsigned long e);
 int __must_check rangeset_remove_range(
     struct rangeset *r, unsigned long s, unsigned long e);
 bool __must_check rangeset_contains_range(

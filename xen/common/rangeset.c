@@ -180,15 +180,12 @@ int rangeset_add_range(
     return rc;
 }
 
-int rangeset_remove_range(
-    struct rangeset *r, unsigned long s, unsigned long e)
+static int remove_range(struct rangeset *r, unsigned long s, unsigned long e)
 {
     struct range *x, *y, *t;
     int rc = 0;
 
     ASSERT(s <= e);
-
-    write_lock(&r->lock);
 
     x = find_range(r, s);
     y = find_range(r, e);
@@ -244,8 +241,18 @@ int rangeset_remove_range(
             destroy_range(r, x);
     }
 
- out:
+out:
+    return rc;
+}
+
+int rangeset_remove_range(struct rangeset *r, unsigned long s, unsigned long e)
+{
+    int rc = 0;
+
+    write_lock(&r->lock);
+    rc = remove_range(r, s, e);
     write_unlock(&r->lock);
+
     return rc;
 }
 
@@ -355,6 +362,51 @@ int rangeset_claim_range(struct rangeset *r, unsigned long size,
     *s = start;
 
     return 0;
+}
+
+int rangeset_claim_aligned_range(struct rangeset *r, unsigned long size,
+                                 unsigned long *s, unsigned long e)
+{
+    struct range *x;
+    int rc = 0;
+
+    /* Power of 2 check */
+    if ( (size & (size - 1)) != 0 && size != 0 )
+    {
+        *s = 0;
+        return -EINVAL;
+    }
+
+    if ( e < *s )
+        return -EINVAL;
+
+    write_lock(&r->lock);
+
+    for ( x = first_range(r); x; x = next_range(r, x) )
+    {
+        /* Assumes size is a power of 2 */
+        unsigned long start_aligned = ROUNDUP(x->s, size);
+
+        if ( x->e > start_aligned &&
+             (x->e - start_aligned) >= size &&
+             start_aligned >= *s &&
+             start_aligned + size <= e)
+        {
+            rc = remove_range(r, start_aligned, start_aligned + size - 1);
+            if ( !rc )
+                *s = start_aligned;
+            else
+                *s = 0;
+
+            write_unlock(&r->lock);
+            return rc;
+        }
+    }
+
+    *s = 0;
+
+    write_unlock(&r->lock);
+    return -ENOSPC;
 }
 
 int rangeset_consume_ranges(struct rangeset *r,

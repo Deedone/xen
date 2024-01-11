@@ -74,6 +74,8 @@ struct pci_host_bridge {
     struct pci_config_window *child_cfg;
     const struct pci_ops *child_ops;
     void *priv;                      /* Private data of the bridge. */
+    struct rangeset *bar_ranges;
+    struct rangeset *bar_ranges_prefetch;
 };
 
 struct pci_ops {
@@ -153,6 +155,11 @@ void pci_generic_init_bus_range_child(struct dt_device_node *dev,
                                       struct pci_config_window *cfg);
 
 bool arch_pci_device_physdevop(void);
+
+uint64_t pci_get_new_bar_addr(const struct pci_dev *pdev, uint64_t size,
+                              bool is_64bit, bool prefetch);
+int pci_reserve_bar_range(const struct pci_dev *pdev, uint64_t addr,
+                          uint64_t size, bool prefetch);
 
 #else   /*!CONFIG_HAS_PCI*/
 
