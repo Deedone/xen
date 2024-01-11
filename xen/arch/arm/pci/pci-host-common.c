@@ -232,6 +232,21 @@ static int pci_bus_find_domain_nr(struct dt_device_node *dev)
     return domain;
 }
 
+static int add_bar_range(const struct dt_device_node *dev, uint32_t flags,
+                         uint64_t addr, uint64_t len, void *data)
+{
+    struct pci_host_bridge *bridge = data;
+
+    if ( !dt_range_is_memory(flags) )
+        return 0;
+
+    if ( dt_range_is_prefetchable(flags) )
+        return rangeset_add_range(bridge->bar_ranges_prefetch, addr,
+                                  addr + len - 1);
+    else
+        return rangeset_add_range(bridge->bar_ranges, addr, addr + len - 1);
+}
+
 struct pci_host_bridge *
 pci_host_common_probe(struct dt_device_node *dev,
                       const struct pci_ecam_ops *ops,
@@ -285,6 +300,14 @@ pci_host_common_probe(struct dt_device_node *dev,
 
     pci_add_host_bridge(bridge);
     pci_add_segment(bridge->segment);
+
+    bridge->bar_ranges = rangeset_new(NULL, "BAR ranges",
+                                      RANGESETF_prettyprint_hex);
+    bridge->bar_ranges_prefetch = rangeset_new(NULL,
+                                               "BAR ranges (prefetchable)",
+                                               RANGESETF_prettyprint_hex);
+    if ( bridge->bar_ranges && bridge->bar_ranges_prefetch )
+        dt_for_each_range(bridge->dt_node, add_bar_range, bridge);
 
     return bridge;
 
@@ -476,6 +499,60 @@ bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end)
 
     return bar_data.is_valid;
 }
+
+uint64_t pci_get_new_bar_addr(const struct pci_dev *pdev, uint64_t size,
+                              bool is_64bit, bool prefetch)
+{
+    struct pci_host_bridge *bridge;
+    struct rangeset *range;
+    uint64_t addr;
+
+    bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
+    if ( !bridge )
+        return 0;
+
+    range = prefetch ? bridge->bar_ranges_prefetch : bridge->bar_ranges;
+
+    if ( size < PAGE_SIZE )
+        size = PAGE_SIZE;
+
+    if ( is_64bit && !rangeset_find_aligned_range(range, size, GB(4), &addr) )
+    {
+        if ( rangeset_remove_range(range, addr, addr + size - 1) )
+        {
+            printk("%s:%d:%s error\n", __FILE__, __LINE__, __func__);
+        }
+        return addr;
+    }
+    if ( !rangeset_find_aligned_range(range, size, 0, &addr) )
+    {
+        if ( !is_64bit && addr >= GB(4) )
+            return 0;
+        if ( rangeset_remove_range(range, addr, addr + size - 1) )
+        {
+            printk("%s:%d:%s error\n", __FILE__, __LINE__, __func__);
+        }
+        return addr;
+    }
+
+    return 0;
+}
+
+int pci_reserve_bar_range(const struct pci_dev *pdev, uint64_t addr,
+                          uint64_t size, bool prefetch)
+{
+    struct pci_host_bridge *bridge;
+    struct rangeset *range;
+
+    bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
+    if ( !bridge )
+        return 0;
+
+    range = prefetch ? bridge->bar_ranges_prefetch : bridge->bar_ranges;
+
+    return rangeset_remove_range(range, addr, addr + size - 1);
+}
+
 /*
  * Local variables:
  * mode: C

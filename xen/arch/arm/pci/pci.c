@@ -124,6 +124,7 @@ static int __init pci_init(void)
         if ( ret < 0 )
             return ret;
 
+        pci_fixup_bars();
     }
 
     return 0;
