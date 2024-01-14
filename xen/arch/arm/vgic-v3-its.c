@@ -1484,6 +1484,25 @@ static int vgic_v3_its_init_virtual(struct domain *d, paddr_t guest_addr,
     return 0;
 }
 
+int vgic_its_trigger_msi(struct domain *d, paddr_t doorbell_address,
+                                u32 devid, u32 eventid)
+{
+    struct pending_irq *pend;
+    unsigned int vcpu_id;
+
+    pend = gicv3_its_get_event_pending_irq(d,doorbell_address, devid, eventid);
+    if ( !pend )
+        return -ENOENT;
+    
+    vcpu_id = ACCESS_ONCE(pend->lpi_vcpu_id);
+    if ( vcpu_id >= d->max_vcpus )
+          return -ENOENT;
+
+    vgic_inject_irq(d, d->vcpu[vcpu_id], pend->irq, true);
+
+    return 0;
+}
+
 unsigned int vgic_v3_its_count(const struct domain *d)
 {
     struct host_its *hw_its;
