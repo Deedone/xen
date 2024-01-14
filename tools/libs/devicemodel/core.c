@@ -448,6 +448,26 @@ int xendevicemodel_set_irq_level(
     return xendevicemodel_op(dmod, domid, 1, &op, sizeof(op));
 }
 
+int xendevicemodel_inject_msi2(
+    xendevicemodel_handle *dmod, domid_t domid, uint64_t addr, uint32_t source_id,
+    uint32_t data)
+{
+    uint16_t segment = source_id >> 16;
+    uint16_t bdf = source_id & 0xffff;
+    struct xen_dm_op op = {
+        .op = XEN_DMOP_inject_msi2,
+        .u.inject_msi2 = {
+            .addr = addr,
+            .data = data,
+            .segment = segment,
+            .source_id = bdf,
+            .flags = XEN_DMOP_MSI_SOURCE_ID_VALID,
+        },
+    };
+
+    return xendevicemodel_op(dmod, domid, 1, &op, sizeof(op));
+}
+
 int xendevicemodel_set_pci_link_route(
     xendevicemodel_handle *dmod, domid_t domid, uint8_t link, uint8_t irq)
 {

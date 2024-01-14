@@ -44,3 +44,8 @@ VERS_1.4 {
 		xendevicemodel_set_irq_level;
 		xendevicemodel_nr_vcpus;
 } VERS_1.3;
+
+VERS_1.5 {
+	global:
+		xendevicemodel_inject_msi2;
+} VERS_1.4;
