@@ -884,7 +884,7 @@ static int deassign_device(struct domain *d, uint16_t seg, uint8_t bus,
     }
 
     write_lock(&d->pci_lock);
-    vpci_deassign_device(pdev, NULL);
+    vpci_deassign_device(pdev);
     write_unlock(&d->pci_lock);
 
     devfn = pdev->devfn;
@@ -900,7 +900,7 @@ static int deassign_device(struct domain *d, uint16_t seg, uint8_t bus,
 
     write_lock(&target->pci_lock);
     /* Re-assign back to hardware_domain */
-    ret = vpci_assign_device(pdev);
+    ret = vpci_assign_device(pdev, NULL);
     write_unlock(&target->pci_lock);
 
  out:
@@ -1655,7 +1655,7 @@ static int __init _assign_hwdom_pci_devices(struct pci_seg *pseg, void *arg)
         if ( is_pci_endpoint && (pdev->domain == dom_io) )
         {
             ret = assign_device(hardware_domain, pdev->seg, pdev->bus,
-                                pdev->devfn, 0);
+                                pdev->devfn, 0, NULL);
             if ( ret < 0 )
             {
                 printk(XENLOG_ERR
@@ -1688,7 +1688,7 @@ int pci_assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
     ret = device_assigned(seg, bus, devfn);
 
     if ( !ret )
-        ret = assign_device(d, seg, bus, devfn, flag);
+        ret = assign_device(d, seg, bus, devfn, flag, NULL);
 
     pcidevs_unlock();
 

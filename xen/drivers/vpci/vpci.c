@@ -227,7 +227,7 @@ int vpci_reset_device_state(struct pci_dev *pdev)
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
     vpci_deassign_device(pdev);
-    return vpci_assign_device(pdev);
+    return vpci_assign_device(pdev, NULL);
 }
 
 #endif /* __XEN__ */
