@@ -1043,6 +1043,7 @@ int dt_for_each_range(const struct dt_device_node *dev,
         int ret;
         uint32_t flags = bus->get_flags(ranges);
 
+        memcpy(&flags, ranges, sizeof(flags));
         memcpy(addr, ranges + na, 4 * pna);
 
         a = __dt_translate_address(dev, addr, "ranges");
