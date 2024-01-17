@@ -942,11 +942,8 @@ static int make_gicv3_node(libxl__gc *gc, void *fdt, bool vpci_enabled)
     res = fdt_property_cell(fdt, "phandle", GUEST_PHANDLE_GIC);
     if (res) return res;
 
-    if ( vpci_enabled )
-    {
         res = make_gicv3_its_node(gc, fdt);
         if (res) return res;
-    }
 
     res = fdt_end_node(fdt);
     if (res) return res;
@@ -1775,7 +1772,7 @@ next_resize:
                                  GUEST_GICC_BASE, GUEST_GICC_SIZE) );
             break;
         case LIBXL_GIC_VERSION_V3:
-            FDT( make_gicv3_node(gc, fdt, d_config->num_pcidevs) );
+            FDT( make_gicv3_node(gc, fdt, 1) );
             break;
         default:
             LOG(ERROR, "Unknown GIC version %s",

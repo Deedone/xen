@@ -1657,10 +1657,16 @@ static inline unsigned int vgic_v3_max_rdist_count(struct domain *d)
                                        GUEST_GICV3_RDIST_REGIONS;
 }
 
+int vgic_v3_domain_late_init(struct domain *d)
+{
+
+    return vgic_v3_its_init_domain(d);
+}
+
 static int vgic_v3_domain_init(struct domain *d)
 {
     struct vgic_rdist_region *rdist_regions;
-    int rdist_count, i, ret;
+    int rdist_count, i;
 
     /* Allocate memory for Re-distributor regions */
     rdist_count = vgic_v3_max_rdist_count(d);
@@ -1727,10 +1733,6 @@ static int vgic_v3_domain_init(struct domain *d)
 
         d->arch.vgic.intid_bits = vgic_v3_hw.intid_bits;
     }
-
-    ret = vgic_v3_its_init_domain(d);
-    if ( ret )
-        return ret;
 
     /* Register mmio handle for the Distributor */
     register_mmio_handler(d, &vgic_distr_mmio_handler, d->arch.vgic.dbase,

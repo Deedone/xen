@@ -281,16 +281,10 @@ static uint32_t dt_msi_map_id(uint32_t id_in)
 {
     uint32_t id_out = id_in;
     const struct pci_host_bridge *bridge;
-    int rc;
 
     bridge = pci_find_host_bridge(PCI_SEG(id_in), PCI_BUS(id_in));
     if ( unlikely(!bridge) )
         return -ENODEV;
-
-    rc = dt_map_id(bridge->dt_node, id_in, "msi-map", "msi-map-mask",
-                   NULL, &id_out);
-    if ( rc )
-        return rc;
 
     return id_out;
 }
@@ -729,6 +723,7 @@ out:
     spin_unlock(&its->its_lock);
 }
 
+uint64_t g_host_doorbell_address = 0;
 static int its_handle_mapd(struct virt_its *its, uint64_t *cmdptr)
 {
     /* size and devid get validated by the functions called below. */
@@ -757,10 +752,13 @@ static int its_handle_mapd(struct virt_its *its, uint64_t *cmdptr)
      * announce pass-through of devices.
      */
 
-    if ( !is_hardware_domain(its->d) )
-        host_doorbell_address = its_get_host_doorbell(its, guest_devid);
-    else
+    if ( !is_hardware_domain(its->d) ) {
+        //host_doorbell_address = its_get_host_doorbell(its, guest_devid);
+        host_doorbell_address = g_host_doorbell_address;
+    } else {
         host_doorbell_address = its->doorbell_address;
+        g_host_doorbell_address = host_doorbell_address;
+    }
 
     ret = gicv3_its_map_guest_device(its->d, host_doorbell_address, host_devid,
                                      its->doorbell_address, guest_devid,
@@ -1623,8 +1621,8 @@ unsigned int vgic_v3_its_count(const struct domain *d)
 int vgic_v3_its_init_domain(struct domain *d)
 {
     int ret;
-    static unsigned int devid_bits = 0xff;
-    static unsigned int evid_bits = 0xff;
+    static unsigned int devid_bits = 5;
+    static unsigned int evid_bits = 5;
 
     INIT_LIST_HEAD(&d->arch.vgic.vits_list);
     spin_lock_init(&d->arch.vgic.its_devices_lock);

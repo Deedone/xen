@@ -2876,9 +2876,10 @@ static int __init make_gicv3_domU_node(struct kernel_info *kinfo)
         return res;
 
     /* Add ITS node only if domain will use vpci */
-    if ( is_pci_scan_enabled() )
+    if ( 1 ) {
+        printk(XENLOG_ERR "calling make emulated node\n");
         res = gicv3_its_make_emulated_dt_node(fdt);
-    else
+    } else
         res = fdt_property_cell(fdt, "#address-cells", 0);
     if ( res )
         return res;

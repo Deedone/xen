@@ -121,6 +121,11 @@ int domain_vgic_register(struct domain *d, int *mmio_count)
 
 /* INIT/DESTROY */
 
+int vgic_v3_domain_late_init(struct domain *d)
+{
+
+    return vgic_v3_its_init_domain(d);
+}
 /**
  * domain_vgic_init: initialize the dist data structures
  * @d: domain pointer

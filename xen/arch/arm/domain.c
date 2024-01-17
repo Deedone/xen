@@ -829,6 +829,7 @@ int arch_domain_soft_reset(struct domain *d)
     return -ENOSYS;
 }
 
+int vgic_v3_domain_late_init(struct domain *d);
 void arch_domain_creation_finished(struct domain *d)
 {
     /*
@@ -839,6 +840,7 @@ void arch_domain_creation_finished(struct domain *d)
      * not shared because bit[0] (e.g valid bit) unset will result
      * IOMMU fault that could be not fixed-up.
      */
+    vgic_v3_domain_late_init(d);
     if ( !iommu_use_hap_pt(d) )
         p2m_invalidate_root(p2m_get_hostp2m(d));
 }

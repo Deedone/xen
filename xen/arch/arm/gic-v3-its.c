@@ -604,27 +604,27 @@ static int gicv3_its_map_host_events(struct host_its *its,
 
 int gicv3_its_unmap_all_guest_device(struct domain *d)
 {
-    struct rb_node **new = &d->arch.vgic.its_devices.rb_node;
-    int ret;
+    // struct rb_node **new = &d->arch.vgic.its_devices.rb_node;
+    // int ret;
 
-    spin_lock(&d->arch.vgic.its_devices_lock);
-    while ( *new )
-    {
-        struct its_device *temp = rb_entry(*new, struct its_device, rbnode);
+    // spin_lock(&d->arch.vgic.its_devices_lock);
+    // while ( *new )
+    // {
+    //     struct its_device *temp = rb_entry(*new, struct its_device, rbnode);
 
-        rb_erase(&temp->rbnode, &d->arch.vgic.its_devices);
+    //     rb_erase(&temp->rbnode, &d->arch.vgic.its_devices);
 
-        /* Discard all events and remove pending LPIs. */
-        ret = remove_mapped_guest_device(temp);
-        if ( ret )
-        {
-            spin_unlock(&d->arch.vgic.its_devices_lock);
-            return ret;
-        }
+    //     /* Discard all events and remove pending LPIs. */
+    //     ret = remove_mapped_guest_device(temp);
+    //     if ( ret )
+    //     {
+    //         spin_unlock(&d->arch.vgic.its_devices_lock);
+    //         return ret;
+    //     }
 
-        new = &d->arch.vgic.its_devices.rb_node;
-    }
-    spin_unlock(&d->arch.vgic.its_devices_lock);
+    //     new = &d->arch.vgic.its_devices.rb_node;
+    // }
+    // spin_unlock(&d->arch.vgic.its_devices_lock);
 
     return 0;
 }
@@ -1166,6 +1166,35 @@ int gicv3_its_init(void)
     return 0;
 }
 
+int gicv3_its_map_translation_register(struct domain *d)
+{
+    struct host_its *its;
+    paddr_t its_translation_addr;
+    paddr_t its_translation_size = ITS_TRANSLATION_OFFSET;
+    int ret;
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        its_translation_addr = its->addr + ITS_TRANSLATION_OFFSET;
+
+        printk(XENLOG_INFO "GICv3: Mapping ITS translation register to d%d:"
+                "addr=0x%"PRIpaddr" size=0x%"PRIpaddr" \n",
+                d->domain_id, its_translation_addr, its_translation_size);
+
+        ret = map_mmio_regions(d, gaddr_to_gfn(its_translation_addr),
+                PFN_UP(its_translation_size),
+                maddr_to_mfn(its_translation_addr));
+        if ( ret )
+        {
+            //MOVE TO LATE INIT
+            printk(XENLOG_ERR "GICv3: Map ITS translation register d%d failed err %d.\n",
+                    d->domain_id, ret);
+            return ret;
+        }
+    }
+
+    return 0;
+}
 
 /*
  * Local variables:
