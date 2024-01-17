@@ -671,6 +671,9 @@ int dt_for_each_range(const struct dt_device_node *dev,
                                 void *data),
                       void *data);
 
+#define dt_range_is_prefetchable(flags) (!!((flags) & 0x40000000U))
+#define dt_range_is_memory(flags) (!!((flags) & 0x02000000U))
+#define dt_range_is_64bit(flags) (((flags) & 0x03000000U) == 0x03000000U)
 /**
  * dt_n_size_cells - Helper to retrieve the number of cell for the size
  * @np: node to get the value
