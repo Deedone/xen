@@ -608,26 +608,24 @@ int vgic_its_inject_cached_translation(struct domain *d, struct vgic_its *its, u
  * Returns 0 on success, a positive error value for any ITS mapping
  * related errors and negative error values for generic errors.
  */
-static int vgic_its_trigger_msi(struct domain *d, struct vgic_its *its,
-                                u32 devid, u32 eventid)
 {
-    struct vgic_irq *irq = NULL;
-    unsigned long flags;
-    int err;
+    // struct vgic_irq *irq = NULL;
+    // unsigned long flags;
+    // int err;
 
-	if (!vgic_its_inject_cached_translation(d, its, devid, eventid))
-		return 1;
+	// if (!vgic_its_inject_cached_translation(d, its, devid, eventid))
+	// 	return 1;
 
-    err = vgic_its_resolve_lpi(d, its, devid, eventid, &irq);
-    if ( err )
-        return err;
+    // err = vgic_its_resolve_lpi(d, its, devid, eventid, &irq);
+    // if ( err )
+    //     return err;
 
-    /* GICv4 style VLPIS are not yet supported */
-    WARN_ON(irq->hw);
+    // /* GICv4 style VLPIS are not yet supported */
+    // WARN_ON(irq->hw);
 
-    spin_lock_irqsave(&irq->irq_lock, flags);
-    irq->pending_latch = true;
-    vgic_queue_irq_unlock(d, irq, flags);
+    // spin_lock_irqsave(&irq->irq_lock, flags);
+    // irq->pending_latch = true;
+    // vgic_queue_irq_unlock(d, irq, flags);
 
     return 0;
 }
@@ -969,6 +967,7 @@ void vgic_vcpu_inject_lpi(struct domain *d, unsigned int virq)
  * Must be called with the its_lock mutex held.
  */
 
+uint64_t host_doorbell_address = 0;
 static int vgic_its_cmd_handle_mapd(struct domain *d, struct vgic_its *its,
                                     u64 *its_cmd)
 {
@@ -995,11 +994,19 @@ static int vgic_its_cmd_handle_mapd(struct domain *d, struct vgic_its *its,
      */
     if ( is_hardware_domain(its->domain) )
     {
+        host_doorbell_address = its->doorbell_address;
         ret = gicv3_its_map_guest_device(its->domain, its->doorbell_address,
                                         guest_devid,
                                         its->vgic_its_base + ITS_DOORBELL_OFFSET,
                                         guest_devid, BIT(num_eventid_bits, UL),
                                         valid);
+    } else {
+        ret = gicv3_its_map_guest_device(its->domain, host_doorbell_address,
+                                        guest_devid,
+                                        its->vgic_its_base + ITS_DOORBELL_OFFSET,
+                                        guest_devid, BIT(num_eventid_bits, UL),
+                                        valid);
+
     }
 
     if ( !ret && valid ) {
@@ -1028,6 +1035,8 @@ static int vgic_its_cmd_handle_mapc(struct domain *d, struct vgic_its *its,
     coll_id     = its_cmd_get_collection(its_cmd);
     target_addr = its_cmd_get_target_addr(its_cmd);
 
+    printk(XENLOG_ERR "ITS CMD 2 WORD is %lx\n", its_cmd[2]);
+    printk(XENLOG_ERR "rdbase %x max vcpus %d\n", target_addr, d->max_vcpus);
     if ( target_addr >= d->max_vcpus )
         return E_ITS_MAPC_PROCNUM_OOR;
 
@@ -1276,10 +1285,11 @@ static int vgic_its_cmd_handle_movall(struct domain *d, struct vgic_its *its,
 static int vgic_its_cmd_handle_int(struct domain *d, struct vgic_its *its,
                                    u64 *its_cmd)
 {
-    u32 msi_data  = its_cmd_get_id(its_cmd);
-    u64 msi_devid = its_cmd_get_deviceid(its_cmd);
+    // u32 msi_data  = its_cmd_get_id(its_cmd);
+    // u64 msi_devid = its_cmd_get_deviceid(its_cmd);
 
-    return vgic_its_trigger_msi(d, its, msi_devid, msi_data);
+    // return vgic_its_trigger_msi(d, its, msi_devid, msi_data);
+    return 0;
 }
 
 int vgic_its_inv_lpi(struct domain *d, struct vgic_irq *irq)
@@ -1587,6 +1597,7 @@ static unsigned long vgic_mmio_read_its_typer(struct domain *d,
     reg |= GIC_ENCODE_SZ(VGIC_ITS_TYPER_IDBITS, 5) << GITS_TYPER_IDBITS_SHIFT;
     reg |= GIC_ENCODE_SZ(VGIC_ITS_TYPER_ITE_SIZE, 4) << GITS_TYPER_ITT_SIZE_SHIFT;
 
+    printk(XENLOG_ERR "RET TYPER %lx\n", extract_bytes(reg, addr & 7, len));
     return extract_bytes(reg, addr & 7, len);
 }
 
@@ -1974,6 +1985,7 @@ static int vgic_its_create(struct domain *d, u64 addr)
     return 0;
 }
 
+int gicv3_its_map_translation_register(struct domain *d);
 /*
  * For a hardware domain, this will iterate over the host ITSes
  * and map one virtual ITS per host ITS at the same address.
