@@ -56,7 +56,7 @@ int handle_device(struct domain *d, struct dt_device_node *dev, p2m_type_t p2mt,
 int map_irq_to_domain(struct domain *d, unsigned int irq,
                       bool need_mapping, const char *devname);
 
-int map_range_to_domain(const struct dt_device_node *dev,
+int map_range_to_domain(const struct dt_device_node *dev, uint32_t flags,
                         uint64_t addr, uint64_t len, void *data);
 
 extern const char __init_data_begin[], __bss_start[], __bss_end[];
