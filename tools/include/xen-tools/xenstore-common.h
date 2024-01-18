@@ -13,7 +13,7 @@ static inline const char *xenstore_daemon_rundir(void)
 {
     char *s = getenv("XENSTORED_RUNDIR");
 
-    return s ? s : XEN_RUN_STORED;
+    return s ? s : XEN_RUN_DIR;
 }
 
 static inline const char *xenstore_daemon_path(void)
