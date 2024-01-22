@@ -1497,6 +1497,7 @@ int xc_assign_device(
     xc_interface *xch,
     uint32_t domid,
     uint32_t machine_sbdf,
+    uint32_t *virtual_sbdf,
     uint32_t flags)
 {
     DECLARE_DOMCTL;
@@ -1505,7 +1506,10 @@ int xc_assign_device(
     domctl.domain = domid;
     domctl.u.assign_device.dev = XEN_DOMCTL_DEV_PCI;
     domctl.u.assign_device.u.pci.machine_sbdf = machine_sbdf;
-    domctl.u.assign_device.u.pci.virtual_sbdf = XEN_DOMCTL_DEV_SDBF_ANY;
+    if ( virtual_sbdf )
+        domctl.u.assign_device.u.pci.virtual_sbdf = *virtual_sbdf;
+    else
+        domctl.u.assign_device.u.pci.virtual_sbdf = XEN_DOMCTL_DEV_SDBF_ANY;
     domctl.u.assign_device.flags = flags;
 
     return do_domctl(xch, &domctl);
