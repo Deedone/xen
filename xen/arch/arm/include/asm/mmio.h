@@ -24,7 +24,7 @@
 
 #include <asm/hsr.h>
 
-#define MAX_IO_HANDLER  16
+#define MAX_IO_HANDLER  32
 
 enum instr_decode_state
 {
