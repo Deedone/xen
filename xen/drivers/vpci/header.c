@@ -173,7 +173,7 @@ static void modify_decoding(const struct pci_dev *pdev, uint16_t cmd,
         ASSERT_UNREACHABLE();
 }
 
-bool vpci_process_pending(struct vcpu *v)
+static bool process_pending(struct vcpu *v, bool need_lock)
 {
     const struct pci_dev *pdev = v->vpci.pdev;
     struct vpci_header *header = NULL;
@@ -182,12 +182,14 @@ bool vpci_process_pending(struct vcpu *v)
     if ( !pdev )
         return false;
 
-    read_lock(&v->domain->pci_lock);
+    if ( need_lock )
+        read_lock(&v->domain->pci_lock);
 
     if ( !pdev->vpci || (v->domain != pdev->domain) )
     {
         v->vpci.pdev = NULL;
-        read_unlock(&v->domain->pci_lock);
+        if ( need_lock )
+            read_unlock(&v->domain->pci_lock);
         return false;
     }
 
@@ -209,17 +211,20 @@ bool vpci_process_pending(struct vcpu *v)
 
         if ( rc == -ERESTART )
         {
-            read_unlock(&v->domain->pci_lock);
+            if ( need_lock )
+                read_unlock(&v->domain->pci_lock);
             return true;
         }
 
         if ( rc )
         {
-            spin_lock(&pdev->vpci->lock);
+            if ( need_lock )
+                spin_lock(&pdev->vpci->lock);
             /* Disable memory decoding unconditionally on failure. */
             modify_decoding(pdev, v->vpci.cmd & ~PCI_COMMAND_MEMORY,
                             false);
-            spin_unlock(&pdev->vpci->lock);
+            if ( need_lock )
+                spin_unlock(&pdev->vpci->lock);
 
             /* Clean all the rangesets */
             for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
@@ -228,7 +233,8 @@ bool vpci_process_pending(struct vcpu *v)
 
             v->vpci.pdev = NULL;
 
-            read_unlock(&v->domain->pci_lock);
+            if ( need_lock )
+                read_unlock(&v->domain->pci_lock);
 
             if ( !is_hardware_domain(v->domain) )
                 domain_crash(v->domain);
@@ -238,13 +244,21 @@ bool vpci_process_pending(struct vcpu *v)
     }
     v->vpci.pdev = NULL;
 
-    spin_lock(&pdev->vpci->lock);
+    if ( need_lock )
+        spin_lock(&pdev->vpci->lock);
     modify_decoding(pdev, v->vpci.cmd, v->vpci.rom_only);
-    spin_unlock(&pdev->vpci->lock);
+    if ( need_lock )
+        spin_unlock(&pdev->vpci->lock);
 
-    read_unlock(&v->domain->pci_lock);
+    if ( need_lock )
+        read_unlock(&v->domain->pci_lock);
 
     return false;
+}
+
+bool vpci_process_pending(struct vcpu *v)
+{
+    return process_pending(v, true);
 }
 
 static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
@@ -563,6 +577,8 @@ static void cf_check bar_write(
 {
     struct vpci_bar *bar = data;
     bool hi = false;
+    bool reenable = false;
+    uint16_t cmd = 0;
 
     ASSERT(is_hardware_domain(pdev->domain));
 
@@ -583,10 +599,28 @@ static void cf_check bar_write(
     {
         /* If the value written is the current one avoid printing a warning. */
         if ( val != (uint32_t)(bar->addr >> (hi ? 32 : 0)) )
-            gprintk(XENLOG_WARNING,
-                    "%pp: ignored BAR %zu write while mapped\n",
-                    &pdev->sbdf, bar - pdev->vpci->header.bars + hi);
-        return;
+        {
+            ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
+            ASSERT(spin_is_locked(&pdev->vpci->lock));
+            reenable = true;
+            cmd = pci_conf_read16(pdev->sbdf, PCI_COMMAND);
+            /*
+             * Write-while-mapped: unmap the old BAR in p2m. We want this to
+             * finish right away since the deferral machinery only supports
+             * unmap OR map, not unmap-then-remap. Ultimately, it probably would
+             * be better to defer the write-while-mapped case just like regular
+             * BAR writes (but still only allow it for 32-bit BAR writes).
+             */
+            /* TODO: don't disable memory decoding */
+            vpci_modify_bars(pdev, cmd & ~PCI_COMMAND_MEMORY, false);
+            /* Call process pending here to ensure P2M operations are done */
+            while ( process_pending(current, false) )
+            {
+                /* Pre-empted, try again */
+            }
+        }
+        else
+            return;
     }
 
 
@@ -608,6 +642,10 @@ static void cf_check bar_write(
     }
 
     pci_conf_write32(pdev->sbdf, reg, val);
+
+    if ( reenable )
+        /* Write-while-mapped: map the new BAR in p2m. OK to defer. */
+        vpci_modify_bars(pdev, cmd, false);
 }
 
 void cf_check vpci_guest_mem_bar_write(const struct pci_dev *pdev,
