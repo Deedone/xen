@@ -1659,6 +1659,39 @@ static void domcreate_rebuild_done(libxl__egc *egc,
     domcreate_complete(egc, dcs, ret);
 }
 
+static int domcreate_prepare_dm_args(libxl__gc *gc, libxl_domain_config *d_config, libxl_domid domid)
+{
+    int i;
+
+    for (i = 0; d_config->b_info.extra && d_config->b_info.extra[i] != NULL; i++) {
+        const libxl_domain_build_info *guest_info = &d_config->b_info;
+        char *substr = strstr(guest_info->extra[i], "XL_PCI_SBDF_DEV_");
+        char *new_str = NULL;
+        if (substr != NULL) {
+            int num;
+            if (sscanf(substr, "XL_PCI_SBDF_DEV_%d", &num) != 1) {
+                LOGD(ERROR, domid, "Invalid XL_PCI_SBDF_DEV_ format: %s",
+                    guest_info->extra[i]);
+                return ERROR_INVAL;
+            }
+            if (num >= d_config->num_virtios) {
+                LOGD(ERROR, domid, "Invalid XL_PCI_SBDF_DEV_ number: %d", num);
+                return ERROR_INVAL;
+            }
+            new_str = malloc(strlen(guest_info->extra[i]) + 20);
+            if (new_str == NULL) {
+                LOGD(ERROR, domid, "Failed to allocate memory for new string");
+                return ERROR_NOMEM;
+            }
+            strncpy(new_str, guest_info->extra[i], substr - guest_info->extra[i]);
+            sprintf(new_str + (substr - guest_info->extra[i]), "%d%s", d_config->virtios[num].u.pci.dev, substr + strlen("XL_PCI_SBDF_DEV_1"));
+            free(guest_info->extra[i]);
+            guest_info->extra[i] = new_str;
+        }
+    }
+    return 0;
+}
+
 static void domcreate_launch_dm(libxl__egc *egc, libxl__multidev *multidev,
                                 int ret)
 {
@@ -1770,6 +1803,12 @@ static void domcreate_launch_dm(libxl__egc *egc, libxl__multidev *multidev,
             LOGD(ERROR, domid, "Unable to save virtio_pci_host for device model");
             goto error_out;
         }
+    }
+
+    ret = domcreate_prepare_dm_args(gc, d_config, domid);
+    if (ret) {
+        LOGD(ERROR, domid, "Unable to prepare dm_args");
+        goto error_out;
     }
 
     for (i = 0; i < d_config->num_virtios; i++) {

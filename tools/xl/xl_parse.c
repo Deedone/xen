@@ -1299,11 +1299,7 @@ static void parse_virtio_list(const XLU_Config *config,
                 rc = ERROR_FAIL; goto out;
             }
 
-            if (virtio->transport == LIBXL_VIRTIO_TRANSPORT_PCI &&
-                !bdf_present) {
-                fprintf(stderr, "BDF must be specified for virtio-pci\n");
-                rc = ERROR_FAIL; goto out;
-            } else if (virtio->transport == LIBXL_VIRTIO_TRANSPORT_MMIO &&
+            if (virtio->transport == LIBXL_VIRTIO_TRANSPORT_MMIO &&
                 bdf_present) {
                 fprintf(stderr, "BDF must not be specified for virtio-mmio\n");
                 rc = ERROR_FAIL; goto out;

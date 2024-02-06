@@ -1674,6 +1674,42 @@ static int copy_partial_fdt(libxl__gc *gc, void *fdt, void *pfdt,
 
 #endif /* ENABLE_PARTIAL_DEVICE_TREE */
 
+static int libxl__process_virtio(libxl__gc *gc, libxl_domain_config *d_config, libxl_domid domid)
+{
+    int i;
+
+    /* We need to make two passes to ensure we take all explicit devids firts */
+    for (i = 0; i < d_config->num_virtios; i++) {
+        libxl_device_virtio *virtio = &d_config->virtios[i];
+        if (virtio->transport == LIBXL_VIRTIO_TRANSPORT_PCI && virtio->u.pci.dev != 0) {
+            struct xen_domctl domctl = {0};
+            domctl.cmd = XEN_DOMCTL_pci_devid_pool;
+            domctl.domain = domid;
+            domctl.u.pci_devid_pool.flags = XEN_DOMCTL_PCI_DEVID_POOL_TAKE;
+            domctl.u.pci_devid_pool.devid = virtio->u.pci.dev;
+            if (xc_domctl(CTX->xch, &domctl)) {
+                LOG(ERROR, "Failed to take devid %d", domctl.u.pci_devid_pool.devid);
+                return ERROR_FAIL;  
+            }
+        }
+    }
+    for (i = 0; i < d_config->num_virtios; i++) {
+        libxl_device_virtio *virtio = &d_config->virtios[i];
+        if (virtio->transport == LIBXL_VIRTIO_TRANSPORT_PCI && virtio->u.pci.dev == 0) {
+            struct xen_domctl domctl = {0};
+            domctl.cmd = XEN_DOMCTL_pci_devid_pool;
+            domctl.domain = domid;
+            domctl.u.pci_devid_pool.flags = XEN_DOMCTL_PCI_DEVID_POOL_GET;
+            if (xc_domctl(CTX->xch, &domctl)) {
+                LOG(ERROR, "Failed to get devid");
+                return ERROR_FAIL;  
+            }
+            virtio->u.pci.dev = domctl.u.pci_devid_pool.devid;
+        }
+    }
+    return 0;
+}
+
 #define FDT_MAX_SIZE (1<<20)
 
 static int libxl__prepare_dtb(libxl__gc *gc, libxl_domain_config *d_config,
@@ -1887,6 +1923,10 @@ int libxl__arch_domain_init_hw_description(libxl__gc *gc,
     val |= GUEST_EVTCHN_PPI;
     rc = xc_hvm_param_set(dom->xch, dom->guest_domid, HVM_PARAM_CALLBACK_IRQ,
                           val);
+    if (rc)
+        return rc;
+
+    rc = libxl__process_virtio(gc, d_config, dom->guest_domid);
     if (rc)
         return rc;
 
