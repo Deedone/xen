@@ -1127,6 +1127,14 @@ struct xen_domctl_monitor_op {
     } u;
 };
 
+#define XEN_DOMCTL_PCI_DEVID_POOL_GET  0
+#define XEN_DOMCTL_PCI_DEVID_POOL_TAKE 1
+
+struct xen_domctl_pci_devid_pool {
+    uint32_t flags;
+    uint32_t devid;
+};
+
 struct xen_domctl_psr_alloc {
 #define XEN_DOMCTL_PSR_SET_L3_CBM     0
 #define XEN_DOMCTL_PSR_GET_L3_CBM     1
@@ -1284,6 +1292,7 @@ struct xen_domctl {
 #define XEN_DOMCTL_vmtrace_op                    84
 #define XEN_DOMCTL_get_paging_mempool_size       85
 #define XEN_DOMCTL_set_paging_mempool_size       86
+#define XEN_DOMCTL_pci_devid_pool                87 
 #define XEN_DOMCTL_gdbsx_guestmemio            1000
 #define XEN_DOMCTL_gdbsx_pausevcpu             1001
 #define XEN_DOMCTL_gdbsx_unpausevcpu           1002
@@ -1346,6 +1355,7 @@ struct xen_domctl {
         struct xen_domctl_vuart_op          vuart_op;
         struct xen_domctl_vmtrace_op        vmtrace_op;
         struct xen_domctl_paging_mempool    paging_mempool;
+        struct xen_domctl_pci_devid_pool    pci_devid_pool;
         uint8_t                             pad[128];
     } u;
 };

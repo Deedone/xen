@@ -333,6 +333,34 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
     switch ( op->cmd )
     {
 
+    case XEN_DOMCTL_pci_devid_pool:
+    {
+        if ( op->u.pci_devid_pool.flags == XEN_DOMCTL_PCI_DEVID_POOL_TAKE ) {
+            if ( test_bit(op->u.pci_devid_pool.devid, &d->vpci_dev_assigned_map) ) {
+                ret = -EINVAL;
+                break;
+            }
+            __set_bit(op->u.pci_devid_pool.devid, &d->vpci_dev_assigned_map);
+        } else {
+            unsigned long new_dev_number;
+            __set_bit(0, &d->vpci_dev_assigned_map);
+            new_dev_number = find_first_zero_bit(d->vpci_dev_assigned_map,
+                                                VPCI_MAX_VIRT_DEV);
+            if ( test_and_set_bit(new_dev_number, &d->vpci_dev_assigned_map) ) {
+                printk(XENLOG_ERR "Failed to allocate new device number\n");
+                ret = -EINVAL;
+                break;
+            }
+            op->u.pci_devid_pool.devid = new_dev_number;
+            if ( new_dev_number == VPCI_MAX_VIRT_DEV ) {
+                ret = -ENOSPC;
+                break;
+            }
+            copyback = 1;
+            break;
+        }
+        break;
+    }
     case XEN_DOMCTL_setvcpucontext:
     {
         vcpu_guest_context_u c = { .nat = NULL };
