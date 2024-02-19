@@ -500,7 +500,10 @@ uint32_t vpci_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int size)
     if ( !pdev || !pdev->vpci )
     {
         read_unlock(&d->pci_lock);
-        return vpci_read_hw(sbdf, reg, size);
+        if ( is_hardware_domain(d) )
+            return vpci_read_hw(sbdf, reg, size);
+        else
+            return data;
     }
 
     spin_lock(&pdev->vpci->lock);
@@ -629,7 +632,9 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
         write_unlock(&d->pci_lock);
 
         if ( !ro_map || !test_bit(sbdf.bdf, ro_map) )
-            vpci_write_hw(sbdf, reg, size, data);
+            if ( is_hardware_domain(d) )
+                vpci_write_hw(sbdf, reg, size, data);
+
         return;
     }
 
