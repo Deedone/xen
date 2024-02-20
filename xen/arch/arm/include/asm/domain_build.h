@@ -7,7 +7,7 @@
 typedef __be32 gic_interrupt_t[3];
 int domain_fdt_begin_node(void *fdt, const char *name, uint64_t unit);
 int make_psci_node(void *fdt);
-int make_vpci_node(void *fdt);
+int make_vpci_node(struct domain *d, void *fdt);
 void evtchn_allocate(struct domain *d);
 
 /*
