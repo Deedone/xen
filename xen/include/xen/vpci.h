@@ -339,6 +339,14 @@ static inline int __must_check vpci_reset_device(struct pci_dev *pdev)
     return vpci_assign_device(pdev);
 }
 
+#ifdef CONFIG_ARM
+#include <asm/pci.h>
+
+#define has_vpci_bridge(d) (!is_hardware_domain(d) || pci_scan_enabled)
+#else
+#define has_vpci_bridge(d) (!is_hardware_domain(d))
+#endif
+
 #endif
 
 /*
