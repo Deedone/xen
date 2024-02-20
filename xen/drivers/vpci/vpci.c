@@ -48,7 +48,7 @@ static int assign_virtual_sbdf(struct pci_dev *pdev)
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
-    if ( is_hardware_domain(d) )
+    if ( !has_vpci_bridge(d) )
         return 0;
 
     /*
@@ -420,7 +420,7 @@ static const struct pci_dev *translate_virtual_device(const struct domain *d,
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
     const struct pci_dev *pdev;
 
-    ASSERT(!is_hardware_domain(d));
+    ASSERT(has_vpci_bridge(d));
     ASSERT(rw_is_locked(&d->pci_lock));
 
     for_each_pdev ( d, pdev )
