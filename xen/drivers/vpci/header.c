@@ -230,7 +230,7 @@ bool vpci_process_pending(struct vcpu *v)
 
             read_unlock(&v->domain->pci_lock);
 
-            if ( !is_hardware_domain(v->domain) )
+            if ( has_vpci_bridge(v->domain) )
                 domain_crash(v->domain);
 
             return false;
@@ -492,7 +492,7 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             }
         }
 
-        if ( !is_hardware_domain(d) )
+        if ( has_vpci_bridge(d) )
             break;
 
         d = dom_xen;
@@ -522,7 +522,7 @@ static void cf_check cmd_write(
 {
     struct vpci_header *header = data;
 
-    if ( !is_hardware_domain(pdev->domain) )
+    if ( has_vpci_bridge(pdev->domain) )
     {
         const struct vpci *vpci = pdev->vpci;
 
@@ -564,7 +564,7 @@ static void cf_check bar_write(
     struct vpci_bar *bar = data;
     bool hi = false;
 
-    ASSERT(is_hardware_domain(pdev->domain));
+    ASSERT(!has_vpci_bridge(pdev->domain));
 
     if ( bar->type == VPCI_BAR_MEM64_HI )
     {
@@ -747,7 +747,7 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
 {
     int rc;
     bool mask_cap_list = false;
-    bool is_hwdom = is_hardware_domain(pdev->domain);
+    bool is_hw_bridge = !has_vpci_bridge(pdev->domain);
 
     if ( pci_conf_read16(pdev->sbdf, PCI_STATUS) & PCI_STATUS_CAP_LIST )
     {
@@ -758,17 +758,17 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
             PCI_CAP_ID_MSIX,
         };
         /*
-         * For dom0, we should expose all capabilities instead of a fixed
+         * For hw bridge, we should expose all capabilities instead of a fixed
          * capabilities array, so setting n to 0 here is to get the next
          * capability position directly in pci_find_next_cap_ttl.
          */
-        const unsigned int n = is_hwdom ? 0 : ARRAY_SIZE(supported_caps);
+        const unsigned int n = is_hw_bridge ? 0 : ARRAY_SIZE(supported_caps);
 
         next = pci_find_next_cap_ttl(pdev->sbdf, PCI_CAPABILITY_LIST,
                                      supported_caps, n, &ttl);
 
         rc = vpci_add_register(pdev->vpci, vpci_read_val,
-                               is_hwdom ? vpci_hw_write8 : NULL,
+                               is_hw_bridge ? vpci_hw_write8 : NULL,
                                PCI_CAPABILITY_LIST, 1,
                                (void *)(uintptr_t)next);
         if ( rc )
@@ -776,7 +776,7 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
 
         next &= ~3;
 
-        if ( !next && !is_hwdom )
+        if ( !next && !is_hw_bridge )
             /*
              * If we don't have any supported capabilities to expose to the
              * guest, mask the PCI_STATUS_CAP_LIST bit in the status
@@ -792,7 +792,7 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
                                          pos + PCI_CAP_LIST_NEXT,
                                          supported_caps, n, &ttl);
 
-            if ( !is_hwdom )
+            if ( !is_hw_bridge )
             {
                 rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL,
                                        pos + PCI_CAP_LIST_ID, 1, NULL);
@@ -801,7 +801,7 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
             }
 
             rc = vpci_add_register(pdev->vpci, vpci_read_val,
-                                   is_hwdom ? vpci_hw_write8 : NULL,
+                                   is_hw_bridge ? vpci_hw_write8 : NULL,
                                    pos + PCI_CAP_LIST_NEXT, 1,
                                    (void *)(uintptr_t)next);
             if ( rc )
@@ -811,8 +811,8 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
         }
     }
 
-    /* Return early for the hw domain, no masking of PCI_STATUS. */
-    if ( is_hwdom )
+    /* Return early for the hw bridge, no masking of PCI_STATUS. */
+    if ( is_hw_bridge )
         return 0;
 
     /* Utilize rsvdp_mask to hide PCI_STATUS_CAP_LIST from the guest. */
@@ -829,7 +829,7 @@ static int vpci_init_ext_capability_list(const struct pci_dev *pdev)
 {
     unsigned int pos = PCI_CFG_SPACE_SIZE;
 
-    if ( !is_hardware_domain(pdev->domain) )
+    if ( has_vpci_bridge(pdev->domain) )
         /* Extended capabilities read as zero, write ignore for DomU */
         return vpci_add_register(pdev->vpci, vpci_read_val, NULL,
                                  pos, 4, (void *)0);
@@ -866,7 +866,7 @@ int vpci_init_header(struct pci_dev *pdev)
     struct vpci_header *header = &pdev->vpci->header;
     struct vpci_bar *bars = header->bars;
     int rc;
-    bool is_hwdom = is_hardware_domain(pdev->domain);
+    bool is_hw_bridge = !has_vpci_bridge(pdev->domain);
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
@@ -893,15 +893,15 @@ int vpci_init_header(struct pci_dev *pdev)
      * PCI_COMMAND_PARITY, PCI_COMMAND_SERR, and PCI_COMMAND_FAST_BACK.
      */
     rc = vpci_add_register_mask(pdev->vpci,
-                                is_hwdom ? vpci_hw_read16 : guest_cmd_read,
+                                is_hw_bridge ? vpci_hw_read16 : guest_cmd_read,
                                 cmd_write, PCI_COMMAND, 2, header, 0, 0,
-                                is_hwdom ? 0
-                                         : PCI_COMMAND_RSVDP_MASK |
-                                           PCI_COMMAND_IO |
-                                           PCI_COMMAND_PARITY |
-                                           PCI_COMMAND_WAIT |
-                                           PCI_COMMAND_SERR |
-                                           PCI_COMMAND_FAST_BACK,
+                                is_hw_bridge ? 0
+                                             : PCI_COMMAND_RSVDP_MASK |
+                                               PCI_COMMAND_IO |
+                                               PCI_COMMAND_PARITY |
+                                               PCI_COMMAND_WAIT |
+                                               PCI_COMMAND_SERR |
+                                               PCI_COMMAND_FAST_BACK,
                                 0);
     if ( rc )
         return rc;
@@ -925,7 +925,7 @@ int vpci_init_header(struct pci_dev *pdev)
      * start with memory decoding disabled, and modify_bars() will not be called
      * at the end of this function.
      */
-    if ( !is_hwdom )
+    if ( !is_hw_bridge )
         cmd &= ~(PCI_COMMAND_VGA_PALETTE | PCI_COMMAND_INVALIDATE |
                  PCI_COMMAND_SPECIAL | PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY |
                  PCI_COMMAND_IO);
@@ -933,7 +933,7 @@ int vpci_init_header(struct pci_dev *pdev)
     header->guest_cmd = cmd;
 
     /* Disable memory decoding before sizing. */
-    if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
+    if ( !is_hw_bridge || (cmd & PCI_COMMAND_MEMORY) )
         pci_conf_write16(pdev->sbdf, PCI_COMMAND, cmd & ~PCI_COMMAND_MEMORY);
 
     for ( i = 0; i < num_bars; i++ )
@@ -945,9 +945,10 @@ int vpci_init_header(struct pci_dev *pdev)
         {
             bars[i].type = VPCI_BAR_MEM64_HI;
             rc = vpci_add_register(pdev->vpci,
-                                   is_hwdom ? vpci_hw_read32
-                                            : guest_mem_bar_read,
-                                   is_hwdom ? bar_write : guest_mem_bar_write,
+                                   is_hw_bridge ? vpci_hw_read32
+                                                : guest_mem_bar_read,
+                                   is_hw_bridge ? bar_write
+                                                : guest_mem_bar_write,
                                    reg, 4, &bars[i]);
             if ( rc )
                 goto fail;
@@ -959,7 +960,7 @@ int vpci_init_header(struct pci_dev *pdev)
         if ( (val & PCI_BASE_ADDRESS_SPACE) == PCI_BASE_ADDRESS_SPACE_IO )
         {
             bars[i].type = VPCI_BAR_IO;
-            if ( !IS_ENABLED(CONFIG_X86) && !is_hwdom )
+            if ( !IS_ENABLED(CONFIG_X86) && !is_hw_bridge )
             {
                 rc = vpci_add_register(pdev->vpci, vpci_read_val, NULL,
                                        reg, 4, (void *)0);
@@ -988,7 +989,7 @@ int vpci_init_header(struct pci_dev *pdev)
         {
             bars[i].type = VPCI_BAR_EMPTY;
 
-            if ( !is_hwdom )
+            if ( !is_hw_bridge )
             {
                 rc = vpci_add_register(pdev->vpci, vpci_read_val, NULL,
                                        reg, 4, (void *)0);
@@ -1005,17 +1006,18 @@ int vpci_init_header(struct pci_dev *pdev)
         bars[i].prefetchable = val & PCI_BASE_ADDRESS_MEM_PREFETCH;
 
         rc = vpci_add_register(pdev->vpci,
-                               is_hwdom ? vpci_hw_read32 : guest_mem_bar_read,
-                               is_hwdom ? bar_write : guest_mem_bar_write,
+                               is_hw_bridge ? vpci_hw_read32
+                                            : guest_mem_bar_read,
+                               is_hw_bridge ? bar_write : guest_mem_bar_write,
                                reg, 4, &bars[i]);
         if ( rc )
             goto fail;
     }
 
     /* Check expansion ROM. */
-    rc = is_hwdom ? pci_size_mem_bar(pdev->sbdf, rom_reg, &addr, &size,
-                                     PCI_BAR_ROM)
-                  : 0;
+    rc = is_hw_bridge ? pci_size_mem_bar(pdev->sbdf, rom_reg, &addr, &size,
+                                         PCI_BAR_ROM)
+                      : 0;
     if ( rc > 0 && size )
     {
         struct vpci_bar *rom = &header->bars[num_bars];
@@ -1038,7 +1040,7 @@ int vpci_init_header(struct pci_dev *pdev)
                 goto fail;
         }
     }
-    else if ( !is_hwdom )
+    else if ( !is_hw_bridge )
     {
         /* TODO: Check expansion ROM, we do not handle ROM for guests for now */
         header->bars[num_bars].type = VPCI_BAR_EMPTY;

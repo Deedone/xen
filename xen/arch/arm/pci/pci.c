@@ -92,7 +92,7 @@ bool __read_mostly pci_passthrough_enabled;
 boolean_param("pci-passthrough", pci_passthrough_enabled);
 
 /* By default pci scan is disabled. */
-static __ro_after_init bool pci_scan_enabled;
+__ro_after_init bool pci_scan_enabled;
 boolean_param("pci-scan", pci_scan_enabled);
 
 static int __init pci_init(void)

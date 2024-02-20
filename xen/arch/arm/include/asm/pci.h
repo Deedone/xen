@@ -23,6 +23,7 @@
 #define pci_to_dev(pcidev) (&(pcidev)->arch.dev)
 
 extern bool pci_passthrough_enabled;
+extern bool pci_scan_enabled;
 
 struct rangeset;
 
