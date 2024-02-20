@@ -17,6 +17,7 @@
  * License along with this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "asm/domain.h"
 #include <xen/iocap.h>
 #include <xen/lib.h>
 #include <xen/sched.h>
@@ -230,7 +231,7 @@ bool vpci_process_pending(struct vcpu *v)
 
             read_unlock(&v->domain->pci_lock);
 
-            if ( !is_hardware_domain(v->domain) )
+            if ( has_vpci_bridge(v->domain) )
                 domain_crash(v->domain);
 
             return false;
@@ -492,7 +493,7 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             }
         }
 
-        if ( !is_hardware_domain(d) )
+        if ( has_vpci_bridge(d) )
             break;
 
         d = dom_xen;
@@ -522,7 +523,7 @@ static void cf_check cmd_write(
 {
     struct vpci_header *header = data;
 
-    if ( !is_hardware_domain(pdev->domain) )
+    if ( has_vpci_bridge(pdev->domain) )
     {
         const struct vpci *vpci = pdev->vpci;
 
@@ -564,7 +565,7 @@ static void cf_check bar_write(
     struct vpci_bar *bar = data;
     bool hi = false;
 
-    ASSERT(is_hardware_domain(pdev->domain));
+    ASSERT(!has_vpci_bridge(pdev->domain));
 
     if ( bar->type == VPCI_BAR_MEM64_HI )
     {
@@ -747,7 +748,7 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
 {
     int rc;
     bool mask_cap_list = false;
-    bool is_hwdom = is_hardware_domain(pdev->domain);
+    bool is_hwdom = !has_vpci_bridge(pdev->domain);
 
     if ( pci_conf_read16(pdev->sbdf, PCI_STATUS) & PCI_STATUS_CAP_LIST )
     {
@@ -829,7 +830,7 @@ static int vpci_init_ext_capability_list(const struct pci_dev *pdev)
 {
     unsigned int pos = PCI_CFG_SPACE_SIZE;
 
-    if ( !is_hardware_domain(pdev->domain) )
+    if ( has_vpci_bridge(pdev->domain) )
         /* Extended capabilities read as zero, write ignore for DomU */
         return vpci_add_register(pdev->vpci, vpci_read_val, NULL,
                                  pos, 4, (void *)0);
@@ -866,7 +867,7 @@ int vpci_init_header(struct pci_dev *pdev)
     struct vpci_header *header = &pdev->vpci->header;
     struct vpci_bar *bars = header->bars;
     int rc;
-    bool is_hwdom = is_hardware_domain(pdev->domain);
+    bool is_hwdom = !has_vpci_bridge(pdev->domain);
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
