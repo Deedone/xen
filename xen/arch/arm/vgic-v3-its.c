@@ -302,7 +302,7 @@ static uint32_t its_get_host_devid(struct domain *d, uint32_t guest_devid)
     if ( !pci_passthrough_enabled )
         return guest_devid;
 
-    if ( !is_hardware_domain(d) )
+    if ( has_vpci_bridge(d) )
     {
         pci_sbdf_t __maybe_unused sbdf = {
             .sbdf = guest_devid,
@@ -759,7 +759,7 @@ static int its_handle_mapd(struct virt_its *its, uint64_t *cmdptr)
      * announce pass-through of devices.
      */
 
-    if ( !is_hardware_domain(its->d) )
+    if ( has_vpci_bridge(its->d) )
         host_doorbell_address = its_get_host_doorbell(its, guest_devid);
     else
         host_doorbell_address = its->doorbell_address;
@@ -1600,7 +1600,7 @@ unsigned int vgic_v3_its_count(const struct domain *d)
     struct host_its *hw_its;
     unsigned int ret = 0;
 
-    if ( !is_hardware_domain(d) )
+    if ( has_vpci_bridge(d) )
         return d->arch.vgic.has_its ? 1 : 0;
 
     list_for_each_entry(hw_its, &host_its_list, entry)
@@ -1612,6 +1612,7 @@ unsigned int vgic_v3_its_count(const struct domain *d)
 /*
  * For a hardware domain, this will iterate over the host ITSes
  * and map one virtual ITS per host ITS at the same address.
+ * If pci-scan is enabled, the hardware domain will not use the real host ITSes.
  */
 int vgic_v3_its_init_domain(struct domain *d)
 {
@@ -1629,7 +1630,7 @@ int vgic_v3_its_init_domain(struct domain *d)
          * base and thus doorbell address.
          * Use the same number of device ID and event ID bits as the host.
          */
-        ret = vgic_v3_its_init_virtual(d, is_hardware_domain(d)
+        ret = vgic_v3_its_init_virtual(d, domain_use_host_layout(d)
                                           ? hw_its->addr
                                           : GUEST_GICV3_ITS_BASE,
                                        hw_its->addr,
@@ -1640,7 +1641,7 @@ int vgic_v3_its_init_domain(struct domain *d)
         else
             d->arch.vgic.has_its = true;
 
-        if ( !is_hardware_domain(d) )
+        if ( has_vpci_bridge(d) || !domain_use_host_layout(d) )
             /* XXX: At the moment we only support a single hardware ITS */
             break;
     }
