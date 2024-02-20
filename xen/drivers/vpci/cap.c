@@ -163,7 +163,7 @@ static int vpci_init_capability_list(struct pci_dev *pdev)
 {
     int rc;
     bool mask_cap_list = false;
-    bool is_hwdom = is_hardware_domain(pdev->domain);
+    bool is_hwdom = !has_vpci_bridge(pdev->domain);
 
     if ( pci_conf_read16(pdev->sbdf, PCI_STATUS) & PCI_STATUS_CAP_LIST )
     {

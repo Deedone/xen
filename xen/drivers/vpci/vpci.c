@@ -32,7 +32,7 @@ static int assign_virtual_sbdf(struct pci_dev *pdev)
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
-    if ( is_hardware_domain(d) )
+    if ( !has_vpci_bridge(d) )
         return 0;
 
     /*
@@ -179,7 +179,7 @@ const struct pci_dev *vpci_translate_virtual_device(const struct domain *d,
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
     const struct pci_dev *pdev;
 
-    ASSERT(!is_hardware_domain(d));
+    ASSERT(has_vpci_bridge(d));
     ASSERT(rw_is_locked(&d->pci_lock));
 
     for_each_pdev ( d, pdev )
@@ -493,7 +493,7 @@ uint32_t vpci_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int size)
      * pci_lock is sufficient.
      */
     read_lock(&d->pci_lock);
-    if ( is_hardware_domain(d) )
+    if ( !has_vpci_bridge(d) )
     {
         pdev = pci_get_pdev(d, sbdf);
         if ( !pdev )
@@ -617,7 +617,7 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
      * are modifying BARs, so there is a room for improvement.
      */
     write_lock(&d->pci_lock);
-    if ( is_hardware_domain(d) )
+    if ( !has_vpci_bridge(d) )
     {
         pdev = pci_get_pdev(d, sbdf);
         if ( !pdev )
