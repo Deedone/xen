@@ -273,6 +273,7 @@ source "arch/arm/firmware/Kconfig"
 config PCI_PASSTHROUGH
 	bool "PCI passthrough" if EXPERT
 	depends on ARM_64 && HAS_PASSTHROUGH
+	select HAS_PCI_MSI
 	help
 	  This option enables PCI device passthrough
 
