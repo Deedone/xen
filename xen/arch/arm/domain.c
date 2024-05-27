@@ -524,6 +524,7 @@ struct domain *alloc_domain_struct(void)
 
 void free_domain_struct(struct domain *d)
 {
+    printk(XENLOG_ERR "free domain struct\n");
     free_xenheap_page(d);
 }
 
@@ -975,12 +976,13 @@ static int relinquish_memory(struct domain *d, struct page_list_head *list)
 
         if ( hypercall_preempt_check() )
         {
-            ret = -ERESTART;
-            goto out;
+            // printk(XENLOG_ERR "relinquish_memory: preempted\n");
+            // ret = -ERESTART;
+            // goto out;
         }
     }
 
-  out:
+//   out:
     spin_unlock_recursive(&d->page_alloc_lock);
     return ret;
 }
@@ -1020,6 +1022,7 @@ int domain_relinquish_resources(struct domain *d)
      * logic implements a co-routine, stashing state in struct domain across
      * hypercall continuation boundaries.
      */
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     switch ( d->arch.rel_priv )
     {
     case 0:
@@ -1031,6 +1034,7 @@ int domain_relinquish_resources(struct domain *d)
          * Release the resources allocated for vpl011 which were
          * allocated via a DOMCTL call XEN_DOMCTL_vuart_op.
          */
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         domain_vpl011_deinit(d);
 
 #ifdef CONFIG_IOREQ_SERVER
@@ -1044,42 +1048,55 @@ int domain_relinquish_resources(struct domain *d)
 #endif
 
     PROGRESS(tee):
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         ret = tee_relinquish_resources(d);
+        if (ret == -ERESTART)
+            printk(XENLOG_ERR "got erestart");
         if (ret )
             return ret;
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     PROGRESS(xen):
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         ret = relinquish_memory(d, &d->xenpage_list);
         if ( ret )
             return ret;
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     PROGRESS(page):
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         ret = relinquish_memory(d, &d->page_list);
         if ( ret )
             return ret;
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     PROGRESS(mapping):
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         ret = relinquish_p2m_mapping(d);
         if ( ret )
             return ret;
 
     PROGRESS(p2m):
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         ret = p2m_teardown(d, true);
         if ( ret )
             return ret;
 
     PROGRESS(p2m_pool):
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         ret = p2m_teardown_allocation(d);
         if( ret )
             return ret;
 
     PROGRESS(done):
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         break;
 
     default:
         BUG();
     }
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     return 0;
 }
 

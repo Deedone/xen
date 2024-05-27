@@ -92,7 +92,7 @@ static unsigned long copy_guest(void *buf, uint64_t addr, unsigned int len,
             clean_dcache_va_range(p, size);
 
         unmap_domain_page(p - offset);
-        put_page(page);
+        put_page2(page);
         len -= size;
         buf += size;
         addr += size;

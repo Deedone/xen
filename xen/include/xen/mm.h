@@ -60,7 +60,10 @@
 
 struct page_info;
 
-void put_page(struct page_info *);
+#define put_page(_p) ({ \
+        /*printk(XENLOG_ERR "put page %s %d\n", __func__, __LINE__);*/ \
+        put_page2(_p);})
+void put_page2(struct page_info *);
 bool __must_check get_page(struct page_info *, const struct domain *);
 struct domain *__must_check page_get_owner_and_reference(struct page_info *);
 
@@ -125,7 +128,10 @@ unsigned long avail_domheap_pages_region(
 unsigned long avail_domheap_pages(void);
 unsigned long avail_node_heap_pages(unsigned int);
 #define alloc_domheap_page(d,f) (alloc_domheap_pages(d,0,f))
-#define free_domheap_page(p)  (free_domheap_pages(p,0))
+#define free_domheap_page(p)  ({ \
+    /*printk(XENLOG_ERR "free domheap page %s %d\n", __func__, __LINE__);*/ \
+    free_domheap_pages(p, 0); \
+})
 unsigned int online_page(mfn_t mfn, uint32_t *status);
 int offline_page(mfn_t mfn, int broken, uint32_t *status);
 int query_page_offline(mfn_t mfn, uint32_t *status);

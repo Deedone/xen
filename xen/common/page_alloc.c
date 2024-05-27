@@ -468,6 +468,7 @@ static long outstanding_claims; /* total outstanding claims by all domains */
 unsigned long domain_adjust_tot_pages(struct domain *d, long pages)
 {
     long dom_before, dom_after, dom_claimed, sys_before, sys_after;
+    //printk(XENLOG_ERR "adjust tot pages called %ld\n", pages);
 
     ASSERT(spin_is_locked(&d->page_alloc_lock));
     d->tot_pages += pages;
@@ -2319,6 +2320,7 @@ void init_domheap_pages(paddr_t ps, paddr_t pe)
 }
 
 
+// static int asignid;
 int assign_pages(
     struct page_info *pg,
     unsigned int nr,
@@ -2405,7 +2407,10 @@ int assign_pages(
         smp_wmb(); /* Domain pointer must be visible before updating refcnt. */
         pg[i].count_info =
             (pg[i].count_info & (PGC_extra | PGC_static)) | PGC_allocated | 1;
-
+        // pg[i].id = asignid++;
+        // if (pg[i].id == 65709) {
+        //     WARN();
+        // }
         page_list_add_tail(&pg[i], page_to_list(d, &pg[i]));
     }
 
@@ -2475,19 +2480,23 @@ void free_domheap_pages(struct page_info *pg, unsigned int order)
 {
     struct domain *d = page_get_owner(pg);
     unsigned int i;
-    bool drop_dom_ref;
+    int drop_dom_ref;
+    //printk(XENLOG_ERR "free domheap pages %d\n", order);
 
+    // printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
     ASSERT_ALLOC_CONTEXT();
 
     if ( unlikely(is_xen_heap_page(pg)) )
     {
         /* NB. May recursively lock from relinquish_memory(). */
         spin_lock_recursive(&d->page_alloc_lock);
+        //printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
 
         for ( i = 0; i < (1 << order); i++ )
             arch_free_heap_page(d, &pg[i]);
 
         d->xenheap_pages -= 1 << order;
+        printk(XENLOG_ERR "xenheap pages %d\n", d->xenheap_pages);
         drop_dom_ref = (d->xenheap_pages == 0);
 
         spin_unlock_recursive(&d->page_alloc_lock);
@@ -2495,12 +2504,16 @@ void free_domheap_pages(struct page_info *pg, unsigned int order)
     else
     {
         bool scrub;
+        //printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
 
         if ( likely(d) && likely(d != dom_cow) )
         {
             /* NB. May recursively lock from relinquish_memory(). */
             spin_lock_recursive(&d->page_alloc_lock);
 
+            if (mfn_x(page_to_mfn(pg)) > 0x4fee04 && mfn_x(page_to_mfn(pg)) < 0x4feea9 ) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
+            if (mfn_x(page_to_mfn(pg)) > 0x4fee04 && mfn_x(page_to_mfn(pg)) < 0x4feea9 ) printk(XENLOG_ERR "%lx", mfn_x(page_to_mfn(pg)));
+            drop_dom_ref = domain_tot_pages(d);
             for ( i = 0; i < (1 << order); i++ )
             {
                 if ( pg[i].u.inuse.type_info & PGT_count_mask )
@@ -2512,6 +2525,19 @@ void free_domheap_pages(struct page_info *pg, unsigned int order)
                            pg[i].u.free.val, pg[i].tlbflush_timestamp);
                     BUG();
                 }
+                if (mfn_x(page_to_mfn(&pg[i])) == 0x4fee06) {
+                    printk(XENLOG_ERR "free domheap pages\n");
+                    WARN();
+                }
+
+                if (drop_dom_ref < 170) {
+                    printk(XENLOG_ERR
+                           "free pg[%u] MFN %"PRI_mfn" c=%#lx o=%u v=%#lx t=%#x\n",
+                           i, mfn_x(page_to_mfn(pg + i)),
+                           pg[i].count_info, pg[i].v.free.order,
+                           pg[i].u.free.val, pg[i].tlbflush_timestamp);
+                    printk(XENLOG_ERR "adj tot page ret %d\n", drop_dom_ref);
+                }
                 arch_free_heap_page(d, &pg[i]);
                 if ( pg[i].count_info & PGC_extra )
                 {
@@ -2520,7 +2546,8 @@ void free_domheap_pages(struct page_info *pg, unsigned int order)
                 }
             }
 
-            drop_dom_ref = !domain_adjust_tot_pages(d, -(1 << order));
+            drop_dom_ref = domain_adjust_tot_pages(d, -(1 << order));
+            drop_dom_ref = !drop_dom_ref;
 
             spin_unlock_recursive(&d->page_alloc_lock);
 
@@ -2542,15 +2569,19 @@ void free_domheap_pages(struct page_info *pg, unsigned int order)
              * check here, don't check d != dom_cow for now.
              */
             ASSERT(!d || !order);
+            //printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
             drop_dom_ref = false;
             scrub = 1;
         }
 
+        //printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
         free_heap_pages(pg, order, scrub);
     }
 
+    //printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
     if ( drop_dom_ref )
         put_domain(d);
+    //printk(XENLOG_ERR "%s:%d\n", __func__, __LINE__);
 }
 
 unsigned long avail_domheap_pages_region(

@@ -295,6 +295,7 @@ static __init int kernel_decompress(struct bootmodule *mod)
 
     if ( rc )
     {
+        printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         free_domheap_pages(pages, kernel_order_out);
         return rc;
     }

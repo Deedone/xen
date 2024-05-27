@@ -113,7 +113,7 @@ void getdomaininfo(struct domain *d, struct xen_domctl_getdomaininfo *info)
     info->shr_pages         = atomic_read(&d->shr_pages);
 #endif
 #ifdef CONFIG_MEM_PAGING
-    info->paged_pages       = atomic_read(&d->paged_pages);
+    info->paged_pages       = atomic_read(&d->paged_pages)
 #endif
     info->shared_info_frame =
         gfn_x(mfn_to_gfn(d, _mfn(virt_to_mfn(d->shared_info))));

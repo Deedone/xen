@@ -638,8 +638,8 @@ static inline bool is_system_domain(const struct domain *d)
 }
 
 #define DOMAIN_DESTROYED (1u << 31) /* assumes atomic_t is >= 32 bits */
-#define put_domain(_d) \
-  if ( atomic_dec_and_test(&(_d)->refcnt) ) domain_destroy(_d)
+#define put_domain(_d) {printk(XENLOG_ERR "put_domain %s:%d\n", __FILE__, __LINE__); \
+  if ( atomic_dec_and_test(&(_d)->refcnt) ) domain_destroy(_d);}
 
 /*
  * Use this when you don't have an existing reference to @d. It returns

@@ -204,6 +204,7 @@ static bool __init insert_11_bank(struct domain *d,
     /* If we get here then there are no more banks to fill. */
 
 fail:
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     free_domheap_pages(pg, order);
     return false;
 }

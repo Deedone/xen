@@ -574,6 +574,7 @@ static void free_pg_list(struct optee_shm_buf *optee_shm_buf)
 {
     if ( optee_shm_buf->pg_list )
     {
+        printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         free_domheap_pages(optee_shm_buf->pg_list,
                            optee_shm_buf->pg_list_order);
         optee_shm_buf->pg_list = NULL;
@@ -649,6 +650,7 @@ static int optee_relinquish_resources(struct domain *d)
     if ( !ctx )
         return 0;
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /*
      * We need to free up to max_optee_threads calls. Usually, this is
      * no more than 8-16 calls. But it depends on OP-TEE configuration
@@ -657,9 +659,11 @@ static int optee_relinquish_resources(struct domain *d)
     list_for_each_entry_safe( call, call_tmp, &ctx->call_list, list )
         free_std_call(ctx, call);
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     if ( hypercall_preempt_check() )
         return -ERESTART;
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /*
      * Number of this buffers also depends on max_optee_threads, so
      * check the comment above.
@@ -667,6 +671,7 @@ static int optee_relinquish_resources(struct domain *d)
     list_for_each_entry_safe( shm_rpc, shm_rpc_tmp, &ctx->shm_rpc_list, list )
         free_shm_rpc(ctx, shm_rpc->cookie);
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     list_for_each_entry_safe( optee_shm_buf, optee_shm_buf_tmp,
                               &ctx->optee_shm_buf_list, list )
     {
@@ -676,6 +681,7 @@ static int optee_relinquish_resources(struct domain *d)
         free_optee_shm_buf(ctx, optee_shm_buf->cookie);
     }
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     if ( hypercall_preempt_check() )
         return -ERESTART;
     /*
@@ -687,14 +693,17 @@ static int optee_relinquish_resources(struct domain *d)
      *
      * a7 should be 0, so we can't skip last 6 parameters of arm_smccc_smc()
      */
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     arm_smccc_smc(OPTEE_SMC_VM_DESTROYED, OPTEE_CLIENT_ID(d), 0, 0, 0, 0, 0, 0,
                   &resp);
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     ASSERT(!spin_is_locked(&ctx->lock));
     ASSERT(!atomic_read(&ctx->call_count));
     ASSERT(!atomic_read(&ctx->optee_shm_buf_pages));
     ASSERT(list_empty(&ctx->shm_rpc_list));
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     XFREE(d->arch.tee);
 
     return 0;
@@ -782,6 +791,7 @@ static int translate_noncontig(struct optee_domain *ctx,
                                            pg_count, xen_pgs, order);
     if ( IS_ERR(optee_shm_buf) )
     {
+        printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         free_domheap_pages(xen_pgs, order);
         return PTR_ERR(optee_shm_buf);
     }

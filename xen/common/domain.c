@@ -459,17 +459,24 @@ static void _domain_destroy(struct domain *d)
     BUG_ON(!d->is_dying);
     BUG_ON(atomic_read(&d->refcnt) != DOMAIN_DESTROYED);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     xfree(d->pbuf);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     argo_destroy(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     rangeset_domain_destroy(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     free_cpumask_var(d->dirty_cpumask);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     xsm_free_security_domain(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     lock_profile_deregister_struct(LOCKPROF_TYPE_PERDOM, d);
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
 
     free_domain_struct(d);
 }
@@ -926,42 +933,59 @@ int domain_kill(struct domain *d)
     if ( d == current->domain )
         return -EINVAL;
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /* Protected by domctl_lock. */
     switch ( d->is_dying )
     {
     case DOMDYING_alive:
         domain_pause(d);
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         d->is_dying = DOMDYING_dying;
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         spin_barrier(&d->domain_lock);
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         argo_destroy(d);
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         vnuma_destroy(d->vnuma);
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         domain_set_outstanding_pages(d, 0);
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         /* fallthrough */
     case DOMDYING_dying:
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         rc = domain_teardown(d);
         if ( rc )
             break;
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         rc = evtchn_destroy(d);
         if ( rc )
             break;
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         rc = domain_relinquish_resources(d);
         if ( rc != 0 )
             break;
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         if ( cpupool_move_domain(d, cpupool0) )
             return -ERESTART;
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         for_each_vcpu ( d, v )
             unmap_vcpu_info(v);
         d->is_dying = DOMDYING_dead;
         /* Mem event cleanup has to go here because the rings 
          * have to be put before we call put_domain. */
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         vm_event_cleanup(d);
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         put_domain(d);
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         send_global_virq(VIRQ_DOM_EXC);
         /* fallthrough */
     case DOMDYING_dead:
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         break;
     }
 
+    //printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     return rc;
 }
 
@@ -1090,6 +1114,7 @@ static void cf_check complete_domain_destroy(struct rcu_head *head)
     struct vcpu *v;
     int i;
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /*
      * Flush all state for the vCPU previously having run on the current CPU.
      * This is in particular relevant for x86 HVM ones on VMX, so that this
@@ -1098,6 +1123,7 @@ static void cf_check complete_domain_destroy(struct rcu_head *head)
      */
     sync_local_execstate();
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     for ( i = d->max_vcpus - 1; i >= 0; i-- )
     {
         if ( (v = d->vcpu[i]) == NULL )
@@ -1108,12 +1134,16 @@ static void cf_check complete_domain_destroy(struct rcu_head *head)
         destroy_waitqueue_vcpu(v);
     }
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     grant_table_destroy(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     arch_domain_destroy(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     watchdog_domain_destroy(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     sched_destroy_domain(d);
 
     /* Free page used by xen oprofile buffer. */
@@ -1138,12 +1168,16 @@ static void cf_check complete_domain_destroy(struct rcu_head *head)
 
     evtchn_destroy_final(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     radix_tree_destroy(&d->pirq_tree, free_pirq_struct);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     xfree(d->vcpu);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     _domain_destroy(d);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     send_global_virq(VIRQ_DOM_EXC);
 }
 
@@ -1154,12 +1188,14 @@ void domain_destroy(struct domain *d)
 
     BUG_ON(!d->is_dying);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /* May be already destroyed, or get_domain() can race us. */
     if ( atomic_cmpxchg(&d->refcnt, 0, DOMAIN_DESTROYED) != 0 )
         return;
 
     TRACE_1D(TRC_DOM0_DOM_REM, d->domain_id);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /* Delete from task list and task hashtable. */
     spin_lock(&domlist_update_lock);
     pd = &domain_list;
@@ -1172,6 +1208,7 @@ void domain_destroy(struct domain *d)
     rcu_assign_pointer(*pd, d->next_in_hashbucket);
     spin_unlock(&domlist_update_lock);
 
+    printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     /* Schedule RCU asynchronous completion of domain destroy. */
     call_rcu(&d->rcu, complete_domain_destroy);
 }

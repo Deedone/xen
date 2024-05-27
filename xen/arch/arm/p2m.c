@@ -885,6 +885,7 @@ static void p2m_put_l3_page(const lpae_t pte)
         page_set_xenheap_gfn(mfn_to_page(mfn), INVALID_GFN);
 }
 
+static int MYDBG = 0;
 /* Free lpae sub-tree behind an entry */
 static void p2m_free_entry(struct p2m_domain *p2m,
                            lpae_t entry, unsigned int level)
@@ -893,11 +894,14 @@ static void p2m_free_entry(struct p2m_domain *p2m,
     lpae_t *table;
     mfn_t mfn;
     struct page_info *pg;
+    if (MYDBG) printk(XENLOG_ERR "p2m_free_entry %d\n", level);
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
 
     /* Nothing to do if the entry is invalid. */
     if ( !p2m_is_valid(entry) )
         return;
 
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     if ( p2m_is_superpage(entry, level) || (level == 3) )
     {
 #ifdef CONFIG_IOREQ_SERVER
@@ -907,22 +911,37 @@ static void p2m_free_entry(struct p2m_domain *p2m,
          * has failed (error case).
          * So, at worst, the spurious mapcache invalidation might be sent.
          */
+        if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         if ( p2m_is_ram(entry.p2m.type) &&
-             domain_has_ioreq_server(p2m->domain) )
+             domain_has_ioreq_server(p2m->domain) ) {
+            if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
             ioreq_request_mapcache_invalidate(p2m->domain);
+        }
 #endif
 
+        if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         p2m->stats.mappings[level]--;
         /* Nothing to do if the entry is a super-page. */
-        if ( level == 3 )
+        if ( level == 3 ) {
+            printk(XENLOG_ERR "calling put_l3_page stat %d:%ld %d:%ld %d:%ld %d:%ld\n",
+                   0, p2m->stats.mappings[0],
+                   1, p2m->stats.mappings[1],
+                   2, p2m->stats.mappings[2],
+                   3, p2m->stats.mappings[3]);
+            if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
             p2m_put_l3_page(entry);
+        }
         return;
     }
 
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     table = map_domain_page(lpae_get_mfn(entry));
-    for ( i = 0; i < XEN_PT_LPAE_ENTRIES; i++ )
+    for ( i = 0; i < XEN_PT_LPAE_ENTRIES; i++ ) {
+        if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         p2m_free_entry(p2m, *(table + i), level + 1);
+    }
 
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     unmap_domain_page(table);
 
     /*
@@ -933,13 +952,17 @@ static void p2m_free_entry(struct p2m_domain *p2m,
      */
     p2m_tlb_flush_sync(p2m);
 
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     mfn = lpae_get_mfn(entry);
     ASSERT(mfn_valid(mfn));
 
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     pg = mfn_to_page(mfn);
 
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     page_list_del(pg, &p2m->pages);
     p2m_free_page(p2m->domain, pg);
+    if (MYDBG) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
 }
 
 static bool p2m_split_superpage(struct p2m_domain *p2m, lpae_t *entry,
@@ -1038,10 +1061,13 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
     unsigned int target = 3 - (page_order / XEN_PT_LPAE_SHIFT);
     lpae_t *entry, *table, orig_pte;
     int rc;
+    int MYDBG2 = (gfn_x(sgfn) >= 0x40000 && gfn_x(sgfn) < 0x40600);
     /* A mapping is removed if the MFN is invalid. */
     bool removing_mapping = mfn_eq(smfn, INVALID_MFN);
+
     DECLARE_OFFSETS(offsets, gfn_to_gaddr(sgfn));
 
+    if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     ASSERT(p2m_is_write_locked(p2m));
 
     /*
@@ -1050,20 +1076,24 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
      */
     ASSERT(target > 0 && target <= 3);
 
+    if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     table = p2m_get_root_pointer(p2m, sgfn);
     if ( !table )
         return -EINVAL;
 
+    if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     for ( level = P2M_ROOT_LEVEL; level < target; level++ )
     {
         /*
          * Don't try to allocate intermediate page table if the mapping
          * is about to be removed.
          */
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         rc = p2m_next_level(p2m, removing_mapping,
                             level, &table, offsets[level]);
         if ( rc == GUEST_TABLE_MAP_FAILED )
         {
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
             /*
              * We are here because p2m_next_level has failed to map
              * the intermediate page table (e.g the table does not exist
@@ -1074,16 +1104,20 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
             rc = removing_mapping ?  0 : -ENOENT;
             goto out;
         }
-        else if ( rc != GUEST_TABLE_NORMAL_PAGE )
+        else if ( rc != GUEST_TABLE_NORMAL_PAGE ) {
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
             break;
+        }
     }
 
+    if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     entry = table + offsets[level];
 
     /*
      * If we are here with level < target, we must be at a leaf node,
      * and we need to break up the superpage.
      */
+    if (MYDBG2) printk(XENLOG_ERR "LEVEL %d TARGET %d\n", level, target);
     if ( level < target )
     {
         /* We need to split the original page. */
@@ -1091,6 +1125,7 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
 
         ASSERT(p2m_is_superpage(*entry, level));
 
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         if ( !p2m_split_superpage(p2m, &split_pte, level, target, offsets) )
         {
             /*
@@ -1100,6 +1135,7 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
             p2m->stats.mappings[level]++;
 
             /* Free the allocated sub-tree */
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
             p2m_free_entry(p2m, split_pte, level);
 
             rc = -ENOMEM;
@@ -1110,9 +1146,11 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
          * Follow the break-before-sequence to update the entry.
          * For more details see (D4.7.1 in ARM DDI 0487A.j).
          */
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         p2m_remove_pte(entry, p2m->clean_pte);
         p2m_force_tlb_flush_sync(p2m);
 
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         p2m_write_pte(entry, split_pte, p2m->clean_pte);
 
         /* then move to the level we want to make real changes */
@@ -1120,6 +1158,7 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
         {
             rc = p2m_next_level(p2m, true, level, &table, offsets[level]);
 
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
             /*
              * The entry should be found and either be a table
              * or a superpage if level 3 is not targeted
@@ -1163,9 +1202,11 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
      * sequence when updating the translation table (D4.7.1 in ARM DDI
      * 0487A.j).
      */
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     if ( lpae_is_valid(orig_pte) || removing_mapping )
         p2m_remove_pte(entry, p2m->clean_pte);
 
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
     if ( removing_mapping )
         /* Flush can be deferred if the entry is removed */
         p2m->need_flush |= !!lpae_is_valid(orig_pte);
@@ -1173,6 +1214,7 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
     {
         lpae_t pte = mfn_to_p2m_entry(smfn, t, a);
 
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         if ( level < 3 )
             pte.p2m.table = 0; /* Superpage entry */
 
@@ -1195,6 +1237,7 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
             p2m->stats.mappings[level]++;
 
         p2m_write_pte(entry, pte, p2m->clean_pte);
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
 
         p2m->max_mapped_gfn = gfn_max(p2m->max_mapped_gfn,
                                       gfn_add(sgfn, (1UL << page_order) - 1));
@@ -1206,6 +1249,7 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
     {
         unsigned int flush_flags = 0;
 
+        if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         if ( lpae_is_valid(orig_pte) )
             flush_flags |= IOMMU_FLUSHF_modified;
         if ( lpae_is_valid(*entry) )
@@ -1222,8 +1266,12 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
      * is different (to avoid freeing when permission is changed).
      */
     if ( p2m_is_valid(orig_pte) &&
-         !mfn_eq(lpae_get_mfn(*entry), lpae_get_mfn(orig_pte)) )
-        p2m_free_entry(p2m, orig_pte, level);
+         !mfn_eq(lpae_get_mfn(*entry), lpae_get_mfn(orig_pte)) ) {
+            if (MYDBG2) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
+            if (MYDBG2) MYDBG = 1;
+            p2m_free_entry(p2m, orig_pte, level);
+            MYDBG = 0;
+         }
 
 out:
     unmap_domain_page(table);
@@ -1769,8 +1817,10 @@ void p2m_final_teardown(struct domain *d)
         continue; /* No preemption support here */
     ASSERT(page_list_empty(&d->arch.paging.p2m_freelist));
 
-    if ( p2m->root )
+    if ( p2m->root ) {
+        printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         free_domheap_pages(p2m->root, P2M_ROOT_ORDER);
+    }
 
     p2m->root = NULL;
 
@@ -1869,6 +1919,7 @@ int relinquish_p2m_mapping(struct domain *d)
     /* No mappings can be added in the P2M after the P2M lock is released. */
     p2m_write_lock(p2m);
 
+    printk(XENLOG_ERR "Relinquishing p2m mappings for domain %d\n", d->domain_id);
     start = p2m->lowest_mapped_gfn;
     end = gfn_add(p2m->max_mapped_gfn, 1);
 
@@ -1877,6 +1928,7 @@ int relinquish_p2m_mapping(struct domain *d)
     {
         mfn_t mfn = p2m_get_entry(p2m, start, &t, NULL, &order, NULL);
 
+        if (mfn_x(mfn) > 0x4fee04 && mfn_x(mfn) < 0x4feea9 ) printk(XENLOG_ERR "Remove mfn %#"PRI_mfn" from p2m of domain %d\n", mfn_x(mfn), d->domain_id);
         count++;
         /*
          * Arbitrarily preempt every 512 iterations.
@@ -1897,6 +1949,7 @@ int relinquish_p2m_mapping(struct domain *d)
              * For valid mapping, the start will always be aligned as
              * entry will be removed whilst relinquishing.
              */
+            printk(XENLOG_ERR "Call p2m_set_entry to remove mfn %#"PRI_mfn" gfn=%#"PRI_gfn" order %d from p2m of domain %d\n", mfn_x(mfn),gfn_x(start), order ,d->domain_id);
             rc = __p2m_set_entry(p2m, start, order, INVALID_MFN,
                                  p2m_invalid, p2m_access_rwx);
             if ( unlikely(rc) )

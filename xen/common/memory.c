@@ -291,6 +291,7 @@ static void populate_physmap(struct memop_args *a)
                 mfn = page_to_mfn(page);
             }
 
+            printk(XENLOG_ERR "_gfn %lx\n", gpfn);
             if ( guest_physmap_add_page(d, _gfn(gpfn), mfn, a->extent_order) )
                 goto out;
 
@@ -777,6 +778,7 @@ static long memory_exchange(XEN_GUEST_HANDLE_PARAM(xen_memory_exchange_t) arg)
                 if ( drop_dom_ref )
                     put_domain(d);
 
+                printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
                 free_domheap_pages(page, exch.out.extent_order);
                 goto dying;
             }
@@ -830,8 +832,10 @@ static long memory_exchange(XEN_GUEST_HANDLE_PARAM(xen_memory_exchange_t) arg)
  dying:
     rcu_unlock_domain(d);
     /* Free any output pages we managed to allocate. */
-    while ( (page = page_list_remove_head(&out_chunk_list)) )
+    while ( (page = page_list_remove_head(&out_chunk_list)) ) {
+        printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         free_domheap_pages(page, exch.out.extent_order);
+    }
 
     exch.nr_exchanged = i << in_chunk_order;
 
@@ -1453,6 +1457,7 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
             decrease_reservation(&args);
             break;
         default: /* XENMEM_populate_physmap */
+            printk(XENLOG_ERR "xenmem populate physmap\n");
             populate_physmap(&args);
             break;
         }
@@ -1635,11 +1640,15 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
             return rc;
         }
 
+        printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
         page = get_page_from_gfn(d, xrfp.gpfn, NULL, P2M_ALLOC);
         if ( page )
         {
+            printk(XENLOG_ERR "xenmem remove from physmap: %p gfn %lx mfn %lx\n",
+                   page, xrfp.gpfn, mfn_x(page_to_mfn(page)));
             rc = guest_physmap_remove_page(d, _gfn(xrfp.gpfn),
                                            page_to_mfn(page), 0);
+            printk(XENLOG_ERR "rc = %ld\n", rc);
             put_page(page);
         }
         else

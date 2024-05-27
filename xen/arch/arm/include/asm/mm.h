@@ -30,6 +30,7 @@ struct page_info
 {
     /* Each frame can be threaded onto a doubly-linked list. */
     struct page_list_entry list;
+    // int id;
 
     /* Reference count and various PGC_xxx flags and fields. */
     unsigned long count_info;

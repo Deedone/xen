@@ -1504,6 +1504,8 @@ void put_page_nr(struct page_info *page, unsigned long nr)
 {
     unsigned long nx, x, y = page->count_info;
 
+    if (mfn_x(page_to_mfn(page)) > 0x4fee04 && mfn_x(page_to_mfn(page)) < 0x4feea9 ) printk(XENLOG_ERR "mfn %lx count info %ld nr is %ld\n", mfn_x(page_to_mfn(page)), page->count_info & PGC_count_mask, nr);
+
     do {
         ASSERT((y & PGC_count_mask) >= nr);
         x  = y;
@@ -1511,16 +1513,21 @@ void put_page_nr(struct page_info *page, unsigned long nr)
     }
     while ( unlikely((y = cmpxchg(&page->count_info, x, nx)) != x) );
 
+
+    if (mfn_x(page_to_mfn(page)) > 0x4fee04 && mfn_x(page_to_mfn(page)) < 0x4feea9 ) printk(XENLOG_ERR "result info %ld\n", page->count_info & PGC_count_mask);
+
     if ( unlikely((nx & PGC_count_mask) == 0) )
     {
-        if ( unlikely(nx & PGC_static) )
+    if (mfn_x(page_to_mfn(page)) > 0x4fee04 && mfn_x(page_to_mfn(page)) < 0x4feea9 ) printk(XENLOG_ERR "%s %d\n", __func__, __LINE__);
+        if ( unlikely(nx & PGC_static) ) {
             free_domstatic_page(page);
-        else
+        } else {
             free_domheap_page(page);
+        }
     }
 }
 
-void put_page(struct page_info *page)
+void put_page2(struct page_info *page)
 {
     put_page_nr(page, 1);
 }
@@ -1530,6 +1537,11 @@ bool get_page_nr(struct page_info *page, const struct domain *domain,
 {
     const struct domain *owner = page_get_owner_and_nr_reference(page, nr);
 
+    if (mfn_x(page_to_mfn(page)) == 0x4fee06) {
+        printk(XENLOG_ERR "get page!!!!!!!!!!!!!!!!!\n");
+        printk(XENLOG_ERR "count is %ld\n", page->count_info & PGC_count_mask);
+        WARN();
+    }
     if ( likely(owner == domain) )
         return true;
 
