@@ -1388,7 +1388,7 @@ static const struct iommu_ops ipmmu_iommu_ops =
 
 static __init int ipmmu_init(struct dt_device_node *node, const void *data)
 {
-    static bool s4;
+    static bool gen4;
     int ret;
 
     /*
@@ -1398,10 +1398,11 @@ static __init int ipmmu_init(struct dt_device_node *node, const void *data)
     dt_device_set_used_by(node, DOMID_XEN);
 
 
-    if ( !s4 && dt_device_is_compatible(node, "renesas,ipmmu-r8a779f0") )
-        s4 = true;
+    if ( !gen4 && (dt_device_is_compatible(node, "renesas,ipmmu-r8a779f0") ||
+         (dt_device_is_compatible(node, "renesas,ipmmu-r8a779g0"))))
+        gen4 = true;
 
-    if ( !s4 )
+    if ( !gen4 )
     {
         /*
          * Perform platform specific actions such as power-on, errata maintenance
