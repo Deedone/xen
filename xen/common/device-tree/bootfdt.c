@@ -598,6 +598,7 @@ size_t __init boot_fdt_info(const void *fdt, paddr_t paddr)
         if ( fdt_get_mem_rsv_paddr(device_tree_flattened, i, &s, &sz) < 0 )
             continue;
 
+        continue; //HACK
         if ( reserved_mem->nr_banks < reserved_mem->max_banks )
         {
             bank = &reserved_mem->bank[reserved_mem->nr_banks];
