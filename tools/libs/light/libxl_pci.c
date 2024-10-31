@@ -1490,7 +1490,6 @@ static void pci_add_dm_done(libxl__egc *egc,
             if (r < 0) {
                 LOGED(ERROR, domainid, "xc_physdev_map_pirq irq=%d (error=%d)",
                     irq, r);
-                fclose(f);
                 rc = ERROR_FAIL;
                 goto out;
             }
@@ -1498,12 +1497,10 @@ static void pci_add_dm_done(libxl__egc *egc,
             if (r < 0) {
                 LOGED(ERROR, domainid,
                     "xc_domain_irq_permission irq=%d (error=%d)", irq, r);
-                fclose(f);
                 rc = ERROR_FAIL;
                 goto out;
             }
         }
-        fclose(f);
     }
 
     /* Don't restrict writes to the PCI config space from this VM */
