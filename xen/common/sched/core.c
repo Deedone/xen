@@ -15,6 +15,7 @@
 #ifndef COMPAT
 #include <xen/init.h>
 #include <xen/lib.h>
+#include <xen/fuzzer.h>
 #include <xen/param.h>
 #include <xen/sched.h>
 #include <xen/sections.h>
@@ -1438,6 +1439,8 @@ void vcpu_block(void)
         TRACE_TIME(TRC_SCHED_BLOCK, v->domain->domain_id, v->vcpu_id);
         raise_softirq(SCHEDULE_SOFTIRQ);
     }
+
+    fuzzer_on_block();
 }
 
 void vcpu_block_enable_events(void)
@@ -1510,6 +1513,8 @@ static long do_poll(const struct sched_poll *sched_poll)
 
     TRACE_TIME(TRC_SCHED_BLOCK, d->domain_id, v->vcpu_id);
     raise_softirq(SCHEDULE_SOFTIRQ);
+
+    fuzzer_on_block();
 
     return 0;
 
