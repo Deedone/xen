@@ -9,6 +9,7 @@
 
 #include <asm/mmio.h>
 
+volatile int DDEBUG = 0;
 static bool vpci_sbdf_from_gpa(struct domain *d,
                                const struct pci_host_bridge *bridge,
                                paddr_t gpa, bool use_root, pci_sbdf_t *sbdf)
@@ -21,6 +22,7 @@ static bool vpci_sbdf_from_gpa(struct domain *d,
     {
         const struct pci_config_window *cfg = use_root ? bridge->cfg :
                                                          bridge->child_cfg;
+        if (DDEBUG) printk("%s %d\n", __func__, __LINE__);
         sbdf->sbdf = VPCI_ECAM_BDF(gpa - cfg->phys_addr);
         sbdf->seg = bridge->segment;
         sbdf->bus += cfg->busn_start;
@@ -31,7 +33,10 @@ static bool vpci_sbdf_from_gpa(struct domain *d,
          * For the passed through devices we need to map their virtual SBDF
          * to the physical PCI device being passed through.
          */
+        if (DDEBUG) printk("%s %d\n", __func__, __LINE__);
         sbdf->sbdf = VPCI_ECAM_BDF(gpa - GUEST_VPCI_ECAM_BASE);
+        if (DDEBUG) printk("SBDF %x from %lx - %llx\n", sbdf->sbdf, gpa, GUEST_VPCI_ECAM_BASE);
+
         read_lock(&d->pci_lock);
         translated = vpci_translate_virtual_device(d, sbdf);
         read_unlock(&d->pci_lock);
@@ -165,6 +170,7 @@ int domain_vpci_init(struct domain *d)
     if ( !has_vpci(d) )
         return 0;
 
+    printk("VPCI: Initializing domain %u\n", d->domain_id);
     /*
      * The hardware domain gets as many MMIOs as required by the
      * physical host bridge.
@@ -180,8 +186,10 @@ int domain_vpci_init(struct domain *d)
     }
     else
     {
+        printk("Registering VPCI MMIO handler for domain %u\n", d->domain_id);
         register_mmio_handler(d, &vpci_mmio_handler,
                               GUEST_VPCI_ECAM_BASE, GUEST_VPCI_ECAM_SIZE, NULL);
+        printk("MAPPING base %llx size %llx\n", GUEST_VPCI_ECAM_BASE, GUEST_VPCI_ECAM_SIZE);
         iomem_permit_access(d, paddr_to_pfn(GUEST_VPCI_MEM_ADDR),
                             paddr_to_pfn(GUEST_VPCI_MEM_ADDR +
                                          GUEST_VPCI_MEM_SIZE - 1));
