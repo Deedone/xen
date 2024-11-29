@@ -87,6 +87,11 @@ static int cf_check map_range(
 
         rc = map->map ? map_mmio_regions(map->d, _gfn(s), size, _mfn(map_mfn))
                       : unmap_mmio_regions(map->d, _gfn(s), size, _mfn(map_mfn));
+        if (map->map) {
+            printk("MAPPED REGION: %lx -> %lx, size %lx ret %d\n", map_mfn, s, size, rc);
+        } else {
+            printk("UNMAPPED REGION: %lx -> %lx, size %lx ret %d\n", map_mfn, s, size, rc);
+        }
         if ( rc == 0 )
         {
             *c += size;

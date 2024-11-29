@@ -107,6 +107,7 @@ static int assign_virtual_sbdf(struct pci_dev *pdev, pci_sbdf_t *vsbdf)
  * Find the physical device which is mapped to the virtual device
  * and translate virtual SBDF to the physical one.
  */
+extern volatile int DDEBUG;
 bool vpci_translate_virtual_device(const struct domain *d, pci_sbdf_t *sbdf)
 {
     const struct pci_dev *pdev;
@@ -116,6 +117,7 @@ bool vpci_translate_virtual_device(const struct domain *d, pci_sbdf_t *sbdf)
 
     for_each_pdev ( d, pdev )
     {
+        if (DDEBUG && pdev->vpci) printk("CMP %x %x\n", pdev->vpci->guest_sbdf.sbdf, sbdf->sbdf);
         if ( pdev->vpci && (pdev->vpci->guest_sbdf.sbdf == sbdf->sbdf) )
         {
             /* Replace guest SBDF with the physical one. */
