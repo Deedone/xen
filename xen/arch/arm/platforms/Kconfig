@@ -35,7 +35,7 @@ config RCAR4
 	select HAS_SCIF
 	select HAS_ITS
 	select IPMMU_VMSA
-	---help---
+	help
 	Enable all the required drivers for Renesas RCar4
 
 config MPSOC
