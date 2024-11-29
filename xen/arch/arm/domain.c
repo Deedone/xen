@@ -883,6 +883,7 @@ void arch_domain_creation_finished(struct domain *d)
 {
     p2m_domain_creation_finished(d);
 
+    printk("ARCH DOMAIN CREATION FINISHED\n");
     if ( domain_vgic_late_init(d) )
     {
         printk(XENLOG_INFO "Late vGIC initialization failed\n");
