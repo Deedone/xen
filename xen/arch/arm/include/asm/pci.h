@@ -20,6 +20,8 @@
 #include <asm/p2m.h>
 #include <xen/err.h>
 
+#include <asm/msi.h>
+
 #define pci_to_dev(pcidev) (&(pcidev)->arch.dev)
 
 extern bool pci_passthrough_enabled;
@@ -30,14 +32,6 @@ struct rangeset;
 /* Arch pci dev struct */
 struct arch_pci_dev {
     struct device dev;
-};
-
-/* Arch-specific MSI data for vPCI. */
-struct vpci_arch_msi {
-};
-
-/* Arch-specific MSI-X entry data for vPCI. */
-struct vpci_arch_msix_entry {
 };
 
 /*
