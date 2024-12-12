@@ -150,6 +150,45 @@ int vpci_msix_arch_enable_entry(struct vpci_msix_entry *entry,
 
     return 0;
 }
+
+#ifdef CONFIG_HAS_PCI_MSI
+int pdev_msix_assign(struct domain *d, struct pci_dev *pdev)
+{
+    return 0;
+}
+
+int pdev_msi_init(struct pci_dev *pdev)
+{
+    unsigned int pos;
+
+    INIT_LIST_HEAD(&pdev->msi_list);
+
+    pos = pci_find_cap_offset(pdev->sbdf, PCI_CAP_ID_MSI);
+    if ( pos )
+    {
+        uint16_t ctrl = pci_conf_read16(pdev->sbdf, msi_control_reg(pos));
+
+        pdev->msi_maxvec = multi_msi_capable(ctrl);
+    }
+    return 0;
+}
+
+void pdev_msi_deinit(struct pci_dev *pdev)
+{
+    ASSERT_UNREACHABLE();
+}
+
+void pdev_dump_msi(const struct pci_dev *pdev)
+{
+    ASSERT_UNREACHABLE();
+}
+
+void pci_cleanup_msi(struct pci_dev *pdev)
+{
+    ASSERT_UNREACHABLE();
+}
+
+#endif
 /*
  * Local variables:
  * mode: C
