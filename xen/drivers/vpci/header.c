@@ -22,7 +22,6 @@
 #include <xen/sched.h>
 #include <xen/softirq.h>
 #include <xen/vpci.h>
-
 #include <xsm/xsm.h>
 
 #include <asm/event.h>
