@@ -194,6 +194,11 @@ void pci_cleanup_msi(struct pci_dev *pdev)
     ASSERT_UNREACHABLE();
 }
 
+const pci_sbdf_t *msi_irq_to_sbdf(int irq)
+{
+    return NULL;
+}
+
 #endif
 /*
  * Local variables:
