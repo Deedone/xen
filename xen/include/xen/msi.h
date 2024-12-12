@@ -40,6 +40,7 @@ int pdev_msi_init(struct pci_dev *pdev);
 void pdev_msi_deinit(struct pci_dev *pdev);
 void pdev_dump_msi(const struct pci_dev *pdev);
 extern void pci_cleanup_msi(struct pci_dev *pdev);
+pci_sbdf_t msi_irq_to_sbdf(int irq);
 
 #else /* !CONFIG_HAS_PCI_MSI */
 
