@@ -22,7 +22,6 @@
 #include <xen/sched.h>
 #include <xen/softirq.h>
 #include <xen/vpci.h>
-
 #include <xsm/xsm.h>
 
 #include <asm/event.h>
@@ -805,7 +804,7 @@ static int cf_check init_header(struct pci_dev *pdev)
             unsigned int next, ttl = 48;
             static const unsigned int supported_caps[] = {
                 PCI_CAP_ID_MSI,
-                PCI_CAP_ID_MSIX,
+                // PCI_CAP_ID_MSIX,
             };
 
             next = pci_find_next_cap_ttl(pdev->sbdf, PCI_CAPABILITY_LIST,
