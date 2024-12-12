@@ -22,7 +22,7 @@
 #include <xen/xenoprof.h>
 #include <xen/iommu.h>
 #ifdef CONFIG_HAS_PCI_MSI
-#include <asm/msi.h>
+#include <xen/msi.h>
 #endif
 #include <public/xen.h>
 #include <public/physdev.h>
@@ -124,18 +124,17 @@ static int get_irq_sid(int irq, uint32_t *sid, struct avc_audit_data *ad)
     }
 #ifdef CONFIG_HAS_PCI_MSI
     {
-        struct irq_desc *desc = irq_to_desc(irq);
+        pci_sbdf_t sbdf = msi_irq_to_sbdf(irq);
+        printk("MSI IRQ CHECK %d\n", irq);
 
-        if ( desc->msi_desc && desc->msi_desc->dev )
+        if ( sbdf.sbdf != INVALID_GUEST_SBDF.sbdf )
         {
-            struct pci_dev *dev = desc->msi_desc->dev;
-            uint32_t sbdf = (dev->seg << 16) | (dev->bus << 8) | dev->devfn;
             if ( ad )
             {
                 AVC_AUDIT_DATA_INIT(ad, DEV);
-                ad->device = sbdf;
+                ad->device = sbdf.sbdf;
             }
-            return security_device_sid(sbdf, sid);
+            return security_device_sid(sbdf.sbdf, sid);
         }
     }
 #endif
@@ -964,13 +963,15 @@ static int flask_map_domain_msi (
     struct avc_audit_data *ad)
 {
 #ifdef CONFIG_HAS_PCI_MSI
-    const struct msi_info *msi = data;
-    uint32_t machine_bdf = msi->sbdf.sbdf;
+    pci_sbdf_t sbdf = msi_irq_to_sbdf(irq);
+
+    if ( sbdf.sbdf == INVALID_GUEST_SBDF.sbdf )
+        return -EINVAL;
 
     AVC_AUDIT_DATA_INIT(ad, DEV);
-    ad->device = machine_bdf;
+    ad->device = sbdf.sbdf;
 
-    return security_device_sid(machine_bdf, sid);
+    return security_device_sid(sbdf.sbdf, sid);
 #else
     return -EINVAL;
 #endif
