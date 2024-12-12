@@ -188,6 +188,11 @@ void pci_cleanup_msi(struct pci_dev *pdev)
     ASSERT_UNREACHABLE();
 }
 
+pci_sbdf_t msi_irq_to_sbdf(int irq)
+{
+    return INVALID_GUEST_SBDF;
+}
+
 #endif
 /*
  * Local variables:
