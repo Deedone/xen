@@ -1627,4 +1627,18 @@ void pdev_dump_msi(const struct pci_dev *pdev)
     printk(">");
 }
 
+pci_sbdf_t msi_irq_to_sbdf(int irq)
+{
+    struct irq_desc *desc = irq_to_desc(irq);
+    struct pci_sbdf_t sbdf;
+
+    if ( desc->msi_desc && desc->msi_desc->dev )
+    {
+        struct pci_dev *dev = desc->msi_desc->dev;
+        return dev->sbdf;
+    }
+
+    return INVALID_GUEST_SBDF;
+}
+
 #endif
