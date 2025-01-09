@@ -643,7 +643,7 @@ struct arm_smmu_master_cfg {
 	for (i = 0; idx = (cfg)->smendx[i], (i) < (num); ++(i))
 
 struct arm_smmu_master {
-	struct device 			*dev;
+	struct device			*dev;
 	struct rb_node			node;
 	struct arm_smmu_master_cfg	cfg;
 };
