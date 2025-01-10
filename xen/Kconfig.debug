@@ -163,4 +163,13 @@ config DEBUG_INFO
 	  "make install-xen" for installing xen.efi, stripping needs to be
 	  done outside the Xen build environment).
 
+config MINERVA_ANALYSIS
+	bool "Runtime allocation analysis"
+	depends on ARM
+	default n
+	help
+	  Enable logging of runtime memory allocations from Xen heap. This
+	  produces tons of logs and should be enabled for specific CI jobs
+	  or if you're interested how exactly xenheap gets used.
+
 endmenu

@@ -2555,6 +2555,17 @@ void free_xenheap_pages(void *v, unsigned int order)
     for ( i = 0; i < (1u << order); i++ )
         pg[i].count_info &= ~PGC_xen_heap;
 
+#ifdef CONFIG_MINERVA_ANALYSIS
+    if ( system_state >= SYS_STATE_active )
+    {
+        printk("DEBUG: %pd: free_xenheap_pages - size %lu p %p\n",
+               current->domain,
+               PAGE_SIZE << order,
+               pg);
+        WARN();
+    }
+#endif
+
     free_heap_pages(pg, order, true);
 }
 
@@ -2747,6 +2758,17 @@ struct page_info *alloc_domheap_pages(
         }
     }
 
+#ifdef CONFIG_MINERVA_ANALYSIS
+    if ( !d && system_state >= SYS_STATE_active )
+    {
+        printk("DEBUG: %pd: alloc_domheap_pages - size %lu p %p\n",
+               current->domain,
+               PAGE_SIZE << order,
+               pg);
+        WARN();
+    }
+#endif
+
     return pg;
 }
 
@@ -2757,6 +2779,17 @@ void free_domheap_pages(struct page_info *pg, unsigned int order)
     bool drop_dom_ref;
 
     ASSERT_ALLOC_CONTEXT();
+
+#ifdef CONFIG_MINERVA_ANALYSIS
+    if ( system_state >= SYS_STATE_active )
+    {
+        printk("DEBUG: %pd: free_domheap_pages - size %lu p %p\n",
+               current->domain,
+               PAGE_SIZE << order,
+               pg);
+        WARN();
+    }
+#endif
 
     if ( unlikely(is_xen_heap_page(pg)) )
     {

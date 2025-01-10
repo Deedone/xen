@@ -28,6 +28,9 @@
 #include <xen/pfn.h>
 #include <asm/time.h>
 #include <asm/page.h>
+#ifdef CONFIG_MINERVA_ANALYSIS
+#include <xen/sched.h>
+#endif
 
 #define MAX_POOL_NAME_LEN       16
 
@@ -559,6 +562,17 @@ static void *xmalloc_whole_pages(unsigned long size, unsigned long align)
     /* Check that there was no truncation: */
     ASSERT(PFN_ORDER(virt_to_page(res)) == PFN_UP(size));
 
+#ifdef CONFIG_MINERVA_ANALYSIS
+    if ( system_state >= SYS_STATE_active )
+    {
+        printk("DEBUG: %pd: xmalloc_whole_pages - size %lu p %p\n",
+                current->domain,
+                size,
+                res);
+        WARN();
+    }
+#endif
+
     return res;
 }
 
@@ -634,6 +648,18 @@ void *_xmalloc(unsigned long size, unsigned long align)
     p = add_padding(p, align);
 
     ASSERT(((unsigned long)p & (align - 1)) == 0);
+
+#ifdef CONFIG_MINERVA_ANALYSIS
+    if ( system_state >= SYS_STATE_active )
+    {
+        printk("DEBUG: %pd: xmem_pool_alloc - size %lu p %p\n",
+               current->domain,
+               size,
+               p);
+        WARN();
+    }
+#endif
+
     return p;
 }
 
@@ -715,6 +741,14 @@ void xfree(void *p)
 
     if ( p == NULL || p == ZERO_BLOCK_PTR )
         return;
+
+#ifdef CONFIG_MINERVA_ANALYSIS
+    if ( system_state >= SYS_STATE_active )
+    {
+        printk("DEBUG: %pd: xfree - p %p\n", current->domain, p);
+        WARN();
+    }
+#endif
 
     if ( !((unsigned long)p & (PAGE_SIZE - 1)) )
     {
