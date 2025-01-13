@@ -754,17 +754,6 @@ static int its_handle_mapd(struct virt_its *its, uint64_t *cmdptr)
     if ( ret && valid )
         return ret;
 
-    if ( is_hardware_domain(its->d) )
-        host_doorbell_address = its_get_host_doorbell(its, guest_devid);
-    else
-        host_doorbell_address = its->doorbell_address;
- 
-    ret = gicv3_its_map_guest_device(its->d, host_doorbell_address, host_devid,
-                                     its->doorbell_address, guest_devid,
-                                     BIT(size, UL), valid);
-    if ( ret && valid )
-        return ret;
-
     spin_lock(&its->its_lock);
 
     if ( valid )
