@@ -125,7 +125,13 @@ int vpci_msix_arch_enable_entry(struct vpci_msix_entry *entry,
 {
     int ret;
     uint64_t msi_base;
-    paddr_t phys_addr = vmsix_table_addr(pdev->vpci, VPCI_MSIX_TABLE);
+    // paddr_t phys_addr = vmsix_table_addr(pdev->vpci, VPCI_MSIX_TABLE);
+    paddr_t tb = pdev->vpci->header.bars[pdev->vpci->msix->tables[VPCI_MSIX_TABLE] &
+                             PCI_MSIX_BIRMASK].addr;
+
+    paddr_t phys_addr = tb +
+           (pdev->vpci->msix->tables[VPCI_MSIX_TABLE] & ~PCI_MSIX_BIRMASK);
+
     uint32_t entry_nr = vmsix_entry_nr(pdev->vpci->msix, entry);
     void __iomem *desc_addr = ioremap_nocache(phys_addr +
                                               entry_nr * PCI_MSIX_ENTRY_SIZE,
