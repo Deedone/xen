@@ -243,6 +243,7 @@ int iommu_do_dt_domctl(struct xen_domctl *domctl, struct domain *d,
  */
 int iommu_remove_dt_device(struct dt_device_node *np);
 
+/* Status code for reporting no IOMMU was found */
 #define NO_IOMMU    1
 
 #else /* !HAS_DEVICE_TREE */
