@@ -27,9 +27,7 @@
 #include <xen/errno.h>
 #include <public/domctl.h>
 #include <public/hvm/ioreq.h>
-#ifdef CONFIG_ACPI
-#include <asm/acpi.h>
-#endif
+#include <xen/acpi.h>
 #include <asm/device.h>
 
 TYPE_SAFE(uint64_t, dfn);
@@ -251,19 +249,25 @@ static inline int iommu_add_dt_pci_sideband_ids(struct pci_dev *pdev)
 {
     return -ENOSYS;
 }
+
 #endif /* HAS_DEVICE_TREE */
 
+#ifdef CONFIG_HAS_PCI
 static inline int iommu_add_pci_sideband_ids(struct pci_dev *pdev)
 {
     int ret = -ENOSYS;
 
-#ifdef CONFIG_ACPI
     if ( acpi_disabled )
-#endif
         ret = iommu_add_dt_pci_sideband_ids(pdev);
 
     return ret;
 }
+#else /* !HAS_PCI */
+static inline int iommu_add_pci_sideband_ids(struct pci_dev *pdev)
+{
+    return -ENOSYS;
+}
+#endif
 
 struct page_info;
 
