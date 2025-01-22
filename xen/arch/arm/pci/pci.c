@@ -87,7 +87,7 @@ static int __init pci_init(void)
 {
     /*
      * Enable PCI passthrough when has been enabled explicitly
-     * (pci-passthrough=on).
+     * (pci-passthrough=on) and iommu is enabled.
      */
     int ret;
 
