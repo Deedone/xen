@@ -1484,7 +1484,8 @@ static int arm_smmu_add_device(u8 devfn, struct device *dev)
 	{
 		struct pci_dev *pdev = dev_to_pci(dev);
 		int ret;
-
+				
+		/* Ignore calls for phantom functions */
 		if ( devfn != pdev->devfn )
 			return 0;
 
@@ -1562,9 +1563,12 @@ static int arm_smmu_add_device(u8 devfn, struct device *dev)
 		 * During PHYSDEVOP_pci_device_add, Xen does not assign the
 		 * device, so we must do it here.
 		 */
-		ret = arm_smmu_assign_dev(pdev->domain, devfn, dev, 0);
-		if (ret)
-			goto err_free_master;
+		if ( pdev->domain )
+		{
+			ret = arm_smmu_assign_dev(pdev->domain, devfn, dev, 0);
+			if (ret)
+				goto err_free_master;
+		}
 	}
 #endif
 
@@ -2665,10 +2669,7 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 	{
 		struct pci_dev *pdev = dev_to_pci(dev);
 
-		printk(XENLOG_INFO "Assigning device %04x:%02x:%02x.%u to dom%d\n",
-			pdev->seg, pdev->bus, PCI_SLOT(devfn),
-			PCI_FUNC(devfn), d->domain_id);
-
+		/* Ignore calls for phantom functions */
 		if ( devfn != pdev->devfn )
 			return 0;
 
@@ -2684,25 +2685,15 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 		list_add(&pdev->domain_list, &d->pdev_list);
 		write_unlock(&d->pci_lock);
 
-		if ( hardware_domain )
-		{
-			io_domain = arm_smmu_get_domain(hardware_domain, dev);
-
-			/*
-			 * Xen may not deassign the device from hwdom before
-			 * assigning it elsewhere.
-			 */
-			if ( io_domain )
-			{
-				ret = arm_smmu_deassign_dev(hardware_domain, devfn, dev);
-				if ( ret )
-					return ret;
-			}
-		}
-
 		/* dom_io is used as a sentinel for quarantined devices */
 		if ( d == dom_io )
+		{
+			struct arm_smmu_master *master = dev_iommu_priv_get(dev);
+			if ( master && master->domain )
+				arm_smmu_deassign_dev(master->domain->d, devfn, dev);
+
 			return 0;
+		}
 	}
 #endif
 
@@ -2756,10 +2747,7 @@ static int arm_smmu_deassign_dev(struct domain *d, uint8_t devfn, struct device 
 	{
 		struct pci_dev *pdev = dev_to_pci(dev);
 
-		printk(XENLOG_INFO "Deassigning device %04x:%02x:%02x.%u from dom%d\n",
-			pdev->seg, pdev->bus, PCI_SLOT(devfn),
-			PCI_FUNC(devfn), d->domain_id);
-
+		/* Ignore calls for phantom functions */
 		if ( devfn != pdev->devfn )
 			return 0;
 
@@ -2787,8 +2775,10 @@ static int arm_smmu_reassign_dev(struct domain *s, struct domain *t,
 {
 	int ret = 0;
 
-	/* Don't allow remapping on other domain than hwdom */
-	if ( t && !is_hardware_domain(t) && (t != dom_io) )
+	/* Don't allow remapping on other domain than hwdom
+	 * or dom_io for PCI devices
+	 */
+	if ( t && !is_hardware_domain(t) && (t != dom_io || !dev_is_pci(dev)) )
 		return -EPERM;
 
 	if (t == s)
