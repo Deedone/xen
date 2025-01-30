@@ -103,8 +103,12 @@ void vpci_msix_arch_mask_entry(struct vpci_msix_entry *entry,
                                const struct pci_dev *pdev, bool mask)
 {
     uint32_t mask_bits;
-    paddr_t phys_addr = vmsix_table_addr(pdev->vpci, VPCI_MSIX_TABLE);
+    //paddr_t phys_addr = vmsix_table_addr(pdev->vpci, VPCI_MSIX_TABLE);
     uint32_t entry_nr = vmsix_entry_nr(pdev->vpci->msix, entry);
+    paddr_t tb = pdev->vpci->header.bars[pdev->vpci->msix->tables[VPCI_MSIX_TABLE] &
+                             PCI_MSIX_BIRMASK].addr;
+    paddr_t phys_addr = tb +
+           (pdev->vpci->msix->tables[VPCI_MSIX_TABLE] & ~PCI_MSIX_BIRMASK);
     void __iomem *desc_addr = ioremap_nocache(phys_addr +
                                               entry_nr * PCI_MSIX_ENTRY_SIZE,
                                               PCI_MSIX_ENTRY_SIZE);
