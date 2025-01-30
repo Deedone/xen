@@ -745,7 +745,7 @@ int arch_domain_create(struct domain *d,
         BUG();
     }
 
-    if ( config->arch.pci_flags & XEN_DOMCTL_CONFIG_PCI_VPCI )
+    if ( config->arch.pci_flags & XEN_DOMCTL_CONFIG_PCI_VPCI && is_pci_passthrough_enabled(false) )
         d->arch.has_vpci = true;
 
     if ( (rc = domain_vgic_register(d, &count)) != 0 )
