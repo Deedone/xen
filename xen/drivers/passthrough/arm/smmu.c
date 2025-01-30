@@ -754,16 +754,6 @@ static void parse_driver_options(struct arm_smmu_device *smmu)
 
 static struct device_node *dev_get_dev_node(struct device *dev)
 {
-#if 0 /* Xen: TODO: Add support for PCI */
-	if (dev_is_pci(dev)) {
-		struct pci_bus *bus = to_pci_dev(dev)->bus;
-
-		while (!pci_is_root_bus(bus))
-			bus = bus->parent;
-		return bus->bridge->parent->of_node;
-	}
-#endif
-
 	return dev->of_node;
 }
 
@@ -851,8 +841,7 @@ static int arm_smmu_dt_add_device_legacy(struct arm_smmu_device *smmu,
 	master = find_smmu_master(smmu, dev);
 	if (master) {
 		dev_err(dev,
-			"rejecting multiple registrations for master device %s\n",
-			dev_node ? dev_node->name : "");
+			"rejecting multiple registrations for master device\n");
 		return -EBUSY;
 	}
 
@@ -863,12 +852,6 @@ static int arm_smmu_dt_add_device_legacy(struct arm_smmu_device *smmu,
 
 	if ( !dev_is_pci(dev) )
 	{
-		if ( dt_device_is_protected(dev_node) )
-		{
-			dev_err(dev, "Already added to SMMU\n");
-			return -EEXIST;
-		}
-
 		/* Xen: Let Xen know that the device is protected by an SMMU */
 		dt_device_set_protected(dev_node);
 	}
@@ -877,8 +860,8 @@ static int arm_smmu_dt_add_device_legacy(struct arm_smmu_device *smmu,
 		if (!(smmu->features & ARM_SMMU_FEAT_STREAM_MATCH) &&
 		     (fwspec->ids[i] >= smmu->num_mapping_groups)) {
 			dev_err(dev,
-				"stream ID for master device %s greater than maximum allowed (%d)\n",
-				dev_node ? dev_node->name : "", smmu->num_mapping_groups);
+				"SMMU stream ID %d is greater than maximum allowed (%d)\n",
+				fwspec->ids[i], smmu->num_mapping_groups);
 			return -ERANGE;
 		}
 		master->cfg.smendx[i] = INVALID_SMENDX;
@@ -974,6 +957,7 @@ static int arm_smmu_dt_add_device_generic(u8 devfn, struct device *dev)
 		struct pci_dev *pdev = dev_to_pci(dev);
 		int ret;
 
+		/* Ignore calls for phantom functions */
 		if ( devfn != pdev->devfn )
 			return 0;
 
@@ -1004,7 +988,8 @@ static int arm_smmu_dt_add_device_generic(u8 devfn, struct device *dev)
 		 * During PHYSDEVOP_pci_device_add, Xen does not assign the
 		 * device, so we must do it here.
 		 */
-		ret = arm_smmu_assign_dev(pdev->domain, devfn, dev, 0);
+		if ( pdev->domain )
+			ret = arm_smmu_assign_dev(pdev->domain, devfn, dev, 0);
 	}
 #endif
 
@@ -2854,10 +2839,7 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 	{
 		struct pci_dev *pdev = dev_to_pci(dev);
 
-		printk(XENLOG_INFO "Assigning device %04x:%02x:%02x.%u to dom%d\n",
-		       pdev->seg, pdev->bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
-		       d->domain_id);
-
+		/* Ignore calls for phantom functions */
 		if ( devfn != pdev->devfn )
 			return 0;
 
@@ -2873,25 +2855,15 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 		list_add(&pdev->domain_list, &d->pdev_list);
 		write_unlock(&d->pci_lock);
 
-		if ( hardware_domain )
-		{
-			domain = dev_iommu_domain(dev);
-
-			/*
-			 * Xen may not deassign the device from hwdom before
-			 * assigning it elsewhere.
-			 */
-			if ( domain && is_hardware_domain(domain->priv->cfg.domain) )
-			{
-				ret = arm_smmu_deassign_dev(hardware_domain, devfn, dev);
-				if ( ret )
-					return ret;
-			}
-		}
-
 		/* dom_io is used as a sentinel for quarantined devices */
 		if ( d == dom_io )
+		{
+			struct iommu_domain *domain = dev_iommu_domain(dev);
+			if ( domain && domain->priv )
+				arm_smmu_deassign_dev(domain->priv->cfg.domain, devfn, dev);
+
 			return 0;
+		}
 	}
 #endif
 
@@ -2955,10 +2927,7 @@ static int arm_smmu_deassign_dev(struct domain *d, uint8_t devfn,
 	{
 		struct pci_dev *pdev = dev_to_pci(dev);
 
-		printk(XENLOG_INFO "Deassigning device %04x:%02x:%02x.%u from dom%d\n",
-		       pdev->seg, pdev->bus, PCI_SLOT(devfn), PCI_FUNC(devfn),
-		       d->domain_id);
-
+		/* Ignore calls for phantom functions */
 		if ( devfn != pdev->devfn )
 			return 0;
 
@@ -2994,8 +2963,10 @@ static int arm_smmu_reassign_dev(struct domain *s, struct domain *t,
 {
 	int ret = 0;
 
-	/* Don't allow remapping on other domain than hwdom */
-	if ( t && !is_hardware_domain(t) && t != dom_io )
+	/* Don't allow remapping on other domain than hwdom
+	 * or dom_io for PCI devices
+	 */
+	if ( t && !is_hardware_domain(t) && (t != dom_io || !dev_is_pci(dev)) )
 		return -EPERM;
 
 	if (t == s)
