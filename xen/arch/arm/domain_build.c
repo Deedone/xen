@@ -1357,20 +1357,23 @@ static int __init make_gic_node(const struct domain *d, void *fdt,
             return res;
     }
 
-    addrcells = dt_get_property(gic, "#address-cells", &addrcells_len);
-    if ( addrcells )
+    if ( !has_vpci_bridge(d) )
     {
-        res = fdt_property(fdt, "#address-cells", addrcells, addrcells_len);
-        if ( res )
-            return res;
-    }
+        addrcells = dt_get_property(gic, "#address-cells", &addrcells_len);
+        if ( addrcells )
+        {
+            res = fdt_property(fdt, "#address-cells", addrcells, addrcells_len);
+            if ( res )
+                return res;
+        }
 
-    sizecells = dt_get_property(gic, "#size-cells", &sizecells_len);
-    if ( sizecells )
-    {
-        res = fdt_property(fdt, "#size-cells", sizecells, sizecells_len);
-        if ( res )
-            return res;
+        sizecells = dt_get_property(gic, "#size-cells", &sizecells_len);
+        if ( sizecells )
+        {
+            res = fdt_property(fdt, "#size-cells", sizecells, sizecells_len);
+            if ( res )
+                return res;
+        }
     }
 
     res = fdt_property_cell(fdt, "#interrupt-cells", 3);
