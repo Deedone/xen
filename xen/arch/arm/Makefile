@@ -72,8 +72,8 @@ obj-$(CONFIG_SBSA_VUART_CONSOLE) += vpl011.o
 obj-y += vsmc.o
 obj-y += vpsci.o
 obj-$(CONFIG_HWDOM_VUART) += vuart.o
-obj-y += vmsi.o
-obj-y += msix.o
+obj-$(CONFIG_HAS_VPCI) += vmsi.o
+obj-$(CONFIG_HAS_VPCI) += msix.o
 
 extra-y += xen.lds
 

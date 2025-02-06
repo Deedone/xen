@@ -1,6 +1,7 @@
 #ifndef _XEN_VPCI_H_
 #define _XEN_VPCI_H_
 
+#include <asm/pci.h>
 #ifdef CONFIG_HAS_VPCI
 
 #include <xen/pci.h>
