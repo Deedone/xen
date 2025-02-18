@@ -345,11 +345,11 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only,
 
 void vpci_msix_arch_register(struct vpci_msix *msix, struct domain *d);
 
-bool vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
-                     unsigned int len, unsigned long data);
+bool cf_check vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
+                              unsigned int len, unsigned long data);
 
-bool vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
-                    unsigned int len, unsigned long *data);
+bool cf_check vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
+                             unsigned int len, unsigned long *data);
 
 #endif /* __XEN__ */
 
