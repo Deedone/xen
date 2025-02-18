@@ -317,11 +317,11 @@ int vpci_add_caps(struct pci_dev *pdev, bool *mask_cap_list);
 
 void vpci_msix_arch_register(struct vpci_msix *msix, struct domain *d);
 
-bool vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
-                     unsigned int len, unsigned long data);
+bool cf_check vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
+                              unsigned int len, unsigned long data);
 
-bool vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
-                    unsigned int len, unsigned long *data);
+bool cf_check vpci_msix_read(struct vpci_msix *msix, unsigned long addr,
+                             unsigned int len, unsigned long *data);
 
 #endif /* __XEN__ */
 
