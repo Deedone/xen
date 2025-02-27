@@ -57,9 +57,8 @@ static int assign_virtual_sbdf(struct pci_dev *pdev)
      */
     if ( pdev->sbdf.fn )
     {
-        gdprintk(XENLOG_ERR, "%pp: only function 0 passthrough supported\n",
+        gdprintk(XENLOG_ERR, "%pp: functions passed through as devices\n",
                  &pdev->sbdf);
-        return -EOPNOTSUPP;
     }
     new_dev_number = find_first_zero_bit(d->vpci_dev_assigned_map,
                                          VPCI_MAX_VIRT_DEV);
