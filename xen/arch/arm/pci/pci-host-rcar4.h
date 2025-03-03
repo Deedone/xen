@@ -1,0 +1,12 @@
+#include <asm/pci.h>
+
+
+// void rcar4_pcie_osid_bdf_set(struct pci_host_bridge *bridge, unsigned int reg_id,
+//                          uint32_t osid, uint32_t bdf);
+// void rcar4_pcie_osid_bdf_clear(struct pci_host_bridge *bridge,
+//                            unsigned int reg_id);
+// void rcar4_pcie_bdf_msk_set(struct pci_host_bridge *bridge, unsigned int reg_id,
+//                         uint32_t data);
+// int rcar4_pcie_osid_reg_alloc(struct pci_host_bridge *bridge);
+// void rcar4_pcie_osid_reg_free(struct pci_host_bridge *bridge, unsigned int reg_id);
+int rcar4_pcie_osid_regs_init(struct pci_host_bridge *bridge);

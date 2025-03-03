@@ -24,6 +24,8 @@
 #include <asm/io.h>
 #include <asm/pci.h>
 
+#include "pci-host-rcar4.h"
+
 #define RCAR4_DWC_VERSION       0x520A
 
 struct rcar4_priv
@@ -453,6 +455,15 @@ bool __init rcar4_child_need_p2m_hwdom_mapping(struct domain *d,
      * so we can trap access to it.
      */
     return cfg->phys_addr != addr;
+}
+
+int rcar4_pcie_osid_regs_init(struct pci_host_bridge *bridge)
+{
+    void __iomem *addr = bridge->cfg->win;
+
+    printk("rcar4_pcie_osid_regs_init called\n");
+    printk("Addr %p\n", addr);
+    return 0;
 }
 
 const struct pci_ecam_ops rcar4_pcie_child_ops = {

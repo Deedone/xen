@@ -51,6 +51,7 @@
 #include <asm/device.h>
 #include <asm/io.h>
 #include <asm/iommu_fwspec.h>
+#include "../../xen/arch/arm/pci/pci-host-rcar4.h"
 
 extern int ipmmu_preinit(struct dt_device_node *np);
 extern bool ipmmu_is_mmu_tlb_disable_needed(struct dt_device_node *np);
@@ -1518,6 +1519,7 @@ static int ipmmu_add_device(u8 devfn, struct device *dev)
         struct pci_dev *pdev = dev_to_pci(dev);
         struct gen4_pci_ipmmu_info *info;
         unsigned int reg_id, osid;
+        struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
         int ret;
 
         info = get_gen4_pci_ipmmu_info(pdev);
@@ -1529,6 +1531,7 @@ static int ipmmu_add_device(u8 devfn, struct device *dev)
             return -EINVAL;
 
         osid_regs_init(info);
+        rcar4_pcie_osid_regs_init(bridge);
 
         ret = osid_reg_alloc(info);
         if ( ret < 0 )
