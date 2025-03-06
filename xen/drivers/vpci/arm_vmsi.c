@@ -93,8 +93,14 @@ void vpci_msi_arch_mask(struct vpci_msi *msi, const struct pci_dev *pdev,
 {
     unsigned int pos = pci_find_cap_offset(pdev->sbdf, PCI_CAP_ID_MSI);
 
-    pci_conf_write32(pdev->sbdf, msi->mask,
-                     msi_mask_bits_reg(pos,pdev->vpci->msi->address64));
+    if ( mask )
+        msi->mask |= 1U << entry;
+    else
+        msi->mask &= ~(1U << entry);
+
+    pci_conf_write32(pdev->sbdf,
+                     msi_mask_bits_reg(pos, pdev->vpci->msi->address64),
+                     msi->mask);
 }
 
 int vpci_msix_arch_disable_entry(struct vpci_msix_entry *entry,
