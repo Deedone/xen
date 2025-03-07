@@ -36,22 +36,54 @@ int vpci_msix_arch_print(const struct vpci_msix *msix)
 
 static int vpci_get_msi_base(const struct pci_dev *pdev, uint64_t *msi_base)
 {
-    if ( domain_use_host_layout(pdev->domain) )
+    /*
+     * scenarios/cases:
+     * have msi-map property or not: if ( bridge->its_msi_base )
+     * vgicv3 vITS exposed or not: pdev->domain->arch.vgic.version == GIC_V3 or GIC_V2, or maybe another ITS check of sorts
+     * domain_use_host_layout(pdev->domain) or not
+     * domU, translated: we are possibly aggregating MSIs from multiple bridges
+     * domU, direct-map
+     *
+     * on ZCU102:
+     * its_msi_base may or may not be set
+     * GICv2/no ITS
+     *
+     * A reasonable stance might be to say
+     * if ( has_vpci_bridge(pdev->domain) || !bridge->its_msi_base )
+     *     do special override stuff;
+     * else
+     *     use guest-configured address;
+     */
+    struct pci_host_bridge *bridge;
+
+    bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
+    if ( unlikely(!bridge) )
     {
-        struct pci_host_bridge *bridge;
-
-        bridge = pci_find_host_bridge(pdev->seg, pdev->bus);
-        if ( unlikely(!bridge) )
-        {
-            gprintk(XENLOG_ERR, "Unable to find PCI bridge for %pp\n",
-                    &pdev->sbdf);
-            return -ENODEV;
-        }
-
-        *msi_base = bridge->its_msi_base + ITS_DOORBELL_OFFSET;
+        gprintk(XENLOG_ERR, "Unable to find PCI bridge for %pp\n",
+                &pdev->sbdf);
+        return -ENODEV;
     }
-    else
+
+    /*
+     * why wouldn't we just trust the guest to write the correct MSI address?
+     * after all, we expose the doorbell address in msi-map in the vITS node.
+     *
+     * should this function live in xen/arch/arm/pci/pci-host-*.c ? nah, probably not...
+     */
+    if ( bridge->its_msi_base && domain_use_host_layout(pdev->domain) /* hardware ITSes exposed? */)
+        /*
+         * TODO: unhandled corner case: direct map domU only has the first hardware ITS exposed
+         */
+        *msi_base = bridge->its_msi_base + ITS_DOORBELL_OFFSET;
+    else if ( has_vpci_bridge(pdev->domain) && pdev->domain->arch.vgic.version == GIC_V3 && !domain_use_host_layout(pdev->domain) /* vITS exposed? */)
         *msi_base = GUEST_GICV3_ITS_BASE + ITS_DOORBELL_OFFSET;
+    else
+    {
+        *msi_base = pdev->vpci->msi->address;
+        printk("%s:%d:%s %pd %pp using guest-configured MSI address %#lx\n",
+               __FILE__, __LINE__, __func__,
+               pdev->domain, &pdev->sbdf, *msi_base);
+    }
 
     return 0;
 }
