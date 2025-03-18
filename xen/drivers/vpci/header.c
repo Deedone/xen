@@ -950,6 +950,8 @@ int vpci_init_header(struct pci_dev *pdev)
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
+    if ( pdev->info.is_virtfn )
+        return 0;
 
     type = pci_conf_read8(pdev->sbdf, PCI_HEADER_TYPE) & 0x7f;
     switch ( type )
