@@ -116,6 +116,7 @@ void vpci_deassign_device(struct pci_dev *pdev)
                 iounmap(pdev->vpci->msix->table[i]);
     }
 
+    xfree(pdev->vpci->sriov);
     xfree(pdev->vpci->msix);
     xfree(pdev->vpci->msi);
     xfree(pdev->vpci);
