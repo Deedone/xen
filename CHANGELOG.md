@@ -56,8 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
  - On x86:
    - Option to attempt to fixup p2m page-faults on PVH dom0.
    - Resizable BARs is supported for PVH dom0.
-   - Support PCI passthrough for HVM domUs when dom0 is PVH (note SR-IOV
-     capability usage is not yet supported on PVH dom0).
+   - Support PCI passthrough for HVM domUs when dom0 is PVH.
    - Smoke tests for the FreeBSD Xen builds in Cirrus CI.
    - PVH xenstore-stubdom now supports Live Update.
    - Support in hvmloader for new SMBIOS tables: 7 (Cache Info), 8 (Port

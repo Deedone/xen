@@ -356,6 +356,7 @@ void vpci_deassign_device(struct pci_dev *pdev)
     }
     spin_unlock(&pdev->vpci->lock);
 
+    xfree(pdev->vpci->sriov);
     xfree(pdev->vpci);
     pdev->vpci = NULL;
 }
