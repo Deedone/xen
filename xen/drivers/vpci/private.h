@@ -45,6 +45,7 @@ typedef struct {
     REGISTER_VPCI_CAPABILITY(PCI_EXT_CAP_ID_##name, name, finit, fclean, true)
 
 int __must_check vpci_init_header(struct pci_dev *pdev);
+int __must_check vpci_vf_init_header(struct pci_dev *pdev);
 
 int vpci_init_capabilities(struct pci_dev *pdev, bool ext_only);
 void vpci_cleanup_capabilities(struct pci_dev *pdev, bool ext_only);

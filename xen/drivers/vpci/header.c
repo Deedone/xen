@@ -637,7 +637,8 @@ static void cf_check cmd_write(
     /*
      * Let Dom0 play with all the bits directly except for the memory
      * decoding one. Bits that are not allowed for DomU are already
-     * handled above and by the rsvdp_mask.
+     * handled above and by the rsvdp_mask. Ignore memory decoding writes for
+     * VFs, as it is handled by SRIOV_CTRL.MSE bit.
      */
     if ( header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) )
         /*
@@ -899,6 +900,9 @@ int vpci_init_header(struct pci_dev *pdev)
                  PCI_COMMAND_IO);
 
     header->guest_cmd = cmd;
+
+    if ( pdev->info.is_virtfn )
+        return vpci_vf_init_header(pdev);
 
     /* Disable memory decoding before sizing. */
     if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
