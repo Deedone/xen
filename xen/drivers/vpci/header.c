@@ -869,7 +869,8 @@ int vpci_init_header(struct pci_dev *pdev)
      * PCI_COMMAND_PARITY, PCI_COMMAND_SERR, and PCI_COMMAND_FAST_BACK.
      */
     rc = vpci_add_register_mask(pdev->vpci,
-                                is_hwdom ? vpci_hw_read16 : guest_cmd_read,
+                                is_hwdom && !pdev->info.is_virtfn 
+                                ? vpci_hw_read16 : guest_cmd_read,
                                 cmd_write, PCI_COMMAND, 2, header, 0, 0,
                                 is_hwdom ? 0
                                          : PCI_COMMAND_RSVDP_MASK |
@@ -899,6 +900,9 @@ int vpci_init_header(struct pci_dev *pdev)
                  PCI_COMMAND_IO);
 
     header->guest_cmd = cmd;
+
+    if ( pdev->info.is_virtfn )
+        return vpci_vf_init_header(pdev);
 
     /* Disable memory decoding before sizing. */
     if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
