@@ -264,7 +264,7 @@ bool vpci_process_pending(struct vcpu *v)
     return false;
 }
 
-static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
+static int apply_map(struct domain *d, const struct pci_dev *pdev,
                             uint16_t cmd)
 {
     struct vpci_header *header = &pdev->vpci->header;
@@ -323,7 +323,8 @@ static void defer_map(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
     raise_softirq(SCHEDULE_SOFTIRQ);
 }
 
-int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
+int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only,
+                     bool no_defer)
 {
     struct vpci_header *header = &pdev->vpci->header;
     struct pci_dev *tmp;
@@ -519,7 +520,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
         d = dom_xen;
     }
 
-    if ( system_state < SYS_STATE_active )
+    if ( system_state < SYS_STATE_active || no_defer )
     {
         /*
          * Mappings might be created when building Dom0 if the memory decoding
@@ -566,7 +567,7 @@ static void cf_check cmd_write(
          * memory decoding bit has not been changed, so leave everything as-is,
          * hoping the guest will realize and try again.
          */
-        vpci_modify_bars(pdev, cmd, false);
+        vpci_modify_bars(pdev, cmd, false, false);
     else
         pci_conf_write16(pdev->sbdf, reg, cmd);
 }
@@ -736,7 +737,7 @@ static void cf_check rom_write(
      */
     else if ( vpci_modify_bars(pdev,
                                new_enabled ? PCI_COMMAND_MEMORY : 0,
-                               true) )
+                               true, false) )
         /*
          * No memory has been added or removed from the p2m (because the actual
          * p2m changes are deferred in defer_map) and the ROM enable bit has
@@ -954,6 +955,9 @@ int vpci_init_header(struct pci_dev *pdev)
 
     header->guest_cmd = cmd;
 
+    if ( pdev->info.is_virtfn )
+        return vf_init_header(pdev);
+
     /* Disable memory decoding before sizing. */
     if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
         pci_conf_write16(pdev->sbdf, PCI_COMMAND, cmd & ~PCI_COMMAND_MEMORY);
@@ -1062,7 +1066,8 @@ int vpci_init_header(struct pci_dev *pdev)
             goto fail;
     }
 
-    return (cmd & PCI_COMMAND_MEMORY) ? vpci_modify_bars(pdev, cmd, false) : 0;
+    return (cmd & PCI_COMMAND_MEMORY)
+                ? vpci_modify_bars(pdev, cmd, false, false) : 0;
 
  fail:
     pci_conf_write16(pdev->sbdf, PCI_COMMAND, cmd);

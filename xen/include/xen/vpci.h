@@ -45,6 +45,7 @@ typedef struct {
     REGISTER_VPCI_CAPABILITY(PCI_EXT_CAP_ID_##name, name, finit, fclean, true)
 
 int __must_check vpci_init_header(struct pci_dev *pdev);
+int __must_check vf_init_header(struct pci_dev *pdev);
 
 /* Assign vPCI to device by adding handlers. */
 int __must_check vpci_assign_device(struct pci_dev *pdev);
@@ -146,7 +147,6 @@ struct vpci {
          * upon to know whether BARs are mapped into the guest p2m.
          */
         bool bars_mapped      : 1;
-        /* FIXME: currently there's no support for SR-IOV. */
     } header;
 
     /* MSI data. */
@@ -200,6 +200,13 @@ struct vpci {
             struct vpci_arch_msix_entry arch;
         } entries[];
     } *msix;
+
+    struct vpci_sriov {
+        /* PF only */
+        struct vpci_bar vf_bars[PCI_SRIOV_NUM_BARS];
+        uint16_t num_vfs;
+    } *sriov;
+
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
     /* Guest SBDF of the device. */
 #define INVALID_GUEST_SBDF ((pci_sbdf_t){ .sbdf = ~0U })
@@ -323,7 +330,8 @@ bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
                     unsigned long *data);
 
 /* Map/unmap the BARs of a vPCI device. */
-int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only);
+int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only,
+                     bool no_defer);
 
 #endif /* __XEN__ */
 
