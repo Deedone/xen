@@ -796,6 +796,9 @@ static int cf_check init_header(struct pci_dev *pdev)
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
+    if ( pdev->info.is_virtfn )
+        return 0;
+
     switch ( pci_conf_read8(pdev->sbdf, PCI_HEADER_TYPE) & 0x7f )
     {
     case PCI_HEADER_TYPE_NORMAL:

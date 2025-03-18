@@ -130,7 +130,6 @@ struct vpci {
          * upon to know whether BARs are mapped into the guest p2m.
          */
         bool bars_mapped      : 1;
-        /* FIXME: currently there's no support for SR-IOV. */
     } header;
 
     /* MSI data. */
@@ -184,6 +183,12 @@ struct vpci {
             struct vpci_arch_msix_entry arch;
         } entries[];
     } *msix;
+
+    struct vpci_sriov {
+        /* PF only */
+        struct vpci_bar vf_bars[PCI_SRIOV_NUM_BARS];
+    } *sriov;
+
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
     /* Guest SBDF of the device. */
 #define INVALID_GUEST_SBDF ((pci_sbdf_t){ .sbdf = ~0U })
