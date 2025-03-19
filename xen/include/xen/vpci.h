@@ -284,6 +284,9 @@ bool vpci_ecam_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
                     unsigned long *data);
 
+int vpci_bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
+                          unsigned int i);
+
 #endif /* __XEN__ */
 
 #else /* !CONFIG_HAS_VPCI */
