@@ -650,9 +650,9 @@ static void cf_check bar_write(
         vpci_modify_bars(pdev, cmd, false);
 }
 
-static void cf_check guest_mem_bar_write(const struct pci_dev *pdev,
-                                         unsigned int reg, uint32_t val,
-                                         void *data)
+void cf_check vpci_guest_mem_bar_write(const struct pci_dev *pdev,
+                                       unsigned int reg, uint32_t val,
+                                       void *data)
 {
     struct vpci_bar *bar = data;
     bool hi = false;
@@ -692,8 +692,8 @@ static void cf_check guest_mem_bar_write(const struct pci_dev *pdev,
     bar->guest_addr = guest_addr;
 }
 
-static uint32_t cf_check guest_mem_bar_read(const struct pci_dev *pdev,
-                                            unsigned int reg, void *data)
+uint32_t cf_check vpci_guest_mem_bar_read(const struct pci_dev *pdev,
+                                          unsigned int reg, void *data)
 {
     const struct vpci_bar *bar = data;
     uint32_t reg_val;
@@ -940,8 +940,9 @@ static int cf_check init_header(struct pci_dev *pdev)
             bars[i].type = VPCI_BAR_MEM64_HI;
             rc = vpci_add_register(pdev->vpci,
                                    is_hwdom ? vpci_hw_read32
-                                            : guest_mem_bar_read,
-                                   is_hwdom ? bar_write : guest_mem_bar_write,
+                                            : vpci_guest_mem_bar_read,
+                                   is_hwdom ? bar_write
+                                            : vpci_guest_mem_bar_write,
                                    reg, 4, &bars[i]);
             if ( rc )
                 goto fail;
@@ -999,8 +1000,9 @@ static int cf_check init_header(struct pci_dev *pdev)
         bars[i].prefetchable = val & PCI_BASE_ADDRESS_MEM_PREFETCH;
 
         rc = vpci_add_register(pdev->vpci,
-                               is_hwdom ? vpci_hw_read32 : guest_mem_bar_read,
-                               is_hwdom ? bar_write : guest_mem_bar_write,
+                               is_hwdom ? vpci_hw_read32
+                                        : vpci_guest_mem_bar_read,
+                               is_hwdom ? bar_write : vpci_guest_mem_bar_write,
                                reg, 4, &bars[i]);
         if ( rc )
             goto fail;
