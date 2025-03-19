@@ -614,7 +614,7 @@ static void cf_check bar_write(
              * BAR writes (but still only allow it for 32-bit BAR writes).
              */
             /* TODO: don't disable memory decoding */
-            modify_bars(pdev, cmd & ~PCI_COMMAND_MEMORY, false);
+            vpci_modify_bars(pdev, cmd & ~PCI_COMMAND_MEMORY, false);
             /* Call process pending here to ensure P2M operations are done */
             while ( process_pending(current, false) )
             {
@@ -647,7 +647,7 @@ static void cf_check bar_write(
 
     if ( reenable )
         /* Write-while-mapped: map the new BAR in p2m. OK to defer. */
-        modify_bars(pdev, cmd, false);
+        vpci_modify_bars(pdev, cmd, false);
 }
 
 static void cf_check guest_mem_bar_write(const struct pci_dev *pdev,
