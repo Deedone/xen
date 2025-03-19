@@ -362,8 +362,8 @@ static void defer_map(struct vpci_map_task *task)
     raise_softirq(SCHEDULE_SOFTIRQ);
 }
 
-static int modify_bars(const struct pci_dev *pdev, uint16_t cmd,
-                       enum vpci_map_op map_op, bool rom_only)
+int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd,
+                     enum vpci_map_op map_op, bool rom_only)
 {
     struct vpci_header *header = &pdev->vpci->header;
     struct pci_dev *tmp;
@@ -616,8 +616,9 @@ static void cf_check cmd_write(
          * memory decoding bit has not been changed, so leave everything as-is,
          * hoping the guest will realize and try again.
          */
-        modify_bars(pdev, cmd, cmd & PCI_COMMAND_MEMORY ? VPCI_MAP : VPCI_UNMAP,
-                    false);
+        vpci_modify_bars(pdev, cmd,
+                         cmd & PCI_COMMAND_MEMORY ? VPCI_MAP : VPCI_UNMAP,
+                         false);
     else
         pci_conf_write16(pdev->sbdf, reg, cmd);
 }
@@ -658,8 +659,8 @@ static void cf_check bar_write(
             if ( val == bar->addr )
                 return;
 
-            modify_bars(pdev, pci_conf_read16(pdev->sbdf, PCI_COMMAND),
-                        VPCI_UNMAP, false);
+            vpci_modify_bars(pdev, pci_conf_read16(pdev->sbdf, PCI_COMMAND),
+                             VPCI_UNMAP, false);
             /* TODO: check return value */
         }
         else
@@ -693,8 +694,8 @@ static void cf_check bar_write(
     pci_conf_write32(pdev->sbdf, reg, val);
 
     if ( bar->enabled )
-        modify_bars(pdev, pci_conf_read16(pdev->sbdf, PCI_COMMAND), VPCI_MAP,
-                    false);
+        vpci_modify_bars(pdev, pci_conf_read16(pdev->sbdf, PCI_COMMAND),
+                         VPCI_MAP, false);
         /* TODO: check return value */
 }
 
@@ -801,14 +802,14 @@ static void cf_check rom_write(
      * Pass PCI_COMMAND_MEMORY or 0 to signal a map/unmap request, note that
      * this fabricated command is never going to be written to the register.
      */
-    else if ( modify_bars(pdev, new_enabled ? PCI_COMMAND_MEMORY : 0,
-                          new_enabled ? VPCI_MAP : VPCI_UNMAP, true) )
+    else if ( vpci_modify_bars(pdev, new_enabled ? PCI_COMMAND_MEMORY : 0,
+                               new_enabled ? VPCI_MAP : VPCI_UNMAP, true) )
         /*
          * No memory has been added or removed from the p2m (because the actual
          * p2m changes are deferred in defer_map) and the ROM enable bit has
          * not been changed, so leave everything as-is, hoping the guest will
          * realize and try again. It's important to not update rom->addr in the
-         * unmap case if modify_bars has failed, or future attempts would
+         * unmap case if vpci_modify_bars has failed, or future attempts would
          * attempt to unmap the wrong address.
          */
         return;
@@ -999,8 +1000,8 @@ static int cf_check init_header(struct pci_dev *pdev)
     /*
      * For DomUs, clear PCI_COMMAND_{MASTER,MEMORY,IO} and other
      * DomU-controllable bits in PCI_COMMAND. Devices assigned to DomUs will
-     * start with memory decoding disabled, and modify_bars() will not be called
-     * at the end of this function.
+     * start with memory decoding disabled, and vpci_modify_bars() will not be
+     * called at the end of this function.
      */
     if ( !is_hwdom )
         cmd &= ~(PCI_COMMAND_VGA_PALETTE | PCI_COMMAND_INVALIDATE |
@@ -1116,7 +1117,7 @@ static int cf_check init_header(struct pci_dev *pdev)
     }
 
     return (cmd & PCI_COMMAND_MEMORY)
-           ? modify_bars(pdev, cmd, VPCI_MAP, false)
+           ? vpci_modify_bars(pdev, cmd, VPCI_MAP, false)
            : 0;
 
  fail:
