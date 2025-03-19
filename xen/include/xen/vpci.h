@@ -69,6 +69,12 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
 uint32_t cf_check vpci_read_val(
     const struct pci_dev *pdev, unsigned int reg, void *data);
 
+void cf_check vpci_guest_mem_bar_write(const struct pci_dev *pdev,
+                                       unsigned int reg, uint32_t val,
+                                       void *data);
+uint32_t cf_check vpci_guest_mem_bar_read(const struct pci_dev *pdev,
+                                          unsigned int reg, void *data);
+
 /* Passthrough handlers. */
 uint32_t cf_check vpci_hw_read8(
     const struct pci_dev *pdev, unsigned int reg, void *data);
