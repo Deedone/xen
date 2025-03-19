@@ -780,8 +780,8 @@ static void cf_check rom_write(
     }
 }
 
-static int bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
-                            unsigned int i)
+int vpci_bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
+                          unsigned int i)
 {
     char str[32];
 
@@ -996,7 +996,7 @@ static int cf_check init_header(struct pci_dev *pdev)
         else
             bars[i].type = VPCI_BAR_MEM32;
 
-        rc = bar_add_rangeset(pdev, &bars[i], i);
+        rc = vpci_bar_add_rangeset(pdev, &bars[i], i);
         if ( rc )
             goto fail;
 
@@ -1054,7 +1054,7 @@ static int cf_check init_header(struct pci_dev *pdev)
             rom->type = VPCI_BAR_EMPTY;
         else
         {
-            rc = bar_add_rangeset(pdev, rom, num_bars);
+            rc = vpci_bar_add_rangeset(pdev, rom, num_bars);
             if ( rc )
                 goto fail;
         }
