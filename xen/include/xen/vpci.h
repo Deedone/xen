@@ -287,6 +287,9 @@ bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 int vpci_bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
                           unsigned int i);
 
+/* Map/unmap the BARs of a vPCI device. */
+int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only);
+
 #endif /* __XEN__ */
 
 #else /* !CONFIG_HAS_VPCI */
