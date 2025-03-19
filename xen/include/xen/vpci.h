@@ -313,6 +313,10 @@ bool vpci_ecam_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
                     unsigned long *data);
 
+/* Map/unmap the BARs of a vPCI device. */
+int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd,
+                     enum vpci_map_op map_op, bool rom_only);
+
 #endif /* __XEN__ */
 
 #else /* !CONFIG_HAS_VPCI */
