@@ -141,6 +141,12 @@ static inline size_t vmsix_table_size(const struct vpci *vpci, unsigned int nr)
 /* Map/unmap the BARs of a vPCI device. */
 int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only);
 
+void cf_check vpci_guest_mem_bar_write(const struct pci_dev *pdev,
+                                       unsigned int reg, uint32_t val,
+                                       void *data);
+
+uint32_t cf_check vpci_guest_mem_bar_read(const struct pci_dev *pdev,
+                                          unsigned int reg, void *data);
 #endif /* __XEN__ */
 
 #endif /* VPCI_PRIVATE_H */
