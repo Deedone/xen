@@ -998,73 +998,6 @@ static int make_vpci_node_common(libxl__gc *gc, void *fdt,
 #define PCI_IRQ_MAP_MIN_STRIDE   8
 #define PCI_IOMMU_MAP_STRIDE 4
 
-static int create_vpci_irq_map(libxl__gc *gc, void *fdt)
-{
-    uint32_t *full_irq_map, *irq_map;
-    size_t len;
-    unsigned int slot, pin;
-    int res, cells;
-
-    res = fdt_property_cell(fdt, "#interrupt-cells", 1);
-    if (res) return res;
-
-    /* assume GIC node to be present, due to
-     * make_gicv2_node()/make_gicv3_node() get called earlier
-     */
-    res = fdt_node_offset_by_phandle(fdt, GUEST_PHANDLE_GIC);
-    if (res < 0)
-        return res;
-
-    res = fdt_address_cells(fdt, res);
-    /* handle case of make_gicv2_node() setting #address-cells to 0 */
-    if (res == -FDT_ERR_BADNCELLS)
-        res = 0;
-    else if (res < 0)
-        return res;
-
-    cells = res;
-    len = sizeof(uint32_t) * PCI_NUM_IRQ * PCI_NUM_IRQ *
-          (PCI_IRQ_MAP_MIN_STRIDE + cells);
-    irq_map = full_irq_map = libxl__malloc(gc, len);
-
-    for (slot = 0; slot < PCI_NUM_IRQ; slot++) {
-        for (pin = 0; pin < PCI_NUM_IRQ; pin++) {
-            uint32_t irq = GUEST_VIRTIO_PCI_SPI_FIRST +
-                ((pin + slot) % PCI_NUM_IRQ);
-            unsigned int i = 0;
-
-            /* PCI address (3 cells) */
-            irq_map[i++] = cpu_to_fdt32(PCI_DEVFN(slot, 0) << 8);
-            irq_map[i++] = cpu_to_fdt32(0);
-            irq_map[i++] = cpu_to_fdt32(0);
-
-            /* PCI interrupt (1 cell) */
-            irq_map[i++] = cpu_to_fdt32(pin + 1);
-
-            /* GIC phandle (1 cell) */
-            irq_map[i++] = cpu_to_fdt32(GUEST_PHANDLE_GIC);
-
-            /* GIC unit address, set 0 because vgic itself handles vpci IRQs */
-            for (int c = cells; c--; irq_map[i++] = cpu_to_fdt32(0));
-
-            /* GIC interrupt (3 cells) */
-            irq_map[i++] = cpu_to_fdt32(0); /* SPI */
-            irq_map[i++] = cpu_to_fdt32(irq - 32);
-            irq_map[i++] = cpu_to_fdt32(DT_IRQ_TYPE_LEVEL_HIGH);
-
-            irq_map += PCI_IRQ_MAP_MIN_STRIDE + cells;
-        }
-    }
-
-    res = fdt_property(fdt, "interrupt-map", full_irq_map, len);
-    if (res) return res;
-
-    res = fdt_property_values(gc, fdt, "interrupt-map-mask", 4,
-                              PCI_DEVFN(3, 0) << 8, 0, 0, 0x7);
-    if (res) return res;
-
-    return 0;
-}
 
 static int create_vpci_iommu_map(libxl__gc *gc, void *fdt,
                                  libxl_domain_config *d_config)
@@ -1134,10 +1067,6 @@ static int make_vpci_node_virtio(libxl__gc *gc, void *fdt,
 
     /* The same property as for virtio-mmio device */
     res = fdt_property(fdt, "dma-coherent", NULL, 0);
-    if (res) return res;
-
-    /* Legacy PCI interrupts (#INTA - #INTD) */
-    res = create_vpci_irq_map(gc, fdt);
     if (res) return res;
 
     /* xen,grant-dma bindings */
