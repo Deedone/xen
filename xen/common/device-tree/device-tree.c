@@ -2264,10 +2264,10 @@ int dt_map_id(const struct dt_device_node *np, uint32_t id,
     for ( ; map_len > 0; map_len -= 4 * sizeof(*map), map += 4 )
     {
         struct dt_device_node *phandle_node;
-        uint32_t id_base = be32_to_cpup(map + 0);
-        uint32_t phandle = be32_to_cpup(map + 1);
-        uint32_t out_base = be32_to_cpup(map + 2);
-        uint32_t id_len = be32_to_cpup(map + 3);
+        uint32_t id_base = be32_to_cpu(*(map + 0));
+        uint32_t phandle = be32_to_cpu(*(map + 1));
+        uint32_t out_base = be32_to_cpu(*(map + 2));
+        uint32_t id_len = be32_to_cpu(*(map + 3));
 
         if ( id_base & ~map_mask )
         {
