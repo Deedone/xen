@@ -186,7 +186,7 @@ static int pci_set_msi_base(struct pci_host_bridge *bridge)
     if ( !map )
         return -ENODEV;
 
-    msi_node = dt_find_node_by_phandle(be32_to_cpup(map + 1));
+    msi_node = dt_find_node_by_phandle(be32_to_cpu(*(map + 1)));
     if ( !msi_node )
         return -ENODEV;
 
