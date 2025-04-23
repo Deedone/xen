@@ -172,7 +172,7 @@ int iommu_add_dt_pci_sideband_ids(struct pci_dev *pdev)
     unsigned int devfn = pdev->devfn;
 
     if ( !iommu_enabled )
-        return DT_NO_IOMMU;
+        return -1;
 
     if ( !ops )
         return -EINVAL;
@@ -192,7 +192,7 @@ int iommu_add_dt_pci_sideband_ids(struct pci_dev *pdev)
         rc = dt_map_id(np, PCI_BDF(pdev->bus, devfn), "iommu-map",
                        "iommu-map-mask", &iommu_spec.np, iommu_spec.args);
         if ( rc )
-            return (rc == -ENODEV) ? DT_NO_IOMMU : rc;
+            return (rc == -ENODEV) ? -1 : rc;
 
         rc = iommu_dt_xlate(dev, &iommu_spec, ops);
         if ( rc < 0 )
