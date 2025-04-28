@@ -1666,16 +1666,21 @@ int vgic_v3_its_init_domain(struct domain *d)
     }
     else
     {
-        ret = vgic_v3_its_init_virtual(d, GUEST_GICV3_ITS_BASE,
-                                       devid_bits, evid_bits);
-        if ( ret )
-            return ret;
-        else
-            d->arch.vgic.has_its = true;
+        struct host_its *hw_its;
 
-        // ret = gicv3_its_map_translation_register(d);
-        // if ( ret )
-        //     return ret;
+        list_for_each_entry(hw_its, &host_its_list, entry)
+        {
+            ret = vgic_v3_its_init_virtual(d, GUEST_GICV3_ITS_BASE, hw_its->addr,
+                                        devid_bits, evid_bits);
+            if ( ret )
+                return ret;
+            else
+                d->arch.vgic.has_its = true;
+
+            // ret = gicv3_its_map_translation_register(d);
+            // if ( ret )
+            //     return ret;
+        }
     }
 
     return 0;
