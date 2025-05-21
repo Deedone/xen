@@ -58,6 +58,9 @@ int __overlay_init map_range_to_domain(const struct dt_device_node *dev,
     struct domain *d = mr_data->d;
     int res;
 
+    if (addr == 0xfe000000) {
+        return 0;
+    }
     if ( (addr != (paddr_t)addr) || (((paddr_t)~0 - addr) < len) )
     {
         printk(XENLOG_ERR "%s: [0x%"PRIx64", 0x%"PRIx64"] exceeds the maximum allowed PA width (%u bits)",
