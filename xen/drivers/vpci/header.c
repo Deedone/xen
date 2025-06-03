@@ -745,7 +745,7 @@ int vpci_bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
     return !bar->mem ? -ENOMEM : 0;
 }
 
-static int vpci_init_capability_list(struct pci_dev *pdev)
+int vpci_init_capability_list(struct pci_dev *pdev)
 {
     int rc;
     bool mask_cap_list = false;

@@ -302,6 +302,8 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only);
 int vpci_bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
                             unsigned int i);
 
+int vpci_init_capability_list(struct pci_dev *pdev);
+
 #endif /* __XEN__ */
 
 #else /* !CONFIG_HAS_VPCI */
