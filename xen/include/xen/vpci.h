@@ -328,6 +328,8 @@ bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd,
                      enum vpci_map_op map_op, bool rom_only);
 
+int vpci_init_capability_list(struct pci_dev *pdev);
+
 #endif /* __XEN__ */
 
 #else /* !CONFIG_HAS_VPCI */
