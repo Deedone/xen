@@ -821,7 +821,7 @@ static void cf_check rom_write(
     }
 }
 
-static int vpci_init_capability_list(struct pci_dev *pdev)
+int vpci_init_capability_list(struct pci_dev *pdev)
 {
     int rc;
     bool mask_cap_list = false;
