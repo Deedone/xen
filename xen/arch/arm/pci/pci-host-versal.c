@@ -171,9 +171,7 @@ static int __init pci_host_versal_probe(struct dt_device_node *dev,
     uint16_t segment;
     pci_sbdf_t sbdf;
 
-    rc = pci_host_common_probe(dev, &cpm_pcie_ops, NULL);
-    if ( rc )
-        return rc;
+    pci_host_common_probe(dev, &cpm_pcie_ops, NULL);
 
     rc = pci_get_host_bridge_segment(dev, &segment);
     if ( rc )
