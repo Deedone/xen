@@ -242,7 +242,7 @@ static int __init pci_host_generic_probe(struct dt_device_node *dev,
     breg_base = ioremap_nocache(0xfd0e0000U, 0x1000); /* AXIPCIE_MAIN module */
     pcireg_base = ioremap_nocache(0xfd480000U, 0x1000); /* PCIE_ATTRIB module */
 
-    bridge = pci_host_common_probe(dev, &nwl_pcie_ops);
+    bridge = pci_host_common_probe(dev, &nwl_pcie_ops, NULL);
 
 
     breg_val = nwl_bridge_readl(breg_base, E_BREG_CAPABILITIES) & BREG_PRESENT;
