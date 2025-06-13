@@ -189,7 +189,7 @@ static bool vpci_process_map_task(struct vpci_map_task *task)
         struct vpci_bar_map *bar = &task->bars[i];
         struct map_data data = {
             .d = task->domain,
-            .map = task->cmd & PCI_COMMAND_MEMORY,
+            .map = task->map_op == VPCI_MAP,
             .bar = bar,
         };
         int rc;
@@ -298,7 +298,9 @@ static int __init apply_map(struct vpci_map_task *task)
 }
 
 static struct vpci_map_task *alloc_map_task(const struct pci_dev *pdev,
-                                            uint16_t cmd, bool rom_only)
+                                            uint16_t cmd,
+                                            enum vpci_map_op map_op,
+                                            bool rom_only)
 {
     struct vpci_map_task *task = xzalloc(struct vpci_map_task);
     unsigned int i;
@@ -333,6 +335,7 @@ static struct vpci_map_task *alloc_map_task(const struct pci_dev *pdev,
     task->pdev = pdev;
     task->domain = pdev->domain;
     task->cmd = cmd;
+    task->map_op = map_op;
     task->rom_only = rom_only;
 
     return task;
@@ -359,13 +362,14 @@ static void defer_map(struct vpci_map_task *task)
     raise_softirq(SCHEDULE_SOFTIRQ);
 }
 
-static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
+static int modify_bars(const struct pci_dev *pdev, uint16_t cmd,
+                       enum vpci_map_op map_op, bool rom_only)
 {
     struct vpci_header *header = &pdev->vpci->header;
     struct pci_dev *tmp;
     const struct domain *d;
     const struct vpci_msix *msix = pdev->vpci->msix;
-    struct vpci_map_task *task = alloc_map_task(pdev, cmd, rom_only);
+    struct vpci_map_task *task = alloc_map_task(pdev, cmd, map_op, rom_only);
     unsigned int i, j;
     int rc;
 
@@ -614,7 +618,8 @@ static void cf_check cmd_write(
          * memory decoding bit has not been changed, so leave everything as-is,
          * hoping the guest will realize and try again.
          */
-        modify_bars(pdev, cmd, false);
+        modify_bars(pdev, cmd, cmd & PCI_COMMAND_MEMORY ? VPCI_MAP : VPCI_UNMAP,
+                    false);
     else
         pci_conf_write16(pdev->sbdf, reg, cmd);
 }
@@ -782,7 +787,8 @@ static void cf_check rom_write(
      * Pass PCI_COMMAND_MEMORY or 0 to signal a map/unmap request, note that
      * this fabricated command is never going to be written to the register.
      */
-    else if ( modify_bars(pdev, new_enabled ? PCI_COMMAND_MEMORY : 0, true) )
+    else if ( modify_bars(pdev, new_enabled ? PCI_COMMAND_MEMORY : 0,
+                          new_enabled ? VPCI_MAP : VPCI_UNMAP, true) )
         /*
          * No memory has been added or removed from the p2m (because the actual
          * p2m changes are deferred in defer_map) and the ROM enable bit has
@@ -1095,7 +1101,9 @@ static int cf_check init_header(struct pci_dev *pdev)
             goto fail;
     }
 
-    return (cmd & PCI_COMMAND_MEMORY) ? modify_bars(pdev, cmd, false) : 0;
+    return (cmd & PCI_COMMAND_MEMORY)
+           ? modify_bars(pdev, cmd, VPCI_MAP, false)
+           : 0;
 
  fail:
     pci_conf_write16(pdev->sbdf, PCI_COMMAND, cmd);
