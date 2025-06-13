@@ -218,6 +218,10 @@ struct vpci_map_task {
         struct rangeset *mem;
     } bars[PCI_HEADER_NORMAL_NR_BARS + 1];
     uint16_t cmd;
+    enum vpci_map_op {
+        VPCI_MAP,
+        VPCI_UNMAP,
+    } map_op;
     bool rom_only : 1;
 };
 
