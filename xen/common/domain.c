@@ -467,6 +467,8 @@ struct vcpu *vcpu_create(struct domain *d, unsigned int vcpu_id)
         d->vcpu[prev_id]->next_in_list = v;
     }
 
+    INIT_LIST_HEAD(&v->vpci.task_queue);
+
     /* Must be called after making new vcpu visible to for_each_vcpu(). */
     vcpu_check_shutdown(v);
 
