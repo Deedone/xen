@@ -117,9 +117,6 @@ void vpci_deassign_device(struct pci_dev *pdev)
                 iounmap(pdev->vpci->msix->table[i]);
     }
 
-    for ( i = 0; i < ARRAY_SIZE(pdev->vpci->header.bars); i++ )
-        rangeset_destroy(pdev->vpci->header.bars[i].mem);
-
     xfree(pdev->vpci->msix);
     xfree(pdev->vpci->msi);
     xfree(pdev->vpci);

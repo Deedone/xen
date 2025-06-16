@@ -103,7 +103,6 @@ struct vpci {
             uint64_t guest_addr;
             uint64_t size;
             uint64_t resizable_sizes;
-            struct rangeset *mem;
             enum {
                 VPCI_BAR_EMPTY,
                 VPCI_BAR_IO,
@@ -194,14 +193,25 @@ struct vpci {
 #endif
 };
 
-struct vpci_vcpu {
+#ifdef __XEN__
+struct vpci_map_task {
     /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
+    struct list_head next;
     const struct pci_dev *pdev;
+    struct domain *domain;
+    struct vpci_bar_map {
+        uint64_t addr;
+        uint64_t guest_addr;
+        struct rangeset *mem;
+    } bars[PCI_HEADER_NORMAL_NR_BARS + 1];
     uint16_t cmd;
     bool rom_only : 1;
 };
 
-#ifdef __XEN__
+struct vpci_vcpu {
+    struct list_head task_queue;
+};
+
 void vpci_dump_msi(void);
 
 /* Make sure there's a hole in the p2m for the MSIX mmio areas. */
