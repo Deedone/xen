@@ -404,9 +404,7 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd,
 
         if ( !MAPPABLE_BAR(bar) ||
              (rom_only ? bar->type != VPCI_BAR_ROM
-                       : (bar->type == VPCI_BAR_ROM && !header->rom_enabled)) ||
-             /* Skip BARs already in the requested state. */
-             bar->enabled == !!(cmd & PCI_COMMAND_MEMORY) )
+                       : (bar->type == VPCI_BAR_ROM && !header->rom_enabled)) )
             continue;
 
         if ( !pci_check_bar(pdev, _mfn(start), _mfn(end)) )
@@ -650,19 +648,30 @@ static void cf_check bar_write(
         val &= PCI_BASE_ADDRESS_MEM_MASK;
 
     /*
-     * Xen only cares whether the BAR is mapped into the p2m, so allow BAR
-     * writes as long as the BAR is not mapped into the p2m.
+     * Allow 64-bit BAR writes only when the BAR is not mapped in p2m. Always
+     * allow 32-bit BAR writes.
      */
     if ( bar->enabled )
     {
-        /* If the value written is the current one avoid printing a warning. */
-        if ( val != (uint32_t)(bar->addr >> (hi ? 32 : 0)) )
-            gprintk(XENLOG_WARNING,
-                    "%pp: ignored BAR %zu write while mapped\n",
-                    &pdev->sbdf, bar - pdev->vpci->header.bars + hi);
-        return;
-    }
+        if ( bar->type == VPCI_BAR_MEM32 )
+        {
+            if ( val == bar->addr )
+                return;
 
+            modify_bars(pdev, pci_conf_read16(pdev->sbdf, PCI_COMMAND),
+                        VPCI_UNMAP, false);
+            /* TODO: check return value */
+        }
+        else
+        {
+            /* If the value written is the same avoid printing a warning. */
+            if ( val != (uint32_t)(bar->addr >> (hi ? 32 : 0)) )
+                gprintk(XENLOG_WARNING,
+                        "%pp: ignored BAR %zu write while mapped\n",
+                        &pdev->sbdf, bar - pdev->vpci->header.bars + hi);
+            return;
+        }
+    }
 
     /*
      * Update the cached address, so that when memory decoding is enabled
@@ -682,6 +691,11 @@ static void cf_check bar_write(
     }
 
     pci_conf_write32(pdev->sbdf, reg, val);
+
+    if ( bar->enabled )
+        modify_bars(pdev, pci_conf_read16(pdev->sbdf, PCI_COMMAND), VPCI_MAP,
+                    false);
+        /* TODO: check return value */
 }
 
 static void cf_check guest_mem_bar_write(const struct pci_dev *pdev,
