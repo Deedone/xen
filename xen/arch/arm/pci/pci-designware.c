@@ -217,6 +217,7 @@ static int __dw_pcie_prog_outbound_atu(struct pci_host_bridge *pci,
     struct dw_pcie_priv *priv = pci->priv;
     uint32_t retries, val;
 
+    //TODO: detect ATU type
     if ( priv->iatu_unroll_enabled )
         return dw_pcie_prog_outbound_atu_unroll(pci, func_no, index, type,
                                                 cpu_addr, pci_addr, size);
