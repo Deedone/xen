@@ -560,7 +560,15 @@ static void cf_check cmd_write(
 
         header->guest_cmd = cmd;
     }
-
+    
+    if ( pdev->info.is_virtfn )
+    {
+        /* Read emulated PCI_COMMAND_MEMORY bit for virtual function */
+        cmd |= pdev->vpci->header.guest_cmd & PCI_COMMAND_MEMORY;
+        /* And store emulated PCI_COMMAND_MEMORY bit back */
+        pdev->vpci->header.guest_cmd = cmd & PCI_COMMAND_MEMORY;
+    }
+    
     /*
      * Let Dom0 play with all the bits directly except for the memory
      * decoding one. Bits that are not allowed for DomU are already
@@ -890,8 +898,8 @@ static int cf_check init_header(struct pci_dev *pdev)
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
-    if ( pdev->info.is_virtfn )
-        return 0;
+    // if ( pdev->info.is_virtfn )
+    //     return 0;
 
     type = pci_conf_read8(pdev->sbdf, PCI_HEADER_TYPE) & 0x7f;
     switch ( type )
@@ -910,15 +918,17 @@ static int cf_check init_header(struct pci_dev *pdev)
         return -EOPNOTSUPP;
     }
 
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_VENDOR_ID,
-                           2, NULL);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_DEVICE_ID,
-                           2, NULL);
-    if ( rc )
-        return rc;
+    if ( !pdev->info.is_virtfn ) {
+        rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_VENDOR_ID,
+                            2, NULL);
+        if ( rc )
+            return rc;
+    
+        rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_DEVICE_ID,
+                            2, NULL);
+        if ( rc )
+            return rc;
+    }
 
     /*
      * Setup a handler for the command register.
@@ -952,15 +962,6 @@ static int cf_check init_header(struct pci_dev *pdev)
         if ( rc )
             return rc;
     }
-
-    /* Utilize rsvdp_mask to hide PCI_STATUS_CAP_LIST from the guest. */
-    rc = vpci_add_register_mask(pdev->vpci, vpci_hw_read16, vpci_hw_write16,
-                                PCI_STATUS, 2, NULL,
-                                PCI_STATUS_RO_MASK &
-                                    ~(mask_cap_list ? PCI_STATUS_CAP_LIST : 0),
-                                PCI_STATUS_RW1C_MASK,
-                                mask_cap_list ? PCI_STATUS_CAP_LIST : 0,
-                                PCI_STATUS_RSVDZ_MASK);
     if ( rc )
         return rc;
 
@@ -1061,6 +1062,9 @@ static int cf_check init_header(struct pci_dev *pdev)
         uint8_t reg = PCI_BASE_ADDRESS_0 + i * 4;
         uint32_t val;
 
+        if (pdev->info.is_virtfn)
+            continue;
+        
         if ( i && bars[i - 1].type == VPCI_BAR_MEM64_LO )
         {
             bars[i].type = VPCI_BAR_MEM64_HI;

@@ -138,6 +138,7 @@ struct vpci {
          * upon to know whether BARs are mapped into the guest p2m.
          */
         bool bars_mapped      : 1;
+        uint32_t vf_ven_dev_id;
     } header;
 
     /* MSI data. */

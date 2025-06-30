@@ -136,8 +136,8 @@ static int vpci_setup_mmio_handler_cb(struct domain *d,
 
 int domain_vpci_init(struct domain *d)
 {
-    if ( !has_vpci(d) )
-        return 0;
+    // if ( !has_vpci(d) )
+    //     return 0;
 
     /*
      * The hardware domain gets as many MMIOs as required by the
