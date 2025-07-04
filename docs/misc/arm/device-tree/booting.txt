@@ -171,12 +171,21 @@ with the following properties:
     that limit, Xen will create fewer vcpus than requested, stopping at the
     first vcpu whose virtual redistributor frame is not covered.
 
+- domid
+
+    Optional. A 16-bit integer specifying the specific domid this domain
+    must have. If unset, the domid is automatically determined.
+
+    Either all domains of the DTB must have the property, or none of them.
+
 - llc-colors
+
     A string specifying the LLC color configuration for the guest.
     Refer to docs/misc/cache_coloring.rst for syntax. This option is applicable
     only to Arm64 guests.
 
 - capabilities
+
     Optional.  A 32-bit integer representing a bit field of domain capabilities
     for a disaggregated system.  A traditional dom0 has all of these
     capabilities, and a domU has none of them.
