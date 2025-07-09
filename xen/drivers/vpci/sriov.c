@@ -175,8 +175,7 @@ static void cf_check control_write(const struct pci_dev *pdev, unsigned int reg,
 static int vf_init_header(struct pci_dev *vf_pdev)
 {
     const struct pci_dev *pf_pdev;
-    struct vpci_bar *bars;
-    unsigned int i, sriov_pos;
+    unsigned int sriov_pos;
     int rc = 0;
     uint16_t ctrl;
 
@@ -188,17 +187,8 @@ static int vf_init_header(struct pci_dev *vf_pdev)
     pf_pdev = vf_pdev->pf_pdev;
     ASSERT(pf_pdev);
 
-    bars = vf_pdev->vpci->header.bars;
-
     sriov_pos = pci_find_ext_capability(pf_pdev->sbdf, PCI_EXT_CAP_ID_SRIOV);
     ctrl = pci_conf_read16(pf_pdev->sbdf, sriov_pos + PCI_SRIOV_CTRL);
-
-    for ( i = 0; i < PCI_SRIOV_NUM_BARS; i++ )
-    {
-        rc = vpci_bar_add_rangeset(vf_pdev, &bars[i], i);
-        if ( rc )
-            return rc;
-    }
 
     if ( (pf_pdev->domain == vf_pdev->domain) && (ctrl & PCI_SRIOV_CTRL_MSE) )
     {
