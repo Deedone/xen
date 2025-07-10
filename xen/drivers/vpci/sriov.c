@@ -88,6 +88,58 @@ int vpci_vf_init_header(struct pci_dev *vf_pdev)
     sriov_pos = pci_find_ext_capability(pf_pdev, PCI_EXT_CAP_ID_SRIOV);
     ctrl = pci_conf_read16(pf_pdev->sbdf, sriov_pos + PCI_SRIOV_CTRL);
 
+    if ( IS_ENABLED(CONFIG_HAS_VPCI_GUEST_SUPPORT) &&
+         pf_pdev->domain != vf_pdev->domain )
+    {
+        struct vpci_bar *bars = vf_pdev->vpci->header.bars;
+
+        rc = vpci_add_register(vf_pdev->vpci, vpci_hw_read16, NULL,
+                               PCI_VENDOR_ID, 2, NULL);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(vf_pdev->vpci, vpci_hw_read16, NULL,
+                               PCI_DEVICE_ID, 2, NULL);
+        if ( rc )
+            return rc;
+
+        /* Hardcode multi-function device bit to 0 */
+        rc = vpci_add_register(vf_pdev->vpci, vpci_read_val, NULL,
+                               PCI_HEADER_TYPE, 1,
+                               (void *)PCI_HEADER_TYPE_NORMAL);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(vf_pdev->vpci, vpci_hw_read32, NULL,
+                               PCI_CLASS_REVISION, 4, NULL);
+        if ( rc )
+            return rc;
+
+        for ( unsigned int i = 0; i < PCI_SRIOV_NUM_BARS; i++ )
+        {
+            switch ( pf_pdev->vpci->sriov->vf_bars[i].type )
+            {
+            case VPCI_BAR_MEM32:
+            case VPCI_BAR_MEM64_LO:
+            case VPCI_BAR_MEM64_HI:
+                rc = vpci_add_register(vf_pdev->vpci, vpci_guest_mem_bar_read,
+                                       vpci_guest_mem_bar_write,
+                                       PCI_BASE_ADDRESS_0 + i * 4, 4, &bars[i]);
+                if ( rc )
+                    return rc;
+                break;
+
+            default:
+                rc = vpci_add_register(vf_pdev->vpci, vpci_read_val, NULL,
+                                       PCI_BASE_ADDRESS_0 + i * 4, 4,
+                                       (void *)0);
+                if ( rc )
+                    return rc;
+                break;
+            }
+        }
+    }
+
     if ( (pf_pdev->domain == vf_pdev->domain) && (ctrl & PCI_SRIOV_CTRL_MSE) )
     {
         rc = vpci_modify_bars(vf_pdev, PCI_COMMAND_MEMORY, false);
