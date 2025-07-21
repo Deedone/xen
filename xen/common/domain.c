@@ -454,6 +454,14 @@ static int vcpu_teardown(struct vcpu *v)
  */
 static void vcpu_destroy(struct vcpu *v)
 {
+#ifdef CONFIG_HAS_VPCI
+    int i;
+
+    for ( i = 0; i < ARRAY_SIZE(v->vpci.bar_mem); i++ )
+        if ( v->vpci.bar_mem[i] )
+            rangeset_destroy(v->vpci.bar_mem[i]);
+
+#endif
     free_vcpu_struct(v);
 }
 
@@ -510,6 +518,22 @@ struct vcpu *vcpu_create(struct domain *d, unsigned int vcpu_id)
 
     if ( arch_vcpu_create(v) != 0 )
         goto fail_sched;
+
+#ifdef CONFIG_HAS_VPCI
+    {
+        int i;
+
+        for ( i = 0; i < ARRAY_SIZE(v->vpci.bar_mem); i++ )
+        {
+            char str[32];
+
+            snprintf(str, sizeof(str), "%pv:BAR%u", v, i);
+            v->vpci.bar_mem[i] = rangeset_new(d, str, RANGESETF_no_print);
+            if ( !v->vpci.bar_mem[i] )
+                goto fail_sched;
+        }
+    }
+#endif
 
     d->vcpu[vcpu_id] = v;
     if ( vcpu_id != 0 )

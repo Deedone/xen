@@ -118,7 +118,6 @@ struct vpci {
             uint64_t guest_addr;
             uint64_t size;
             uint64_t resizable_sizes;
-            struct rangeset *mem;
             enum {
                 VPCI_BAR_EMPTY,
                 VPCI_BAR_IO,
@@ -212,6 +211,9 @@ struct vpci {
 struct vpci_vcpu {
     /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
     const struct pci_dev *pdev;
+#ifdef __XEN__
+    struct rangeset *bar_mem[PCI_HEADER_NORMAL_NR_BARS + 1];
+#endif
     uint16_t cmd;
     bool rom_only : 1;
 };
