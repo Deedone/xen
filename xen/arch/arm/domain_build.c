@@ -1578,12 +1578,12 @@ static int __init handle_vpci_range(const struct dt_device_node *dev,
     if ( !dt_range_is_memory(flags) )
         return 0;
 
-    if ( !dt_range_is_prefetchable(flags) )
+    if ( !dt_range_is_prefetchable(flags) && !dt_range_is_64bit(flags))
     {
         vpci->vpci_mem_base = addr;
         vpci->vpci_mem_size = len;
     }
-    else
+    else if ( dt_range_is_prefetchable(flags) )
     {
         vpci->vpci_mem_prefetch_base = addr;
         vpci->vpci_mem_prefetch_size = len;
