@@ -1682,6 +1682,19 @@ int __init make_vpci_node(struct domain *d, void *fdt)
     if ( res )
         return res;
 
+    /*
+     * Create msi-map property identity-mapped as:
+     * <0 GUEST_PHANDLE_ITS 0 0x10000>
+     */
+    cells = &reg[0];
+    dt_set_cell(&cells, 1, 0);
+    dt_set_cell(&cells, 1, GUEST_PHANDLE_ITS);
+    dt_set_cell(&cells, 1, 0);
+    dt_set_cell(&cells, 1, 0x10000);
+    res = fdt_property(fdt, "msi-map", reg, 4 * sizeof(*reg));
+    if ( res )
+        return res;
+
     res = fdt_end_node(fdt);
 
     return res;
