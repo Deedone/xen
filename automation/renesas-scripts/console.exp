@@ -1,0 +1,81 @@
+#!/usr/bin/env expect
+#
+# Variables used by this script:
+# - TEST_TIMEOUT: timeout between each *_MSG match
+# - TEST_TIMEOUT_OVERRIDE: when set, overrides TEST_TIMEOUT
+# - TEST_LOG: save console log to this file
+# - TEST_CMD: commands that prints test system console output to stdout - in
+#   qemu tests that's usually qemu itself (with -serial stdio), in hardware
+#   tests that's a command to read serial console
+# - UBOOT_CMD (optional): command to enter at u-boot prompt
+# - BOOT_MSG (optional): initial Xen message to wait for (aka sign-of-life)
+# - SUSPEND_MSG (optional): message signaling system is going to sleep, it's
+#   trigger for WAKEUP_CMD (see below)
+# - WAKEUP_CMD (optional): command to execute to wakeup the system 30s after
+#   seeing SUSPEND_MSG
+# - LOG_MSG (optional): final console message to wait for
+# - PASSED: message to look for to consider test a success; if LOG_MSG is set,
+#   both LOG_MSG and PASSED must appear (in any order) for test to succeed
+
+if {[info exists env(TEST_TIMEOUT_OVERRIDE)]} {
+    set timeout $env(TEST_TIMEOUT_OVERRIDE)
+} elseif {[info exists env(TEST_TIMEOUT)]} {
+    set timeout $env(TEST_TIMEOUT)
+} else {
+    set timeout 1500
+}
+
+log_file -a $env(TEST_LOG)
+
+match_max 10000
+
+eval spawn $env(TEST_CMD)
+
+expect_after {
+    -re "(.*)\r" {
+        exp_continue -continue_timer
+    }
+    timeout {send_error "\nERROR-Timeout!\n"; exit 1}
+    eof {send_error "\nERROR-EOF!\n"; exit 1}
+}
+
+if {[info exists env(UBOOT_CMD)]} {
+    expect "=>"
+
+    send "$env(UBOOT_CMD)\r"
+}
+
+if {[info exists env(BOOT_MSG)]} {
+    expect -re "$env(BOOT_MSG)"
+}
+
+if {[info exists env(WAKEUP_CMD)]} {
+    expect -re "$env(SUSPEND_MSG)"
+
+    # keep it suspended a bit, then wakeup
+    sleep 30
+
+    system "$env(WAKEUP_CMD)"
+}
+
+if {[info exists env(LOG_MSG)]} {
+    expect {
+        -notransfer -re "$env(PASSED)" {
+            expect -re "$env(LOG_MSG)"
+            exit 0
+        }
+        -notransfer -re "$env(LOG_MSG)" {
+            expect -re "$env(PASSED)"
+            exit 0
+        }
+    }
+}
+
+expect {
+    -re "$env(PASSED)" {
+        exit 0
+    }
+}
+
+expect eof
+

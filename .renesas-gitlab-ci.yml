@@ -1,0 +1,16 @@
+variables:
+  GIT_STRATEGY: clone
+  GIT_DEPTH: 1
+
+workflow:
+  rules:
+    - when: always
+
+stages:
+  - build
+  - test
+
+include:
+  - local: 'automation/renesas-artifacts/artifacts.yaml'
+  - local: 'automation/renesas-gitlab-ci/build.yaml'
+  - local: 'automation/renesas-gitlab-ci/test.yaml'
