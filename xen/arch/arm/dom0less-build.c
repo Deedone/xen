@@ -292,7 +292,7 @@ int __init arch_parse_dom0less_node(struct dt_device_node *node,
     {
         int vpl011_virq = GUEST_VPL011_SPI;
 
-        d_cfg->arch.nr_spis = VGIC_DEF_NR_SPIS;
+        d_cfg->arch.nr_spis = vgic_def_nr_spis();
 
         if ( pci_scan_enabled )
             d_cfg->flags |= XEN_DOMCTL_CDF_vpci;
