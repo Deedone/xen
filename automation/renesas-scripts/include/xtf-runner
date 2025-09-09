@@ -45,7 +45,7 @@ function xtf_build_binary()
 
     # Crude check for local testing
     if [ ! -d ${xtf_dir} ]; then
-        git clone ${XTF_SRC_URI} ${xtf_dir} -b ${XTF_SRC_BRANCH}
+        git clone --depth 1 ${XTF_SRC_URI} ${xtf_dir} -b ${XTF_SRC_BRANCH}
     fi
 
     make \

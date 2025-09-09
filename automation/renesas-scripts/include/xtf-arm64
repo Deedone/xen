@@ -10,8 +10,8 @@ function xtf_arch_prepare()
     export QEMU_PREFIX="${QEMU_PREFIX:-${WORKDIR}/}"
     export XEN_BINARY="${XEN_BINARY:-${WORKDIR}/xen}"
     export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot console=dtuart}"
-    export XTF_SRC_BRANCH="${XTF_SRC_BRANCH:-xtf-arm}"
-    export XTF_SRC_URI="${XTF_SRC_URI:-https://gitlab.com/xen-project/fusa/xtf.git}"
+    export XTF_SRC_BRANCH="${XTF_SRC_BRANCH:-safety-staging}"
+    export XTF_SRC_URI="${XTF_SRC_URI:-https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/xtf.git}"
     export XTF_SRC_VARIANTS="mmu64le"
 }
 
