@@ -9,7 +9,7 @@ function xtf_arch_prepare()
     export FW_PREFIX="${FW_PREFIX:-/usr/lib/u-boot/qemu_arm64/}"
     export QEMU_PREFIX="${QEMU_PREFIX:-${WORKDIR}/}"
     export XEN_BINARY="${XEN_BINARY:-${WORKDIR}/xen}"
-    export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot console=dtuart}"
+    export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all dom0_mem=128M noreboot console_timestamps=boot console=dtuart}"
     export XTF_SRC_BRANCH="${XTF_SRC_BRANCH:-safety-staging}"
     export XTF_SRC_URI="${XTF_SRC_URI:-https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/xtf.git}"
     export XTF_SRC_VARIANTS="mmu64le"
@@ -35,10 +35,9 @@ DEVICE_TREE="virt-gicv2.dtb"
 
 XEN_CMD="${XEN_CMDLINE}"
 
-DOMU_KERNEL[0]="xtf-test"
-DOMU_MEM[0]="128"
+DOM0_KERNEL="xtf-test"
 
-NUM_DOMUS=1
+NUM_DOMUS=0
 
 LOAD_CMD="tftpb"
 UBOOT_SOURCE="boot.source"
