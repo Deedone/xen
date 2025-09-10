@@ -36,8 +36,10 @@ DEVICE_TREE="virt-gicv2.dtb"
 XEN_CMD="${XEN_CMDLINE}"
 
 DOM0_KERNEL="xtf-test"
+DOMU_KERNEL="Image"
+DOMU_MEM[0]=128
 
-NUM_DOMUS=0
+NUM_DOMUS=1
 
 LOAD_CMD="tftpb"
 UBOOT_SOURCE="boot.source"
