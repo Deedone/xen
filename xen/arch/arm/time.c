@@ -303,6 +303,20 @@ static void check_timer_irq_cfg(unsigned int irq, const char *which)
            "WARNING: %s-timer IRQ%u is not level triggered.\n", which, irq);
 }
 
+static struct irqaction __read_mostly irq_hyp = {
+    .name = "hyptimer",
+    .handler = htimer_interrupt,
+    .dev_id = NULL,
+    .free_on_release = 0,
+};
+
+static struct irqaction __read_mostly irq_virt = {
+    .name = "virtimer",
+    .handler = vtimer_interrupt,
+    .dev_id = NULL,
+    .free_on_release = 0,
+};
+
 /* Set up the timer interrupt on this CPU */
 void init_timer_interrupt(void)
 {
@@ -314,10 +328,8 @@ void init_timer_interrupt(void)
     WRITE_SYSREG(0, CNTHP_CTL_EL2);   /* Hypervisor's timer disabled */
     isb();
 
-    request_irq(timer_irq[TIMER_HYP_PPI], 0, htimer_interrupt,
-                "hyptimer", NULL);
-    request_irq(timer_irq[TIMER_VIRT_PPI], 0, vtimer_interrupt,
-                   "virtimer", NULL);
+    setup_irq(timer_irq[TIMER_HYP_PPI], 0, &irq_hyp);
+    setup_irq(timer_irq[TIMER_VIRT_PPI], 0, &irq_virt);
 
     check_timer_irq_cfg(timer_irq[TIMER_HYP_PPI], "hypervisor");
     check_timer_irq_cfg(timer_irq[TIMER_VIRT_PPI], "virtual");
