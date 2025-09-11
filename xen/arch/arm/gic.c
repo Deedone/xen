@@ -386,10 +386,16 @@ void gic_dump_info(struct vcpu *v)
     gic_hw_ops->dump_state(v);
 }
 
+static struct irqaction __read_mostly irq_maintenance = {
+    .name = "irq-maintenance",
+    .handler = maintenance_interrupt,
+    .dev_id = NULL,
+    .free_on_release = 0,
+};
+
 void init_maintenance_interrupt(void)
 {
-    request_irq(gic_hw_ops->info->maintenance_irq, 0, maintenance_interrupt,
-                "irq-maintenance", NULL);
+    setup_irq(gic_hw_ops->info->maintenance_irq, 0, &irq_maintenance);
 }
 
 int gic_make_hwdom_dt_node(const struct domain *d,
