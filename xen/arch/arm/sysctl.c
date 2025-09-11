@@ -12,6 +12,7 @@
 #include <xen/dt-overlay.h>
 #include <xen/errno.h>
 #include <xen/hypercall.h>
+#include <xsm/xsm.h>
 #include <asm/arm64/sve.h>
 #include <public/sysctl.h>
 
@@ -23,6 +24,33 @@ void arch_do_physinfo(struct xen_sysctl_physinfo *pi)
                                        XEN_SYSCTL_PHYSCAP_ARM_SVE_MASK);
 }
 
+static long cpu_hotplug_sysctl(struct xen_sysctl_cpu_hotplug *hotplug)
+{
+#ifdef CONFIG_RUNTIME_CPU_CONTROL
+    int ret;
+
+    switch ( hotplug->op )
+    {
+    case XEN_SYSCTL_CPU_HOTPLUG_ONLINE:
+        ret = xsm_resource_plug_core(XSM_HOOK);
+        if ( ret )
+            return ret;
+        return continue_hypercall_on_cpu(0, cpu_up_helper, _p(hotplug->cpu));
+
+    case XEN_SYSCTL_CPU_HOTPLUG_OFFLINE:
+        ret = xsm_resource_unplug_core(XSM_HOOK);
+        if ( ret )
+            return ret;
+        return continue_hypercall_on_cpu(0, cpu_down_helper, _p(hotplug->cpu));
+
+    default:
+        return -EOPNOTSUPP;
+    }
+#else
+    return -EOPNOTSUPP;
+#endif
+}
+
 long arch_do_sysctl(struct xen_sysctl *sysctl,
                     XEN_GUEST_HANDLE_PARAM(xen_sysctl_t) u_sysctl)
 {
@@ -32,6 +60,10 @@ long arch_do_sysctl(struct xen_sysctl *sysctl,
     {
     case XEN_SYSCTL_dt_overlay:
         ret = dt_overlay_sysctl(&sysctl->u.dt_overlay);
+        break;
+
+    case XEN_SYSCTL_cpu_hotplug:
+        ret = cpu_hotplug_sysctl(&sysctl->u.cpu_hotplug);
         break;
 
     default:

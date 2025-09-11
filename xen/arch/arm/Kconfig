@@ -274,6 +274,10 @@ config PCI_PASSTHROUGH
 	help
 	  This option enables PCI device passthrough
 
+config RUNTIME_CPU_CONTROL
+    def_bool y
+    depends on ARM_64 && !TEE && !FFA && !HAS_ITS
+
 endmenu
 
 menu "ARM errata workaround via the alternative framework"
