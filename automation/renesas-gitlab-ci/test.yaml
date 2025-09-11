@@ -120,3 +120,12 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-xen-version:
   needs:
     - alpine-3.18-gcc-debug-arm64
     - qemu-system-aarch64-6.0.0-arm64-export
+
+# [XenValTestJob~~1->XenValTestCode~arm64_sysctl_physinfo_host~1]
+qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-physinfo:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-physinfo 2>&1 | tee ${LOGFILE}
+  needs:
+    - alpine-3.18-gcc-debug-arm64
+    - qemu-system-aarch64-6.0.0-arm64-export
