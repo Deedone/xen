@@ -16,7 +16,7 @@ INSTALL_BIN                    += xencov_split
 INSTALL_BIN += $(INSTALL_BIN-y)
 
 # Everything to be installed in regular sbin/
-INSTALL_SBIN-$(CONFIG_MIGRATE) += xen-hptool
+INSTALL_SBIN                   += xen-hptool
 INSTALL_SBIN-$(CONFIG_X86)     += xen-hvmcrash
 INSTALL_SBIN-$(CONFIG_X86)     += xen-hvmctx
 INSTALL_SBIN-$(CONFIG_X86)     += xen-lowmemd
@@ -104,8 +104,10 @@ xenhypfs: xenhypfs.o
 xenlockprof: xenlockprof.o
 	$(CC) $(LDFLAGS) -o $@ $< $(LDLIBS_libxenctrl) $(APPEND_LDFLAGS)
 
-xen-hptool: xen-hptool.o
-	$(CC) $(LDFLAGS) -o $@ $< $(LDLIBS_libxenevtchn) $(LDLIBS_libxenctrl) $(LDLIBS_libxenguest) $(LDLIBS_libxenstore) $(APPEND_LDFLAGS)
+HPTOOL_OBJS-$(CONFIG_MIGRATE) += xen-hptool-x86.o
+
+xen-hptool: xen-hptool.o $(HPTOOL_OBJS-y)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS_libxenevtchn) $(LDLIBS_libxenctrl) $(LDLIBS_libxenguest) $(LDLIBS_libxenstore) $(APPEND_LDFLAGS)
 
 xenhypfs.o: CFLAGS += $(CFLAGS_libxenhypfs)
 
