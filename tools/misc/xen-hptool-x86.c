@@ -1,0 +1,277 @@
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <xenevtchn.h>
+#include <xenctrl.h>
+#include <xenguest.h>
+#include <xenstore.h>
+#include "xen-hptool.h"
+
+static int hp_mem_online_func(int argc, char *argv[], xc_interface *xch)
+{
+    uint32_t status;
+    int ret;
+    unsigned long mfn;
+
+    if (argc != 1)
+    {
+        show_help();
+        return -1;
+    }
+
+    sscanf(argv[0], "%lx", &mfn);
+    printf("Prepare to online MEMORY mfn %lx\n", mfn);
+
+    ret = xc_mark_page_online(xch, mfn, mfn, &status);
+
+    if (ret < 0)
+        fprintf(stderr, "Onlining page mfn %lx failed, error %x\n", mfn, errno);
+    else if (status & (PG_ONLINE_FAILED |PG_ONLINE_BROKEN)) {
+        fprintf(stderr, "Onlining page mfn %lx is broken, "
+                        "Memory online failed\n", mfn);
+        ret = -1;
+    }
+    else if (status & PG_ONLINE_ONLINED)
+        printf("Memory mfn %lx onlined successfully\n", mfn);
+    else
+        printf("Memory is already onlined!\n");
+
+    return ret;
+}
+
+static int hp_mem_query_func(int argc, char *argv[], xc_interface *xch)
+{
+    uint32_t status;
+    int ret;
+    unsigned long mfn;
+
+    if (argc != 1)
+    {
+        show_help();
+        return -1;
+    }
+
+    sscanf(argv[0], "%lx", &mfn);
+    printf("Querying MEMORY mfn %lx status\n", mfn);
+    ret = xc_query_page_offline_status(xch, mfn, mfn, &status);
+
+    if (ret < 0)
+        fprintf(stderr, "Querying page mfn %lx failed, error %x\n", mfn, errno);
+    else
+    {
+        printf("Memory Status %x: [", status);
+        if ( status & PG_OFFLINE_STATUS_OFFLINE_PENDING)
+            printf(" PAGE_OFFLINE_PENDING ");
+        if ( status & PG_OFFLINE_STATUS_BROKEN )
+            printf(" PAGE_BROKEND  ");
+        if ( status & PG_OFFLINE_STATUS_OFFLINED )
+            printf(" PAGE_OFFLINED ");
+        else
+            printf(" PAGE_ONLINED ");
+        printf("]\n");
+    }
+
+    return ret;
+}
+
+static int suspend_guest(xc_interface *xch, xenevtchn_handle *xce, int domid,
+                         int *evtchn, int *lockfd)
+{
+    int port, rc, suspend_evtchn = -1;
+
+    *lockfd = -1;
+
+    if (!evtchn)
+        return -1;
+
+    port = xs_suspend_evtchn_port(domid);
+    if (port < 0)
+    {
+        fprintf(stderr, "DOM%d: No suspend port, try live migration\n", domid);
+        goto failed;
+    }
+    suspend_evtchn = xc_suspend_evtchn_init_exclusive(xch, xce, domid,
+                                                      port, lockfd);
+    if (suspend_evtchn < 0)
+    {
+        fprintf(stderr, "Suspend evtchn initialization failed\n");
+        goto failed;
+    }
+    *evtchn = suspend_evtchn;
+
+    rc = xenevtchn_notify(xce, suspend_evtchn);
+    if (rc < 0)
+    {
+        fprintf(stderr, "Failed to notify suspend channel: errno %d\n", rc);
+        goto failed;
+    }
+    if (xc_await_suspend(xch, xce, suspend_evtchn) < 0)
+    {
+        fprintf(stderr, "Suspend Failed\n");
+        goto failed;
+    }
+    return 0;
+
+failed:
+    if (suspend_evtchn != -1)
+        xc_suspend_evtchn_release(xch, xce, domid,
+                                  suspend_evtchn, lockfd);
+
+    return -1;
+}
+
+static int hp_mem_offline_func(int argc, char *argv[], xc_interface *xch)
+{
+    uint32_t status, domid;
+    int ret;
+    unsigned long mfn;
+
+    if (argc != 1)
+    {
+        show_help();
+        return -1;
+    }
+
+    sscanf(argv[0], "%lx", &mfn);
+    printf("Prepare to offline MEMORY mfn %lx\n", mfn);
+    ret = xc_mark_page_offline(xch, mfn, mfn, &status);
+    if (ret < 0) {
+        fprintf(stderr, "Offlining page mfn %lx failed, error %x\n", mfn, errno);
+        if (status & (PG_OFFLINE_XENPAGE | PG_OFFLINE_FAILED))
+            fprintf(stderr, "XEN_PAGE is not permitted be offlined\n");
+        else if (status & (PG_OFFLINE_FAILED | PG_OFFLINE_NOT_CONV_RAM))
+            fprintf(stderr, "RESERVED RAM is not permitted to be offlined\n");
+    }
+    else
+    {
+        switch(status & PG_OFFLINE_STATUS_MASK)
+        {
+            case PG_OFFLINE_OFFLINED:
+            {
+                printf("Memory mfn %lx offlined successfully, current state is"
+                       " [PG_OFFLINE_OFFLINED]\n", mfn);
+                if (status & PG_OFFLINE_BROKEN)
+                    printf("And this offlined PAGE is already marked broken"
+                        " before!\n");
+                break;
+            }
+            case PG_OFFLINE_FAILED:
+            {
+                fprintf(stderr, "Memory mfn %lx offline failed\n", mfn);
+                if ( status & PG_OFFLINE_ANONYMOUS)
+                    fprintf(stderr, "the memory is an anonymous page!\n");
+                ret = -1;
+                break;
+            }
+            case PG_OFFLINE_PENDING:
+            {
+                if (status & PG_OFFLINE_XENPAGE) {
+                    ret = -1;
+                    fprintf(stderr, "Memory mfn %lx offlined succssefully,"
+                            "this page is xen page, current state is"
+                            " [PG_OFFLINE_PENDING, PG_OFFLINE_XENPAGE]\n", mfn);
+                }
+                else if (status & PG_OFFLINE_OWNED)
+                {
+                    int result, suspend_evtchn = -1, suspend_lockfd = -1;
+                    xenevtchn_handle *xce;
+                    xce = xenevtchn_open(NULL, 0);
+
+                    if (xce == NULL)
+                    {
+                        fprintf(stderr, "When exchange page, fail"
+                                " to open evtchn\n");
+                        return -1;
+                    }
+
+                    domid = status >> PG_OFFLINE_OWNER_SHIFT;
+                    if (suspend_guest(xch, xce, domid,
+                                      &suspend_evtchn, &suspend_lockfd))
+                    {
+                        fprintf(stderr, "Failed to suspend guest %d for"
+                                " mfn %lx\n", domid, mfn);
+                        xenevtchn_close(xce);
+                        return -1;
+                    }
+
+                    result = xc_exchange_page(xch, domid, mfn);
+
+                    /* Exchange page successfully */
+                    if (result == 0)
+                        printf("Memory mfn %lx offlined successfully, this "
+                                "page is DOM%d page and being swapped "
+                                "successfully, current state is "
+                                "[PG_OFFLINE_OFFLINED, PG_OFFLINE_OWNED]\n",
+                                mfn, domid);
+                    else {
+                        ret = -1;
+                        fprintf(stderr, "Memory mfn %lx offlined successfully"
+                                " , this page is DOM%d page yet failed to be "
+                                "exchanged. current state is "
+                                "[PG_OFFLINE_PENDING, PG_OFFLINE_OWNED]\n",
+                                mfn, domid);
+                    }
+                    xc_domain_resume(xch, domid, 1);
+                    xc_suspend_evtchn_release(xch, xce, domid,
+                                              suspend_evtchn, &suspend_lockfd);
+                    xenevtchn_close(xce);
+                }
+                break;
+            }
+        }//end of switch
+    }//end of if
+
+    return ret;
+}
+
+int main_smt_enable(int argc, char *argv[], xc_interface *xch)
+{
+    int ret;
+
+    if ( argc )
+    {
+        show_help();
+        return -1;
+    }
+
+    for ( ;; )
+    {
+        ret = xc_smt_enable(xch);
+        if ( (ret >= 0) || (errno != EBUSY) )
+            break;
+    }
+
+    if ( ret < 0 )
+        fprintf(stderr, "Unable to enable SMT: errno %d, %s\n",
+                errno, strerror(errno));
+    else
+        printf("Enabled SMT\n");
+
+    return ret;
+}
+
+int main_smt_disable(int argc, char *argv[], xc_interface *xch)
+{
+    int ret;
+
+    if ( argc )
+    {
+        show_help();
+        return -1;
+    }
+
+    for ( ;; )
+    {
+        ret = xc_smt_disable(xch);
+        if ( (ret >= 0) || (errno != EBUSY) )
+            break;
+    }
+
+    if ( ret < 0 )
+        fprintf(stderr, "Unable to disable SMT: errno %d, %s\n",
+                errno, strerror(errno));
+    else
+        printf("Disabled SMT\n");
+
+    return ret;
+}
