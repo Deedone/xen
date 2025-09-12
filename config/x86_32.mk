@@ -3,6 +3,7 @@ CONFIG_X86_32 := y
 
 CONFIG_MIGRATE := y
 CONFIG_XCUTILS := y
+CONFIG_HOTPLUG := y
 
 CFLAGS += -m32 -march=i686
 

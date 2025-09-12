@@ -7,6 +7,9 @@ OBJS-y += xg_private.o
 OBJS-y += xg_domain.o
 OBJS-y += xg_suspend.o
 OBJS-y += xg_resume.o
+
+OBJS-$(CONFIG_HOTPLUG) += xg_offline_page.o
+
 ifeq ($(CONFIG_MIGRATE),y)
 OBJS-y += xg_sr_common.o
 OBJS-$(CONFIG_X86) += xg_sr_common_x86.o
@@ -17,7 +20,6 @@ OBJS-$(CONFIG_X86) += xg_sr_save_x86_pv.o
 OBJS-$(CONFIG_X86) += xg_sr_save_x86_hvm.o
 OBJS-y += xg_sr_restore.o
 OBJS-y += xg_sr_save.o
-OBJS-y += xg_offline_page.o
 else
 OBJS-y += xg_nomigrate.o
 endif
