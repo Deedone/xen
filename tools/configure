@@ -731,6 +731,7 @@ LD86
 AS86
 ipxe
 LINUX_BACKEND_MODULES
+hptool
 pygrub
 golang
 seabios
@@ -837,6 +838,7 @@ enable_ovmf
 enable_seabios
 enable_golang
 enable_pygrub
+enable_hptool
 with_linux_backend_modules
 enable_ipxe
 with_system_ipxe
@@ -1524,6 +1526,7 @@ Optional Features:
   --disable-seabios       Disable SeaBIOS (default is ENABLED)
   --disable-golang        Disable Go tools (default is ENABLED)
   --disable-pygrub        Disable pygrub (default is ENABLED)
+  --disable-hptool        Disable hptool (default is ENABLED)
   --enable-ipxe           Enable in-tree IPXE, (DEFAULT is off, see also
                           --with-system-ipxe)
   --enable-rombios        Enable ROMBIOS, (DEFAULT is on if ipxe is enabled,
@@ -4813,6 +4816,33 @@ then :
 
 fi
 pygrub=$ax_cv_pygrub
+
+
+
+# Check whether --enable-hptool was given.
+if test ${enable_hptool+y}
+then :
+  enableval=$enable_hptool;
+fi
+
+
+if test "x$enable_hptool" = "xno"
+then :
+
+    ax_cv_hptool="n"
+
+elif test "x$enable_hptool" = "xyes"
+then :
+
+    ax_cv_hptool="y"
+
+elif test -z $ax_cv_hptool
+then :
+
+    ax_cv_hptool="y"
+
+fi
+hptool=$ax_cv_hptool
 
 
 

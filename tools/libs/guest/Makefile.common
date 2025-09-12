@@ -25,6 +25,10 @@ OBJS-y       += xg_core.o
 OBJS-$(CONFIG_X86) += xg_core_x86.o
 OBJS-$(CONFIG_ARM) += xg_core_arm.o
 
+ifneq (,$(filter y,$(CONFIG_MIGRATE)$(CONFIG_HPTOOL)))
+OBJS-y += xg_offline_page.o
+endif
+
 vpath %.c ../../../xen/common/libelf
 
 LIBELF_OBJS += libelf-tools.o libelf-loader.o
