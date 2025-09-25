@@ -470,12 +470,18 @@ void asmlinkage __init noreturn start_xen(unsigned long fdt_paddr)
     enable_errata_workarounds();
     enable_cpu_features();
 
-    /* Create initial domain 0. */
-    if ( !is_dom0less_mode() )
+    if ( IS_ENABLED(CONFIG_DOM0_BOOT) && !is_dom0less_mode() )
+    {
+        /* Create initial domain 0. */
         create_dom0();
+    }
     else
-        printk(XENLOG_INFO "Xen dom0less mode detected\n");
-
+    {
+        if ( is_dom0less_mode())
+            printk(XENLOG_INFO "Xen dom0less mode detected\n");
+        else
+            panic("Neither dom0 nor dom0less mode was detected, aborting\n");
+    }
     if ( acpi_disabled )
     {
         create_domUs();

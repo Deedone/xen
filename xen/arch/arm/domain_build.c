@@ -45,8 +45,10 @@
 #include <asm/grant_table.h>
 #include <xen/serial.h>
 
+#ifdef CONFIG_DOM0_BOOT
 static unsigned int __initdata opt_dom0_max_vcpus;
 integer_param("dom0_max_vcpus", opt_dom0_max_vcpus);
+#endif
 
 /*
  * If true, the extended regions support is enabled for dom0 and
@@ -125,6 +127,7 @@ paddr_t __init hwdom_get_fdt_alloc_size(void)
     return ACPI_DOM0_FDT_MIN_SIZE;
 }
 
+#ifdef CONFIG_DOM0_BOOT
 unsigned int __init dom0_max_vcpus(void)
 {
     if ( opt_dom0_max_vcpus == 0 )
@@ -137,6 +140,7 @@ unsigned int __init dom0_max_vcpus(void)
 
     return opt_dom0_max_vcpus;
 }
+#endif
 
 /*
  * Insert the given pages into a memory bank, banks are ordered by address.
@@ -2128,6 +2132,7 @@ int __init construct_domain(struct domain *d, struct kernel_info *kinfo)
     return 0;
 }
 
+#ifdef CONFIG_DOM0_BOOT
 static int __init construct_dom0(struct domain *d)
 {
     struct kernel_info kinfo = KERNEL_INFO_INIT;
@@ -2159,6 +2164,7 @@ static int __init construct_dom0(struct domain *d)
 
     return construct_hwdom(&kinfo, NULL);
 }
+#endif
 
 int __init construct_hwdom(struct kernel_info *kinfo,
                            const struct dt_device_node *node)
@@ -2217,6 +2223,7 @@ int __init construct_hwdom(struct kernel_info *kinfo,
     return construct_domain(d, kinfo);
 }
 
+#ifdef CONFIG_DOM0_BOOT
 void __init create_dom0(void)
 {
     struct domain *dom0;
@@ -2281,6 +2288,7 @@ void __init create_dom0(void)
 
     set_xs_domain(dom0);
 }
+#endif /* CONFIG_DOM0_BOOT */
 
 /*
  * Local variables:

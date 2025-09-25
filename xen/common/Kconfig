@@ -26,6 +26,15 @@ config DOM0LESS_BOOT
 	  Xen boot without the need of a control domain (Dom0), which could be
 	  present anyway.
 
+config DOM0_BOOT
+	bool "Dom0 boot support" if EXPERT
+	default y
+	depends on HAS_DOM0
+	help
+	  Dom0 boot support enables Xen to boot to the all-powerful domain (Dom0).
+	  If this isn't enabled Xen is expected to boot in dom0less/hyperlaunch
+	  mode only.
+
 config DOMAIN_BUILD_HELPERS
 	bool
 
@@ -124,6 +133,9 @@ config HAS_COMPAT
 config HAS_DEVICE_TREE_DISCOVERY
 	bool
 	select DEVICE_TREE_PARSE
+
+config HAS_DOM0
+	bool
 
 config HAS_DOM0LESS
 	bool
