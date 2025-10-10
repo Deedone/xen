@@ -52,6 +52,7 @@ For the Cortex A77 r0p0 - r1p0, see Errata 1508412.
 ### ACPI CPU Hotplug
 
     Status, x86: Experimental
+    Status, Arm64: Experimental
 
 ### Physical Memory
 
