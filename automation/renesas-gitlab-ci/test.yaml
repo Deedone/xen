@@ -183,3 +183,11 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-getdomaininfo:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-getdomaininfo 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
+
+# [XenValTestJob~~1->XenValTestCode~arm64_domctl_createdomain~1]
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-createdomain:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-createdomain 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
