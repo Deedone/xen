@@ -191,3 +191,12 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-createdomain:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-createdomain 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
+
+# [XenValTestJob~~1->XenValTestCode~arm64_domctl_get_paging_mempool_size~1]
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-get-paging-mempool-size:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-get-paging-mempool-size 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
