@@ -339,9 +339,32 @@ static int queue_poll_cons(struct arm_smmu_queue *q, bool sync, bool wfe)
 static void queue_write(__le64 *dst, u64 *src, size_t n_dwords)
 {
 	int i;
+	const void *p;
+	size_t cacheline_mask = dcache_line_bytes - 1;
 
-	for (i = 0; i < n_dwords; ++i)
+	for (i = 0; i < n_dwords; ++i) {
 		*dst++ = cpu_to_le64(*src++);
+		/*
+		 * WA HACK: without invadlidating the cache here, the SMMU
+		 * will read invalid commands, due to some possible race issues
+		 * while updating prod_reg in advance of writing actual
+		 * data to the queue. This happens when more than one CPU
+		 * is enabled and while starting DomU, while a lot of SMMU
+		 * invalidation commands are sent to the SMMU. No memory
+		 * barrier is not working,  as well as more logical using
+		 * of proper cleaning of caches. Also, moving the same code just
+		 * below the cycle is not working too. The issue was
+		 * reproduced only once on the native BSP.
+		 *
+		 * NOTE: This hack should be removed once the root cause
+		 * of the issue is found and fixed properly.
+		 * Second NOTE: raw __invalidate_dcache_one function is used,
+		 * due to bug in Xen while invoking the invalidate_dcache_va_range,
+		 * while calculating the size which may overflow.
+		 */
+		p = (void *)((uintptr_t)dst & ~cacheline_mask);
+		asm volatile (__invalidate_dcache_one(0) : : "r" (p));
+	}
 }
 
 static int queue_insert_raw(struct arm_smmu_queue *q, u64 *ent)
