@@ -187,7 +187,7 @@ INSTALL_PYTHON_PROG = \
 
 subdirs-all subdirs-clean subdirs-install subdirs-distclean subdirs-uninstall: .phony
 	@set -e; for subdir in $(SUBDIRS) $(SUBDIRS-y); do \
-		$(MAKE) subdir-$(patsubst subdirs-%,%,$@)-$$subdir; \
+		$(MAKE) subdir-$(patsubst subdirs-%,%,$@)-$$subdir;  \
 	done
 
 subdir-all-% subdir-clean-% subdir-install-% subdir-uninstall-%: .phony
