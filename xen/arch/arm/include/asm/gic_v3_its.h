@@ -20,9 +20,15 @@
 #ifndef __ASM_ARM_ITS_H__
 #define __ASM_ARM_ITS_H__
 
+#define GIC_PAGE_SIZE_4K                0UL
+#define GIC_PAGE_SIZE_16K               1UL
+#define GIC_PAGE_SIZE_64K               2UL
+#define GIC_PAGE_SIZE_MASK              3UL
+
 #define GITS_CTLR                       0x000
 #define GITS_IIDR                       0x004
 #define GITS_TYPER                      0x008
+#define GITS_MPIDR                      0x018
 #define GITS_CBASER                     0x080
 #define GITS_CWRITER                    0x088
 #define GITS_CREADR                     0x090
@@ -39,9 +45,20 @@
 
 /* Register bits */
 #define GITS_VALID_BIT                  BIT(63, UL)
+#ifdef CONFIG_GICV4
+#define GITS_ALLOC_BIT                  BIT(8, UL)
+#define GITS_PTZ_BIT                    BIT(9, UL)
+#define GITS_DB_BIT                     BIT(63, UL)
+#define GITS_ENABLE_BIT                 BIT(8, UL)
+#define GITS_CLEAR_BIT                  BIT(9, UL)
+#define GITS_GROUP_BIT                  BIT(10, UL)
+#endif
 
 #define GITS_CTLR_QUIESCENT             BIT(31, UL)
 #define GITS_CTLR_ENABLE                BIT(0, UL)
+
+#define GITS_CTLR_ITS_NUMBER_SHIFT      4
+#define GITS_CTLR_ITS_NUMBER            (0xfUL << GITS_CTLR_ITS_NUMBER_SHIFT)
 
 #define GITS_TYPER_PTA                  BIT(19, UL)
 #define GITS_TYPER_DEVIDS_SHIFT         13
@@ -60,10 +77,17 @@
                                                  GITS_TYPER_ITT_SIZE_SHIFT) + 1)
 #define GITS_TYPER_PHYSICAL             (1U << 0)
 
+#define GITS_TYPER_VLPIS                (1UL << 1)
+#define GICR_TYPER_DIRTY                (1UL << 2)
+#define GITS_TYPER_VMOVP                (1UL << 37)
+#define GITS_TYPER_VMAPP                (1UL << 40)
+#define GITS_TYPER_SVPET                GENMASK(42, 41)
 #define GITS_BASER_INDIRECT             BIT(62, UL)
+#define GITS_BASER_VALID                BIT(63, UL)
 #define GITS_BASER_INNER_CACHEABILITY_SHIFT        59
 #define GITS_BASER_TYPE_SHIFT           56
 #define GITS_BASER_TYPE_MASK            (7ULL << GITS_BASER_TYPE_SHIFT)
+#define GITS_BASER_TYPE(reg)            ((reg & GITS_BASER_TYPE_MASK) >> GITS_BASER_TYPE_SHIFT)
 #define GITS_BASER_OUTER_CACHEABILITY_SHIFT        53
 #define GITS_BASER_TYPE_NONE            0UL
 #define GITS_BASER_TYPE_DEVICE          1UL
@@ -76,12 +100,23 @@
 #define GITS_BASER_ENTRY_SIZE_SHIFT     48
 #define GITS_BASER_ENTRY_SIZE(reg)                                       \
                         ((((reg) >> GITS_BASER_ENTRY_SIZE_SHIFT) & 0x1f) + 1)
+#define GITS_LVL1_ENTRY_SIZE            8UL
 #define GITS_BASER_SHAREABILITY_SHIFT   10
 #define GITS_BASER_PAGE_SIZE_SHIFT      8
+#define __GITS_BASER_PSZ(sz)            (GIC_PAGE_SIZE_ ## sz <<         \
+                                        GITS_BASER_PAGE_SIZE_SHIFT)
+#define GITS_BASER_PAGE_SIZE_4K         __GITS_BASER_PSZ(4K)
+#define GITS_BASER_PAGE_SIZE_16K        __GITS_BASER_PSZ(16K)
+#define GITS_BASER_PAGE_SIZE_64K        __GITS_BASER_PSZ(64K)
+#define GITS_BASER_PAGE_SIZE_MASK       __GITS_BASER_PSZ(MASK)
+#define GITS_BASER_NR_PAGES(r)          (((r) & 0xff) + 1)
+
 #define GITS_BASER_SIZE_MASK            0xff
 #define GITS_BASER_SHAREABILITY_MASK   (0x3ULL << GITS_BASER_SHAREABILITY_SHIFT)
 #define GITS_BASER_OUTER_CACHEABILITY_MASK   (0x7ULL << GITS_BASER_OUTER_CACHEABILITY_SHIFT)
 #define GITS_BASER_INNER_CACHEABILITY_MASK   (0x7ULL << GITS_BASER_INNER_CACHEABILITY_SHIFT)
+#define GITS_BASER_ADDR_48_to_52(baser)                 \
+    (((baser) & GENMASK(47, 16)) | (((baser) >> 12) & 0xf) << 48)
 
 #define GITS_CBASER_SIZE_MASK           0xff
 
@@ -116,6 +151,55 @@
 /* We allocate LPIs on the hosts in chunks of 32 to reduce handling overhead. */
 #define LPI_BLOCK                       32U
 
+/*
+ * Maximum number of ITSs when GITS_TYPER.VMOVP == 0, using the
+ * ITSList mechanism to perform inter-ITS synchronization.
+ */
+#define GICv4_ITS_LIST_MAX      16
+
+extern unsigned int nvpeid;
+/* The maximum number of VPEID bits supported by VLPI commands */
+#define ITS_MAX_VPEID_BITS      nvpeid
+#define MAX_VPEID               (1UL << ITS_MAX_VPEID_BITS)
+
+#ifdef CONFIG_GICV4
+#include <asm/gic_v4_its.h>
+#endif
+
+/*
+ * Describes a device which is using the ITS and is used by a guest.
+ * Since device IDs are per ITS (in contrast to vLPIs, which are per
+ * guest), we have to differentiate between different virtual ITSes.
+ * We use the doorbell address here, since this is a nice architectural
+ * property of MSIs in general and we can easily get to the base address
+ * of the ITS and look that up.
+ */
+struct its_device {
+    struct rb_node rbnode;
+    struct host_its *hw_its;
+    void *itt_addr;
+    paddr_t guest_doorbell;             /* Identifies the virtual ITS */
+    uint32_t host_devid;
+    uint32_t guest_devid;
+    uint32_t eventids;                  /* Number of event IDs (MSIs) */
+    uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
+    struct pending_irq *pend_irqs;      /* One struct per event */
+#ifdef CONFIG_GICV4
+    struct event_vlpi_map event_map;
+#endif
+};
+
+/*
+ * The ITS_BASER structure - contains memory information, cached
+ * value of BASER register configuration.
+ */
+struct its_baser {
+    void            *base;
+    uint64_t        val;
+    unsigned int    table_size;
+    unsigned int    pagesz;
+};
+
 /* data structure for each hardware ITS */
 struct host_its {
     struct list_head entry;
@@ -123,19 +207,66 @@ struct host_its {
     paddr_t addr;
     paddr_t size;
     void __iomem *its_base;
+    void __iomem *sgir_base;
     unsigned int devid_bits;
     unsigned int evid_bits;
     unsigned int itte_size;
     spinlock_t cmd_lock;
     void *cmd_buf;
     unsigned int flags;
+    bool is_v4;
+    struct its_baser tables[GITS_BASER_NR_REGS];
+    bool is_v4_1;
+    uint32_t mpidr;
 };
-
 
 #ifdef CONFIG_HAS_ITS
 
-extern struct list_head host_its_list;
+struct __lpi_data {
+    /* The global LPI property table, shared by all redistributors. */
+    uint8_t *lpi_property;
+    /*
+     * A two-level table to lookup LPIs firing on the host and look up the
+     * VCPU and virtual LPI number to inject into.
+     */
+    union host_lpi **host_lpis;
+    /*
+     * Number of physical LPIs the host supports. This is a property of
+     * the GIC hardware. We depart from the habit of naming these things
+     * "physical" in Xen, as the GICv3/4 spec uses the term "physical LPI"
+     * in a different context to differentiate them from "virtual LPIs".
+     */
+    unsigned long int max_host_lpi_ids;
+    /*
+     * Protects allocation and deallocation of host LPIs and next_free_lpi,
+     * but not the actual data stored in the host_lpi entry.
+     */
+    spinlock_t host_lpis_lock;
+    uint32_t next_free_lpi;
+    unsigned int flags;
+};
+extern struct __lpi_data lpi_data;
 
+extern struct list_head host_its_list;
+extern unsigned long its_list_map;
+
+int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
+                         uint32_t eventid);
+int its_send_cmd_inv(struct host_its *its, uint32_t deviceid, uint32_t eventid);
+int its_send_cmd_clear(struct host_its *its, uint32_t deviceid, uint32_t eventid);
+int its_send_cmd_int(struct host_its *its, uint32_t deviceid, uint32_t eventid);
+int gicv3_its_wait_commands(struct host_its *hw_its);
+int its_inv_lpi(struct host_its *its, struct its_device *dev,
+                uint32_t eventid, unsigned int cpu);
+int its_send_cmd_mapti(struct host_its *its, uint32_t deviceid,
+                       uint32_t eventid, uint32_t pintid, uint16_t icid);
+struct its_device *its_create_device(struct host_its *hw_its,
+                                     uint32_t host_devid, uint64_t nr_events);
+int update_lpi_property(struct domain *d, struct pending_irq *p,
+                        bool needs_inv);
+int its_send_cmd_movi(struct host_its *its, uint32_t deviceid, uint32_t eventid,
+                      uint16_t icid);
+int its_send_cmd_sync(struct host_its *its, unsigned int cpu);
 #ifdef CONFIG_ACPI
 unsigned long gicv3_its_make_hwdom_madt(const struct domain *d,
                                         void *base_ptr);
@@ -202,7 +333,49 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
                                              uint32_t vdevid, uint32_t eventid,
                                              uint32_t virt_lpi);
 void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
-                                 uint32_t virt_lpi);
+                                 uint32_t virt_lpi, bool is_db,
+                                 uint16_t db_vcpu_id);
+
+extern uint32_t lpi_id_bits;
+#define HOST_LPIS_NRBITS   lpi_id_bits
+#define MAX_HOST_LPIS      BIT(lpi_id_bits, UL)
+
+bool its_alloc_table_entry(struct its_baser *baser, uint32_t id);
+struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type);
+struct page_info *lpi_allocate_pendtable(void);
+struct page_info *lpi_allocate_proptable(void);
+void lpi_write_config(uint8_t *prop_table, uint32_t lpi, uint8_t clr,
+                      uint8_t set);
+
+uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu, uint64_t reg);
+int its_send_command(struct host_its *hw_its, const void *its_cmd);
+
+struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
+                                  uint32_t vdevid);
+
+/* GICv4 functions */
+int gicv4_assign_guest_event(struct domain *d, paddr_t vdoorbell_address,
+                             uint32_t vdevid, uint32_t eventid,
+                             struct pending_irq *pirq);
+int gicv4_its_vlpi_move(struct pending_irq *pirq, struct vcpu *vcpu);
+#ifndef CONFIG_GICV4
+#define event_is_forwarded_to_vcpu(dev, eventid) ((void)dev, (void)eventid, false)
+#else
+bool event_is_forwarded_to_vcpu(struct its_device *dev, uint32_t eventid);
+void its_vpe_mask_db(struct its_vpe *vpe);
+#endif
+int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
+                      uint32_t eventid);
+int its_vlpi_prop_update(struct pending_irq *pirq, uint8_t property,
+                         bool needs_inv);
+int its_set_vlpi_state(struct pending_irq *pirq, bool state);
+int gicv4_its_vlpi_unmap(struct pending_irq *pirq);
+int gicv4_its_handle_invall(struct domain *d, struct vcpu *vcpu);
+/* GICv4.1 functions */
+uint32_t compute_common_aff(uint64_t val);
+uint32_t compute_its_aff(struct host_its *hw_its);
+void direct_lpi_inv(struct its_device *dev, uint32_t eventid,
+                    uint32_t db_lpi, unsigned int cpu);
 
 /* ITS quirks handling. */
 uint64_t gicv3_its_get_cacheability(void);
@@ -286,6 +459,11 @@ static inline int gicv3_its_make_emulated_dt_node(const struct domain *d, void *
 {
     return 0;
 }
+
+#ifndef FIELD_GET
+#define FIELD_GET(_mask, _reg)			\
+	((typeof(_mask))(((_reg) & (_mask)) >> (ffs64(_mask) - 1)))
+#endif
 
 #endif /* CONFIG_HAS_ITS */
 

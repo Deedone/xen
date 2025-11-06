@@ -529,7 +529,9 @@ libxl_vnode_info = Struct("vnode_info", [
 libxl_gic_version = Enumeration("gic_version", [
     (0, "DEFAULT"),
     (0x20, "v2"),
-    (0x30, "v3")
+    (0x30, "v3"),
+    (0x40, "v4"),
+    (0x50, "v4_1")
     ], init_val = "LIBXL_GIC_VERSION_DEFAULT")
 
 libxl_tee_type = Enumeration("tee_type", [

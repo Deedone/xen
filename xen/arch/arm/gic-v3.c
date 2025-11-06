@@ -30,6 +30,9 @@
 #include <asm/gic.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
+#ifdef CONFIG_GICV4
+#include <asm/gic_v4_its.h>
+#endif
 #include <asm/io.h>
 #include <asm/pci.h>
 #include <asm/sysregs.h>
@@ -46,12 +49,123 @@ static struct {
 
 static struct gic_info gicv3_info;
 
+#ifdef CONFIG_GICV4
+/* Global state */
+static struct {
+    bool has_vlpis;
+    bool has_direct_lpi;
+    bool has_vpend_valid_dirty;
+    bool has_rvpeid;
+} gicv4 = { .has_vlpis = true, .has_direct_lpi = true,
+            .has_vpend_valid_dirty = true, .has_rvpeid = true, };
+
+void __iomem *gict_base;
+
+void map_gict(paddr_t dist_paddr)
+{
+    uint32_t val;
+    uint32_t iidr;
+    uint32_t devid;
+    // dist_paddr = 0x38000000;
+    //TODO fix
+    printk("MAPPIG GICT BASE ADDRESS %lx\n", dist_paddr + 0x20000);
+    
+    gict_base = ioremap_nocache(dist_paddr + 0x20000, SZ_64K);
+    
+    val = readl(gict_base);
+    iidr = readl(gict_base + 0xe100);
+    devid = readl(gict_base + 0xFFC8);
+    printk("GICT_ERR val %x\n", val);
+    printk("GICT_IIDR val %x\n", iidr);
+    printk("GICT_DEVID val %x\n", devid);
+}
+
+#define GICT_STATUS(x) (0x0010 + (x * 64))
+#define GICT_ADDR(x) (0x0018 + (x * 64))
+#define GICT_MISC0(x) (0x0020 + (x * 64))
+#define GICT_MISC1(x) (0x0028 + (x * 64))
+#define GICT_STATUS_VALID (1UL << 30)
+#define GICT_STATUS_CE GENMASK(25, 24)
+#define GICT_STATUS_SERR GENMASK(7, 0)
+#define GICT_STATUS_IERR GENMASK(15, 8)
+#define GICT_STATUS_UE (1UL << 29)
+void check_errs(void)
+{
+    int i;
+    bool err = 0;
+    // printk("CHECK ERRS\n");
+    for (i = 0; i < 40; i++) {
+        uint32_t status = readl(gict_base + GICT_STATUS(i));
+        uint64_t misc0 = readq(gict_base + GICT_MISC0(i));
+        uint64_t misc1 = readq(gict_base + GICT_MISC1(i));
+        uint64_t addr = readq(gict_base + GICT_ADDR(i));
+        if (status & GICT_STATUS_VALID) {
+            printk("GICT STATUS ERR %d: STATUS=0x%x\n", i, status);
+            if (status & GICT_STATUS_UE)
+                printk("  Uncorrectable Error\n");
+            else if (status & GICT_STATUS_CE)
+                printk("  Correctable Error\n");
+            printk("  SERR=0x%lx\n", status & GICT_STATUS_SERR);
+            printk("  IERR=0x%lx\n", (status & GICT_STATUS_IERR) >> 8);
+            printk("  MISC0=0x%lx\n", misc0);
+            printk("  MISC1=0x%lx\n", misc1);
+            printk("  ADDR=0x%lx\n", addr);
+            err = 1;
+        }
+    }
+    BUG_ON(err);
+}
+
+bool gic_support_directLPI(void)
+{
+    return gicv4.has_direct_lpi;
+}
+
+bool gic_support_vptValidDirty(void)
+{
+    return gicv4.has_vpend_valid_dirty;
+}
+
+bool gic_has_v4_1_extension(void)
+{
+    return gicv4.has_rvpeid;
+}
+
+void gicv4_its_init_nvpeid(void)
+{
+    uint32_t reg;
+
+    reg = readl_relaxed(gicv3.map_dbase + GICD_TYPER2);
+    if ( gic_has_v4_1_extension() && (reg & GICD_TYPER2_VIL) )
+        nvpeid = 1 + (reg & GICD_TYPER2_VID);
+    printk("NVPEID = %d\n", nvpeid);
+}
+#endif
+
 /* per-cpu re-distributor base */
-static DEFINE_PER_CPU(void __iomem*, rbase);
+DEFINE_PER_CPU(void __iomem*, rbase);
 
 #define GICD                   (gicv3.map_dbase)
 #define GICD_RDIST_BASE        (this_cpu(rbase))
 #define GICD_RDIST_SGI_BASE    (GICD_RDIST_BASE + SZ_64K)
+
+#ifdef CONFIG_GICV4
+static bool gic_is_gicv4(void)
+{
+    return gicv4.has_vlpis;
+}
+
+bool vgic_has_directVLPI(struct domain *d)
+{
+    return (gicv4.has_vlpis) && ((d->arch.vgic.version == GIC_V4) ||
+                                 (d->arch.vgic.version == GIC_V4_1));
+}
+#else
+static bool gic_is_gicv4(void)
+{
+    return false;
+}
+#endif
 
 /*
  * Saves all 16(Max) LR registers. Though number of LRs implemented
@@ -389,13 +503,15 @@ static void gicv3_save_state(struct vcpu *v)
      * are now visible to the system register interface
      */
     dsb(sy);
+    if ( vgic_has_directVLPI(v->domain) )
+        vgic_v4_put(v, false);
     gicv3_save_lrs(v);
     save_aprn_regs(&v->arch.gic);
     v->arch.gic.v3.vmcr = READ_SYSREG(ICH_VMCR_EL2);
     v->arch.gic.v3.sre_el1 = READ_SYSREG(ICC_SRE_EL1);
 }
 
-static void gicv3_restore_state(const struct vcpu *v)
+static void gicv3_restore_state(struct vcpu *v)
 {
     register_t val;
 
@@ -423,6 +539,9 @@ static void gicv3_restore_state(const struct vcpu *v)
     WRITE_SYSREG(v->arch.gic.v3.vmcr, ICH_VMCR_EL2);
     restore_aprn_regs(&v->arch.gic);
     gicv3_restore_lrs(v);
+
+    if ( vgic_has_directVLPI(v->domain) )
+        vgic_v4_load(v);
 
     /*
      * Make sure all stores are visible the GIC
@@ -860,7 +979,8 @@ static bool gicv3_enable_lpis(void)
     return true;
 }
 
-static int __init gicv3_populate_rdist(void)
+static int __init gic_iterate_rdists(int (*fn)(struct rdist_region *,
+                                               void __iomem *))
 {
     int i;
     uint32_t aff;
@@ -904,40 +1024,16 @@ static int __init gicv3_populate_rdist(void)
 
             if ( (typer >> 32) == aff )
             {
+                int ret;
+
                 this_cpu(rbase) = ptr;
 
-                if ( typer & GICR_TYPER_PLPIS )
-                {
-                    paddr_t rdist_addr;
-                    unsigned int procnum;
-                    int ret;
+                ret = fn(gicv3.rdist_regions + i, ptr);
+                if ( ret )
+                    return ret;
 
-                    /*
-                     * The ITS refers to redistributors either by their physical
-                     * address or by their ID. Which one to use is an ITS
-                     * choice. So determine those two values here (which we
-                     * can do only here in GICv3 code) and tell the
-                     * ITS code about it, so it can use them later to be able
-                     * to address those redistributors accordingly.
-                     */
-                    rdist_addr = gicv3.rdist_regions[i].base;
-                    rdist_addr += ptr - gicv3.rdist_regions[i].map_base;
-                    procnum = (typer & GICR_TYPER_PROC_NUM_MASK);
-                    procnum >>= GICR_TYPER_PROC_NUM_SHIFT;
-
-                    gicv3_set_redist_address(rdist_addr, procnum);
-
-                    ret = gicv3_lpi_init_rdist(ptr);
-                    if ( ret && ret != -ENODEV )
-                    {
-                        printk("GICv3: CPU%d: Cannot initialize LPIs: %u\n",
-                               smp_processor_id(), ret);
-                        break;
-                    }
-                }
-
-                printk("GICv3: CPU%d: Found redistributor in region %d @%p\n",
-                        smp_processor_id(), i, ptr);
+                printk("GICv3: CPU%d: Found redistributor @%p\n",
+                       smp_processor_id(), ptr);
                 return 0;
             }
 
@@ -956,11 +1052,107 @@ static int __init gicv3_populate_rdist(void)
         } while ( !(typer & GICR_TYPER_LAST) );
     }
 
+    return -ENODEV;
+}
+
+static int __init __gicv3_populate_rdist(struct rdist_region *region,
+                                         void __iomem *ptr)
+{
+    uint64_t typer;
+
+    typer = readq_relaxed(ptr + GICR_TYPER);
+    if ( typer & GICR_TYPER_PLPIS )
+    {
+        paddr_t rdist_addr;
+        unsigned int procnum;
+        int ret;
+
+        /*
+         * The ITS refers to redistributors either by their physical
+         * address or by their ID. Which one to use is an ITS
+         * choice. So determine those two values here (which we
+         * can do only here in GICv3 code) and tell the
+         * ITS code about it, so it can use them later to be able
+         * to address those redistributors accordingly.
+         */
+        rdist_addr = region->base;
+        rdist_addr += ptr - region->map_base;
+        procnum = (typer & GICR_TYPER_PROC_NUM_MASK);
+        procnum >>= GICR_TYPER_PROC_NUM_SHIFT;
+
+        gicv3_set_redist_address(rdist_addr, procnum);
+
+        ret = gicv3_lpi_init_rdist(ptr);
+        if ( ret && ret != -ENODEV )
+        {
+            printk("GICv3: CPU%d: Cannot initialize LPIs: %d\n",
+                   smp_processor_id(), ret);
+            printk("%s %d\n", __func__, __LINE__);
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
+static int __init gicv3_populate_rdist(void)
+{
+    int ret = gic_iterate_rdists(__gicv3_populate_rdist);
+    if ( ret == 0)
+        return 0;
+
     dprintk(XENLOG_ERR, "GICv3: CPU%d: mpidr 0x%"PRIregister" has no re-distributor!\n",
             smp_processor_id(), cpu_logical_map(smp_processor_id()));
+    return -ENODEV;
+}
+
+#ifdef CONFIG_GICV4
+static int __init __gicv4_update_vlpi_properties(struct rdist_region *region,
+                                                 void __iomem *ptr)
+{
+    uint64_t typer;
+
+    typer = readq_relaxed(ptr + GICR_TYPER);
+    gicv4.has_vlpis &= !!(typer & GICR_TYPER_VLPIS);
+    gicv4.has_rvpeid &= !!(typer & GICR_TYPER_RVPEID);
+    /* RVPEID implies some form of DirectLPI. */
+    gicv4.has_direct_lpi &= (!!(typer & GICR_TYPER_DirectLPIS) ||
+                             !!(typer & GICR_TYPER_RVPEID));
+    gicv4.has_vpend_valid_dirty &= !!(typer & GICR_TYPER_DIRTY);
+
+    /* Detect non-sensical configurations */
+    if ( gicv4.has_rvpeid && !gicv4.has_vlpis )
+    {
+        gicv4.has_direct_lpi = false;
+        gicv4.has_vlpis = false;
+        gicv4.has_rvpeid = false;
+    }
+
+    printk("GICv4: CPU%d: %sVLPI support, %sdirect LPI support, %sValid+Dirty support, %sRVPEID support\n",
+           smp_processor_id(), !!(typer & GICR_TYPER_VLPIS) ? "" : "no ",
+           (!!(typer & GICR_TYPER_DirectLPIS) ||
+            !!(typer & GICR_TYPER_RVPEID)) ? "" : "no ",
+           !!(typer & GICR_TYPER_DIRTY) ? "" : "no ",
+           !!(typer & GICR_TYPER_RVPEID) ? "" : "no ");
+
+    return 0;
+}
+
+static int __init gicv4_update_vlpi_properties(void)
+{
+    int ret = gic_iterate_rdists(__gicv4_update_vlpi_properties);
+
+    if ( ret == 0 )
+        return 0;
 
     return -ENODEV;
 }
+#else
+static int __init gicv4_update_vlpi_properties(void)
+{
+    return 0;
+}
+#endif
 
 static int gicv3_cpu_init(void)
 {
@@ -969,6 +1161,10 @@ static int gicv3_cpu_init(void)
     /* Register ourselves with the rest of the world */
     if ( gicv3_populate_rdist() )
         return -ENODEV;
+
+    ret = gicv4_update_vlpi_properties();
+    if ( ret )
+        return ret;
 
     if ( gicv3_enable_redist() )
         return -ENODEV;
@@ -981,6 +1177,23 @@ static int gicv3_cpu_init(void)
         ret = gicv3_its_setup_collection(smp_processor_id());
         if ( ret )
             return ret;
+
+#ifdef CONFIG_GICV4
+        if ( gic_has_v4_1_extension() )
+        {
+            ret = allocate_vpe_l1_table();
+            if ( ret )
+            {
+                /*
+                 * If the allocation has failed, at least let's disable
+                 * direct injection.
+                 */
+                gicv4.has_rvpeid = false;
+                gicv4.has_vlpis = false;
+                return ret;
+            }
+        }
+#endif
     }
 
     /* Set priority on PPI and SGI interrupts */
@@ -1198,10 +1411,10 @@ static void gicv3_update_lr(int lr, unsigned int virq, uint8_t priority,
     val =  (((uint64_t)state & 0x3) << ICH_LR_STATE_SHIFT);
 
     /*
-     * When the guest is GICv3, all guest IRQs are Group 1, as Group0
-     * would result in a FIQ in the guest, which it wouldn't expect
+     * When the guest is GICv3/GICv4/GICv4.1, all guest IRQs are Group 1, as
+     * Group0 would result in a FIQ in the guest, which it wouldn't expect
      */
-    if ( current->domain->arch.vgic.version == GIC_V3 )
+    if ( current->domain->arch.vgic.version >= GIC_V3 )
         val |= ICH_LR_GRP1;
 
     val |= (uint64_t)priority << ICH_LR_PRIORITY_SHIFT;
@@ -1287,10 +1500,10 @@ static void gicv3_write_lr(int lr, const struct gic_lr *lr_reg)
     }
 
     /*
-     * When the guest is using vGICv3, all the IRQs are Group 1. Group 0
-     * would result in a FIQ, which will not be expected by the guest OS.
+     * When the guest is using vGICv3/vGICv4/vGICv4.1, all the IRQs are Group 1.
+     * Group 0 would result in a FIQ, which will not be expected by the guest OS.
      */
-    if ( vgic_version == GIC_V3 )
+    if ( vgic_version >= GIC_V3 )
         lrv |= ICH_LR_GRP1;
 
     gicv3_ich_write_lr(lr, lrv);
@@ -1539,6 +1752,7 @@ static inline void gicv3_init_v2(void) { }
 
 static void __init gicv3_ioremap_distributor(paddr_t dist_paddr)
 {
+    uint64_t val;
     if ( dist_paddr & ~PAGE_MASK )
         panic("GICv3:  Found unaligned distributor address %"PRIpaddr"\n",
               dbase);
@@ -1546,6 +1760,10 @@ static void __init gicv3_ioremap_distributor(paddr_t dist_paddr)
     gicv3.map_dbase = ioremap_nocache(dist_paddr, SZ_64K);
     if ( !gicv3.map_dbase )
         panic("GICv3: Failed to ioremap for GIC distributor\n");
+
+    //TODO FIX
+    val = readl(gicv3.map_dbase + 0x0024);
+    printk("GICD_SAC %lx\n", val);
 }
 
 static void __init gicv3_dt_init(void)
@@ -1559,6 +1777,8 @@ static void __init gicv3_dt_init(void)
         panic("GICv3: Cannot find a valid distributor address\n");
 
     gicv3_ioremap_distributor(dbase);
+    map_gict(dbase);
+    check_errs();
 
     if ( !dt_property_read_u32(node, "#redistributor-regions",
                 &gicv3.rdist_count) )
@@ -1921,6 +2141,43 @@ static bool gic_dist_supports_lpis(void)
     return (readl_relaxed(GICD + GICD_TYPER) & GICD_TYPE_LPIS);
 }
 
+#define GICD_FCTLR2 0x0030
+#define GICD_CTLR_DS (1UL << 6)
+#ifdef CONFIG_GICV4
+static void __init gicv4_init(void)
+{
+    uint32_t val;
+    if ( gic_has_v4_1_extension() )
+        gicv3_info.hw_version = GIC_V4_1;
+    else
+        gicv3_info.hw_version = GIC_V4;
+
+    val = readq(GICD + GICD_CTLR);
+    //TODO FIX
+    printk("DS IS %lx\n", (val & GICD_CTLR_DS));
+
+    printk("INIT GICv4!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    val = readl(GICD + GICD_FCTLR2);
+    printk("GICD_FCTLR2: %#x\n", val);
+    val |= (1UL << 17);
+    writel(val, GICD + GICD_FCTLR2);
+    val = readl(GICD + GICD_FCTLR2);
+    printk("GICD_FCTLR2: %#x\n", val);
+
+
+
+
+    gicv4_its_vpeid_allocator_init();
+
+    gicv4_init_vpe_proxy();
+}
+#else
+static void __init gicv4_init(void)
+{
+    ASSERT_UNREACHABLE();
+}
+#endif
+
 /* Set up the GIC */
 static int __init gicv3_init(void)
 {
@@ -1939,6 +2196,7 @@ static int __init gicv3_init(void)
     else
         gicv3_acpi_init();
 
+    check_errs();
     reg = readl_relaxed(GICD + GICD_PIDR2) & GIC_PIDR2_ARCH_MASK;
     if ( reg != GIC_PIDR2_ARCH_GICv3 && reg != GIC_PIDR2_ARCH_GICv4 )
          panic("GICv3: no distributor detected\n");
@@ -1973,31 +2231,44 @@ static int __init gicv3_init(void)
     reg = readl_relaxed(GICD + GICD_TYPER);
     intid_bits = GICD_TYPE_ID_BITS(reg);
 
+    check_errs();
     vgic_v3_setup_hw(dbase, gicv3.rdist_count, gicv3.rdist_regions, intid_bits);
+    check_errs();
     gicv3_init_v2();
+    check_errs();
 
     spin_lock_init(&gicv3.lock);
 
     spin_lock(&gicv3.lock);
 
+    check_errs();
     gicv3_dist_init();
 
     if ( gic_dist_supports_lpis() )
     {
+        check_errs();
         res = gicv3_its_init();
+        check_errs();
         if ( res )
             panic("GICv3: ITS: initialization failed: %d\n", res);
     }
 
+    check_errs();
     res = gicv3_cpu_init();
     if ( res )
         goto out;
 
     gicv3_hyp_init();
+    check_errs();
+
+    if ( gic_is_gicv4() )
+        gicv4_init();
+    check_errs();
 
 out:
     spin_unlock(&gicv3.lock);
 
+    printk("GICV3 init end\n");
     return res;
 }
 

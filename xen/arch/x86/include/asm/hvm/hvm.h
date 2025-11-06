@@ -981,6 +981,8 @@ static inline void hvm_set_reg(struct vcpu *v, unsigned int reg, uint64_t val)
 
 #endif  /* CONFIG_HVM */
 
+#define arch_vcpu_unblock(v) ((void)(v))
+
 #endif /* __ASM_X86_HVM_HVM_H__ */
 
 /*

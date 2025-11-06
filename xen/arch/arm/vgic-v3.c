@@ -21,6 +21,7 @@
 #include <asm/current.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
+#include <asm/io.h>
 #include <asm/mmio.h>
 #include <asm/vgic.h>
 #include <asm/vgic-emul.h>
@@ -818,6 +819,7 @@ static int __vgic_v3_distr_common_mmio_write(const char *name, struct vcpu *v,
     struct vgic_irq_rank *rank;
     uint32_t tr;
     unsigned long flags;
+    int rank_nr;
 
     switch ( reg )
     {
@@ -910,12 +912,17 @@ static int __vgic_v3_distr_common_mmio_write(const char *name, struct vcpu *v,
         rank = vgic_common_rank_offset(v, 8, reg, DABT_WORD, GICD_IPRIORITYR,
                                        GICD_IPRIORITYRnE);
         if ( rank == NULL ) goto write_ignore;
+        rank_nr = REG_RANK_NR(8, (reg - GICD_IPRIORITYR) >> DABT_WORD);
         offset = vgic_get_reg_offset(reg, GICD_IPRIORITYR, GICD_IPRIORITYRnE);
         vgic_lock_rank(v, rank, flags);
         ipriorityr = &rank->ipriorityr[REG_RANK_INDEX(8, offset, DABT_WORD)];
         priority = ACCESS_ONCE(*ipriorityr);
         vreg_reg32_update(&priority, r, info);
         ACCESS_ONCE(*ipriorityr) = priority;
+        /* Is it HW-based VSGI? */
+        if ( (rank_nr == 0) && (rank->index < 16) &&
+                guest_support_nassgi(v->domain) )
+            its_sgi_prop_update(v, rank->index, priority);
         vgic_unlock_rank(v, rank, flags);
         return 1;
     }
@@ -965,6 +972,9 @@ static int vgic_v3_rdistr_sgi_mmio_read(struct vcpu *v, mmio_info_t *info,
                                         uint32_t gicr_reg, register_t *r)
 {
     struct hsr_dabt dabt = info->dabt;
+    struct vgic_irq_rank *rank;
+    unsigned long flags;
+    int ret;
 
     switch ( gicr_reg )
     {
@@ -982,8 +992,34 @@ static int vgic_v3_rdistr_sgi_mmio_read(struct vcpu *v, mmio_info_t *info,
         return __vgic_v3_distr_common_mmio_read("vGICR: SGI", v, info,
                                                 gicr_reg, r);
 
-    /* Read the pending status of an SGI is via GICR is not supported */
+    /*
+     * Read the pending status of an SGI is via GICR is not supported,
+     * except with GICv4.1
+     */
     case VREG32(GICR_ISPENDR0):
+    {
+        goto read_as_zero;
+        if ( guest_support_nassgi(v->domain) )
+        {
+            uint32_t *ipending = NULL;
+
+            if ( dabt.size != DABT_WORD )
+                goto bad_width;
+
+            rank = vgic_rank_offset(v, 1, gicr_reg - GICR_ISPENDR0, DABT_WORD);
+            if ( rank == NULL )
+                goto read_as_zero;
+            vgic_lock_rank(v, rank, flags);
+            ret = its_sgi_get_pending_state(v, ipending);
+            if ( ret )
+                goto bad_vsgi_read;
+            *r = vreg_reg32_extract(*ipending, info);
+            vgic_unlock_rank(v, rank, flags);
+            return 1;
+        }
+        else
+            goto read_as_zero;
+    }
     case VREG32(GICR_ICPENDR0):
         goto read_as_zero;
 
@@ -1035,6 +1071,10 @@ read_reserved:
     *r = 0;
     return 1;
 
+bad_vsgi_read:
+    printk(XENLOG_G_ERR "%pv: vGICR: SGI: bad read r%d offset %#08x: %d\n",
+           v, dabt.reg, gicr_reg, ret);
+    return 0;
 }
 
 static int vgic_v3_rdistr_sgi_mmio_write(struct vcpu *v, mmio_info_t *info,
@@ -1221,8 +1261,18 @@ static int vgic_v3_distr_mmio_read(struct vcpu *v, mmio_info_t *info,
         *r = vreg_reg32_extract(GICV3_GICD_IIDR_VAL, info);
         return 1;
 
-    case VREG32(0x000C):
-        goto read_reserved;
+    case VREG32(GICD_TYPER2):
+    {
+        uint32_t typer2 = 0;
+
+        if ( dabt.size != DABT_WORD ) goto bad_width;
+        if ( vgic_has_directVSGI(v->domain) )
+            typer2 = GICD_TYPER2_nASSGIcap;
+
+        *r = vreg_reg32_extract(typer2, info);
+
+        return 1;
+    }
 
     case VREG32(GICD_STATUSR):
         /*
@@ -1401,6 +1451,7 @@ static int vgic_v3_distr_mmio_write(struct vcpu *v, mmio_info_t *info,
     case VREG32(GICD_CTLR):
     {
         uint32_t ctlr = 0;
+        bool was_enabled, is_enabled, was_hwsgi, is_hwsgi;
 
         if ( dabt.size != DABT_WORD ) goto bad_width;
 
@@ -1408,7 +1459,31 @@ static int vgic_v3_distr_mmio_write(struct vcpu *v, mmio_info_t *info,
 
         vreg_reg32_update(&ctlr, r, info);
 
-        /* Only EnableGrp1A can be changed */
+        was_enabled = v->domain->arch.vgic.ctlr & GICD_CTLR_ENABLE_G1A;
+        is_enabled = ctlr & GICD_CTLR_ENABLE_G1A;
+
+        /* Not a GICv4.1? No HW SGIs */
+        if ( !vgic_has_directVSGI(v->domain) )
+            ctlr &= ~GICD_CTLR_nASSGIreq;
+
+        was_hwsgi = v->domain->arch.vgic.nassgireq;
+        /* Dist stays enabled? nASSGIreq is RO */
+        if ( was_enabled && is_enabled )
+        {
+            ctlr &= ~GICD_CTLR_nASSGIreq;
+            ctlr |= FIELD_PREP(GICD_CTLR_nASSGIreq, was_hwsgi);
+        }
+
+        is_hwsgi = ctlr & GICD_CTLR_nASSGIreq;
+        if ( is_hwsgi )
+            v->domain->arch.vgic.ctlr |= GICD_CTLR_nASSGIreq;
+        else
+            v->domain->arch.vgic.ctlr &= ~GICD_CTLR_nASSGIreq;
+        v->domain->arch.vgic.nassgireq = is_hwsgi;
+        /* Switching SGI type */
+        if ( was_hwsgi != is_hwsgi )
+            vgic_v4_configure_vsgis(v->domain);
+
         if ( ctlr & GICD_CTLR_ENABLE_G1A )
             v->domain->arch.vgic.ctlr |= GICD_CTLR_ENABLE_G1A;
         else
@@ -1426,8 +1501,9 @@ static int vgic_v3_distr_mmio_write(struct vcpu *v, mmio_info_t *info,
         /* RO -- write ignored */
         goto write_ignore_32;
 
-    case VREG32(0x000C):
-        goto write_reserved;
+    case VREG32(GICD_TYPER2):
+        /* write ignored */
+        goto write_ignore_32;
 
     case VREG32(GICD_STATUSR):
         /* RO -- write ignored */

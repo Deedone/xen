@@ -19,8 +19,14 @@
 #include <asm/gic.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
+#ifdef CONFIG_GICV4
+#include <asm/gic_v4_its.h>
+#endif
 #include <asm/io.h>
 #include <asm/page.h>
+
+#define FIELD_GET(_mask, _reg)			\
+	((typeof(_mask))(((_reg) & (_mask)) >> (ffs64(_mask) - 1)))
 
 #define ITS_CMD_QUEUE_SZ                SZ_1M
 
@@ -30,26 +36,10 @@
  */
 LIST_HEAD(host_its_list);
 
-/*
- * Describes a device which is using the ITS and is used by a guest.
- * Since device IDs are per ITS (in contrast to vLPIs, which are per
- * guest), we have to differentiate between different virtual ITSes.
- * We use the doorbell address here, since this is a nice architectural
- * property of MSIs in general and we can easily get to the base address
- * of the ITS and look that up.
- */
-struct its_device {
-    struct rb_node rbnode;
-    struct host_its *hw_its;
-    void *itt_addr;
-    unsigned int itt_order;
-    paddr_t guest_doorbell;             /* Identifies the virtual ITS */
-    uint32_t host_devid;
-    uint32_t guest_devid;
-    uint32_t eventids;                  /* Number of event IDs (MSIs) */
-    uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
-    struct pending_irq *pend_irqs;      /* One struct per event */
-};
+
+unsigned long its_list_map;
+
+unsigned int nvpeid = 16;
 
 /*
  * It is unlikely that a platform implements ITSes with different quirks,
@@ -88,6 +78,9 @@ static struct its_quirk* gicv3_its_find_quirk(uint32_t iidr)
 {
     const struct its_quirk *quirks = its_quirks;
 
+    //TODO fix
+    its_quirk_flags |= HOST_ITS_WORKAROUND_NC_NS |
+        HOST_ITS_WORKAROUND_32BIT_ADDR;
     for ( ; quirks->desc; quirks++ )
     {
         if ( quirks->iidr == (quirks->mask & iidr) )
@@ -143,7 +136,8 @@ uint64_t gicv3_its_get_shareability(void)
 
 unsigned int gicv3_its_get_memflags(void)
 {
-    if ( its_quirk_flags & HOST_ITS_WORKAROUND_32BIT_ADDR )
+    //TODO FIX
+    // if ( its_quirk_flags & HOST_ITS_WORKAROUND_32BIT_ADDR )
         return MEMF_bits(32);
 
     return 0;
@@ -155,7 +149,8 @@ bool gicv3_its_host_has_its(void)
 }
 
 #define BUFPTR_MASK                     GENMASK(19, 5)
-static int its_send_command(struct host_its *hw_its, const void *its_cmd)
+void check_errs(void);
+int its_send_command(struct host_its *hw_its, const void *its_cmd)
 {
     /*
      * The command queue should actually never become full, if it does anyway
@@ -171,11 +166,9 @@ static int its_send_command(struct host_its *hw_its, const void *its_cmd)
     s_time_t deadline = NOW() + MILLISECS(1);
     uint64_t readp, writep;
     int ret = -EBUSY;
+    unsigned long flags;
 
-    /* No ITS commands from an interrupt handler (at the moment). */
-    ASSERT(!in_irq());
-
-    spin_lock(&hw_its->cmd_lock);
+    spin_lock_irqsave(&hw_its->cmd_lock, flags);
 
     do {
         readp = readq_relaxed(hw_its->its_base + GITS_CREADR) & BUFPTR_MASK;
@@ -191,15 +184,15 @@ static int its_send_command(struct host_its *hw_its, const void *its_cmd)
          * If the command queue is full, wait for a bit in the hope it drains
          * before giving up.
          */
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
         cpu_relax();
         udelay(1);
-        spin_lock(&hw_its->cmd_lock);
+        spin_lock_irqsave(&hw_its->cmd_lock, flags);
     } while ( NOW() <= deadline );
 
     if ( ret )
     {
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
         if ( printk_ratelimit() )
             printk(XENLOG_WARNING "host ITS: command queue full.\n");
         return ret;
@@ -215,13 +208,14 @@ static int its_send_command(struct host_its *hw_its, const void *its_cmd)
     writep = (writep + ITS_CMD_SIZE) % ITS_CMD_QUEUE_SZ;
     writeq_relaxed(writep & BUFPTR_MASK, hw_its->its_base + GITS_CWRITER);
 
-    spin_unlock(&hw_its->cmd_lock);
+    spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
 
+    check_errs();
     return 0;
 }
 
 /* Wait for an ITS to finish processing all commands. */
-static int gicv3_its_wait_commands(struct host_its *hw_its)
+int gicv3_its_wait_commands(struct host_its *hw_its)
 {
     /*
      * As there could be quite a number of commands in a queue, we will
@@ -248,8 +242,7 @@ static int gicv3_its_wait_commands(struct host_its *hw_its)
     return -ETIMEDOUT;
 }
 
-static uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu,
-                              uint64_t reg)
+uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu, uint64_t reg)
 {
     reg &= ~GENMASK(51, 16);
 
@@ -258,7 +251,7 @@ static uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu,
     return reg;
 }
 
-static int its_send_cmd_sync(struct host_its *its, unsigned int cpu)
+int its_send_cmd_sync(struct host_its *its, unsigned int cpu)
 {
     uint64_t cmd[4];
 
@@ -270,9 +263,8 @@ static int its_send_cmd_sync(struct host_its *its, unsigned int cpu)
     return its_send_command(its, cmd);
 }
 
-static int its_send_cmd_mapti(struct host_its *its,
-                              uint32_t deviceid, uint32_t eventid,
-                              uint32_t pintid, uint16_t icid)
+int its_send_cmd_mapti(struct host_its *its, uint32_t deviceid,
+                       uint32_t eventid, uint32_t pintid, uint16_t icid)
 {
     uint64_t cmd[4];
 
@@ -322,14 +314,64 @@ static int its_send_cmd_mapd(struct host_its *its, uint32_t deviceid,
     return its_send_command(its, cmd);
 }
 
-static int its_send_cmd_inv(struct host_its *its,
-                            uint32_t deviceid, uint32_t eventid)
+int its_send_cmd_inv(struct host_its *its, uint32_t deviceid, uint32_t eventid)
 {
     uint64_t cmd[4];
 
     cmd[0] = GITS_CMD_INV | ((uint64_t)deviceid << 32);
     cmd[1] = eventid;
     cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
+int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
+                         uint32_t eventid)
+{
+    uint64_t cmd[4];
+    uint32_t deviceid = dev->host_devid;
+
+    cmd[0] = GITS_CMD_DISCARD | ((uint64_t)deviceid << 32);
+    cmd[1] = (uint64_t)eventid;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
+int its_send_cmd_clear(struct host_its *its, uint32_t deviceid, uint32_t eventid)
+{
+    uint64_t cmd[4];
+
+    cmd[0] = GITS_CMD_CLEAR | ((uint64_t)deviceid << 32);
+    cmd[1] = eventid;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
+int its_send_cmd_int(struct host_its *its, uint32_t deviceid, uint32_t eventid)
+{
+    uint64_t cmd[4];
+
+    cmd[0] = GITS_CMD_INT | ((uint64_t)deviceid << 32);
+    cmd[1] = eventid;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
+int its_send_cmd_movi(struct host_its *its, uint32_t deviceid, uint32_t eventid,
+                      uint16_t icid)
+{
+    uint64_t cmd[4];
+
+    cmd[0] = GITS_CMD_MOVI | ((uint64_t)deviceid << 32);
+    cmd[1] = eventid;
+    cmd[2] = icid;
     cmd[3] = 0x00;
 
     return its_send_command(its, cmd);
@@ -430,22 +472,132 @@ static void *its_map_cbaser(struct host_its *its)
         printk(XENLOG_WARNING "using non-cacheable ITS command queue\n");
     }
 
+    //TODO FIX
+    its->flags |= HOST_ITS_FLUSH_CMD_QUEUE;
+    printk(XENLOG_WARNING "using non-cacheable ITS command queue\n");
+
     return buffer;
 }
 
 /* The ITS BASE registers work with page sizes of 4K, 16K or 64K. */
 #define BASER_PAGE_BITS(sz) ((sz) * 2 + 12)
 
+static bool its_parse_indirect_baser(void __iomem *basereg,
+                                     unsigned int pagesz,
+                                     unsigned int *entry_size,
+                                     unsigned int *nr_items)
+{
+    bool indirect = false;
+    unsigned int idx = ilog2(*nr_items);
+    unsigned int table_size;
+
+    table_size = ROUNDUP(*nr_items * *entry_size,
+                         BIT(BASER_PAGE_BITS(pagesz), UL));
+
+    /* No need to enable Indirection if memory requirement <= (pagesz*2) bytes */
+    if ( table_size > (2 * BIT(BASER_PAGE_BITS(pagesz), UL)) )
+    {
+        /*
+         * Find out whether hw supports a single or two-level table by
+         * reading bit at offset '62' after writing '1' to it.
+         * This field is RAZ/WI for GIC implementations that only support
+         * flat tables.
+         */
+        writeq_relaxed(GITS_BASER_INDIRECT, basereg);
+        indirect = (readq_relaxed(basereg)) & GITS_BASER_INDIRECT;
+
+        if ( indirect )
+        {
+            /*
+             * For computing lvl1 table size, subtract ID bits that
+             * represents sparse lvl2 table from 'ids', which is
+             * reported by ITS hardware, times lvl1 table entry size.
+             */
+            idx -= ilog2(BIT(BASER_PAGE_BITS(pagesz), UL) / *entry_size);
+            *entry_size = GITS_LVL1_ENTRY_SIZE;
+        }
+
+        *nr_items = BIT(idx, UL);
+    }
+
+    return indirect;
+}
+
+bool its_alloc_table_entry(struct its_baser *baser, uint32_t id)
+{
+    uint64_t reg = baser->val;
+    bool indirect = reg & GITS_BASER_INDIRECT;
+    unsigned int idx;
+    __le64 *table;
+    unsigned int entry_size = GITS_BASER_ENTRY_SIZE(reg);
+
+    /* Don't allow id that exceeds single, flat table limit */
+    if ( !indirect )
+        return (id < (baser->table_size / entry_size));
+
+    /* Compute 1st level table index & check if that exceeds table limit */
+    idx = id / (baser->pagesz / entry_size);
+    if ( idx >= (baser->pagesz / GITS_LVL1_ENTRY_SIZE) )
+        return false;
+
+    table = baser->base;
+
+    /* Allocate memory for 2nd level table */
+    if (!table[idx])
+    {
+        unsigned int page_size = baser->pagesz;
+        void *buffer;
+
+        buffer = xzalloc_bytes(page_size);
+        if ( !buffer )
+            return -ENOMEM;
+
+        /* Flush Lvl2 table to PoC if hw doesn't support coherency */
+        if ( (reg & GITS_BASER_INNER_CACHEABILITY_MASK) <= GIC_BASER_CACHE_nC )
+            clean_and_invalidate_dcache_va_range(buffer, page_size);
+
+        table[idx] = cpu_to_le64(virt_to_maddr(buffer) | GITS_VALID_BIT);
+
+        /* Flush Lvl1 entry to PoC if hw doesn't support coherency */
+        if ( (reg & GITS_BASER_INNER_CACHEABILITY_MASK) <= GIC_BASER_CACHE_nC )
+            clean_and_invalidate_dcache_va_range(table + idx,
+                                                 GITS_LVL1_ENTRY_SIZE);
+
+        /* Ensure updated table contents are visible to ITS hardware */
+        dsb(sy);
+    }
+
+    return true;
+}
+
+struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type)
+{
+    unsigned int i;
+
+    for ( i = 0; i < GITS_BASER_NR_REGS; i++ )
+    {
+        if (GITS_BASER_TYPE(hw_its->tables[i].val) == type)
+            return &hw_its->tables[i];
+    }
+
+    return NULL;
+}
+
 static int its_map_baser(void __iomem *basereg, uint64_t regc,
-                         unsigned int nr_items)
+                         unsigned int nr_items, struct its_baser *baser)
 {
     uint64_t attr, reg;
     unsigned int entry_size = GITS_BASER_ENTRY_SIZE(regc);
-    unsigned int pagesz = 2;    /* try 64K pages first, then go down. */
+    unsigned int page_size[4] = {SZ_4K, SZ_16K, SZ_64K, SZ_64K};
+    unsigned int pagesz = 0;    /* try 64K pages first, then go down. */
     unsigned int table_size;
     unsigned int order;
     void *buffer;
+    bool indirect;
+    uint32_t type;
+    
 
+    type = GITS_BASER_TYPE(regc);
     attr  = gicv3_its_get_shareability() << GITS_BASER_SHAREABILITY_SHIFT;
     attr |= GIC_BASER_CACHE_SameAsInner << GITS_BASER_OUTER_CACHEABILITY_SHIFT;
     attr |= gicv3_its_get_cacheability() << GITS_BASER_INNER_CACHEABILITY_SHIFT;
@@ -456,6 +608,8 @@ static int its_map_baser(void __iomem *basereg, uint64_t regc,
      * attributes), retrying if necessary.
      */
 retry:
+    indirect = its_parse_indirect_baser(basereg, pagesz, &entry_size, &nr_items);
+
     table_size = ROUNDUP(nr_items * entry_size,
                          BIT(BASER_PAGE_BITS(pagesz), UL));
     /* The BASE registers support at most 256 pages. */
@@ -481,9 +635,15 @@ retry:
     reg |= GITS_VALID_BIT;
     reg |= encode_baser_phys_addr(virt_to_maddr(buffer),
                                   BASER_PAGE_BITS(pagesz));
+    reg |= indirect ? GITS_BASER_INDIRECT : 0x0;
 
     writeq_relaxed(reg, basereg);
     regc = readq_relaxed(basereg);
+
+    baser->val = regc;
+    baser->base = buffer;
+    baser->table_size = table_size;
+    baser->pagesz = page_size[pagesz];
 
     /* The host didn't like our attributes, just use what it returned. */
     if ( (regc & BASER_ATTR_MASK) != attr )
@@ -547,12 +707,115 @@ static int gicv3_disable_its(struct host_its *hw_its)
     return -ETIMEDOUT;
 }
 
+static int __init its_compute_its_list_map(struct host_its *hw_its)
+{
+    int its_number;
+    uint32_t ctlr;
+
+    its_number = find_first_zero_bit(&its_list_map, GICv4_ITS_LIST_MAX);
+    if ( its_number >= GICv4_ITS_LIST_MAX )
+    {
+        printk(XENLOG_ERR
+               "ITS@%lx: No ITSList entry available!\n", hw_its->addr);
+        return -EINVAL;
+    }
+
+    ctlr = readl_relaxed(hw_its->its_base + GITS_CTLR);
+    ctlr &= ~GITS_CTLR_ITS_NUMBER;
+    ctlr |= its_number << GITS_CTLR_ITS_NUMBER_SHIFT;
+    writel_relaxed(ctlr, hw_its->its_base + GITS_CTLR);
+    ctlr = readl_relaxed(hw_its->its_base + GITS_CTLR);
+    if ( (ctlr & GITS_CTLR_ITS_NUMBER) !=
+         (its_number << GITS_CTLR_ITS_NUMBER_SHIFT) )
+    {
+        its_number = ctlr & GITS_CTLR_ITS_NUMBER;
+        its_number >>= GITS_CTLR_ITS_NUMBER_SHIFT;
+    }
+
+    if ( test_and_set_bit(its_number, &its_list_map) )
+    {
+        printk(XENLOG_ERR
+               "ITS@%lx: Duplicate ITSList entry %d\n",
+               hw_its->addr, its_number);
+        return -EINVAL;
+    }
+
+    return its_number;
+}
+
+uint32_t compute_common_aff(uint64_t val)
+{
+    uint32_t aff, clpiaff;
+
+    aff = FIELD_GET(GICR_TYPER_AFFINITY, val);
+    clpiaff = FIELD_GET(GICR_TYPER_COMMON_LPI_AFF, val);
+
+    return aff & ~(GENMASK(31, 0) >> (clpiaff * 8));
+}
+
+uint32_t compute_its_aff(struct host_its *hw_its)
+{
+    uint64_t val, typer;
+    uint32_t svpet;
+
+    typer = readq_relaxed(hw_its->its_base + GITS_TYPER);
+
+    /*
+     * Reencode the ITS SVPET and MPIDR as a GICR_TYPER, and compute
+     * the resulting affinity. We then use that to see if this match
+     * our own affinity.
+     */
+    svpet = FIELD_GET(GITS_TYPER_SVPET, typer);
+    val  = FIELD_PREP(GICR_TYPER_COMMON_LPI_AFF, svpet);
+    val |= FIELD_PREP(GICR_TYPER_AFFINITY, hw_its->mpidr);
+    return compute_common_aff(val);
+}
+
+static struct host_its *find_sibling_its(struct host_its *cur_its)
+{
+    uint64_t cur_typer;
+    struct host_its *its;
+    uint32_t aff;
+
+    cur_typer = readq_relaxed(cur_its->its_base + GITS_TYPER);
+    if ( !FIELD_GET(GITS_TYPER_SVPET, cur_typer) )
+        return NULL;
+
+    aff = compute_its_aff(cur_its);
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        uint64_t typer, baser;
+
+        if ( !its->is_v4_1 || its == cur_its )
+            continue;
+
+        typer = readq_relaxed(its->its_base + GITS_TYPER);
+        if ( !FIELD_GET(GITS_TYPER_SVPET, typer) )
+            continue;
+
+        if ( aff != compute_its_aff(its) )
+            continue;
+
+        /* GICv4.1 guarantees that the vPE table is GITS_BASER2 */
+        baser = its->tables[2].val;
+        if ( !(baser & GITS_BASER_VALID) )
+            continue;
+
+        return its;
+    }
+
+    return NULL;
+}
+
+#define ITS_FCTLR 0x0020
 static int gicv3_its_init_single_its(struct host_its *hw_its)
 {
     uint64_t reg;
     int i, ret;
+    int its_number;
 
-    hw_its->its_base = ioremap_nocache(hw_its->addr, hw_its->size);
+    hw_its->its_base = ioremap_nocache(hw_its->addr, SZ_64K);
     if ( !hw_its->its_base )
         return -ENOMEM;
 
@@ -566,34 +829,90 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
     hw_its->devid_bits = GITS_TYPER_DEVICE_ID_BITS(reg);
     hw_its->evid_bits = GITS_TYPER_EVENT_ID_BITS(reg);
     hw_its->itte_size = GITS_TYPER_ITT_SIZE(reg);
+
+
+    //TODO FIX
+    printk("TYPER!!! %lx\n", reg);
+    printk("VMAPP IS %lx\n", reg & GITS_TYPER_VMAPP);
+    printk("VSGI IS %lx\n", reg & (1UL << 39));
+
     if ( reg & GITS_TYPER_PTA )
         hw_its->flags |= HOST_ITS_USES_PTA;
+    hw_its->is_v4 = reg & GITS_TYPER_VLPIS;
+    if ( hw_its->is_v4 )
+    {
+        if ( !(reg & GITS_TYPER_VMOVP) )
+        {
+            its_number = its_compute_its_list_map(hw_its);
+            if ( its_number < 0 )
+                return its_number;
+            dprintk(XENLOG_INFO,
+                    "ITS@%lx: Using ITS number %d\n",
+                    hw_its->addr, its_number);
+        }
+        else
+            dprintk(XENLOG_INFO,
+                    "ITS@%lx: Single VMOVP capable\n", hw_its->addr);
+    }
+    hw_its->is_v4_1 = reg & GITS_TYPER_VMAPP;
+    if ( hw_its->is_v4_1 )
+    {
+        uint32_t svpet = FIELD_GET(GITS_TYPER_SVPET, reg);
+
+        hw_its->sgir_base = ioremap_nocache(hw_its->addr + SZ_128K, SZ_64K);
+        if ( !hw_its->sgir_base )
+            return -ENOMEM;
+
+        hw_its->mpidr = readl_relaxed(hw_its->its_base + GITS_MPIDR);
+
+        printk("ITS@%"PRIpaddr": Using GICv4.1 mode %08x %08x\n",
+               hw_its->addr, hw_its->mpidr, svpet);
+    }
+
     spin_lock_init(&hw_its->cmd_lock);
 
     for ( i = 0; i < GITS_BASER_NR_REGS; i++ )
     {
         void __iomem *basereg = hw_its->its_base + GITS_BASER0 + i * 8;
         unsigned int type;
+        struct its_baser *baser = hw_its->tables + i;
 
         reg = readq_relaxed(basereg);
-        type = (reg & GITS_BASER_TYPE_MASK) >> GITS_BASER_TYPE_SHIFT;
+        type = GITS_BASER_TYPE(reg);
         switch ( type )
         {
         case GITS_BASER_TYPE_NONE:
             continue;
         case GITS_BASER_TYPE_DEVICE:
-            ret = its_map_baser(basereg, reg, BIT(hw_its->devid_bits, UL));
+            ret = its_map_baser(basereg, reg, BIT(hw_its->devid_bits, UL), baser);
             if ( ret )
                 return ret;
             break;
         case GITS_BASER_TYPE_COLLECTION:
-            ret = its_map_baser(basereg, reg, num_possible_cpus());
+            ret = its_map_baser(basereg, reg, num_possible_cpus(), baser);
             if ( ret )
                 return ret;
             break;
-        /* In case this is a GICv4, provide a (dummy) vPE table as well. */
         case GITS_BASER_TYPE_VCPU:
-            ret = its_map_baser(basereg, reg, 1);
+            /*
+             * vPE configuration table could be shared among ITSes in the
+             * same aff group.
+             */
+            if ( hw_its->is_v4_1 )
+            {
+                struct host_its *sib_its;
+
+                sib_its = find_sibling_its(hw_its);
+                if ( sib_its )
+                {
+                    *baser = sib_its->tables[2];
+                    writeq_relaxed(baser->val, basereg);
+                    baser->val = readq_relaxed(basereg);
+                    continue;
+                }
+            }
+
+            ret = its_map_baser(basereg, reg, 32, baser);
             if ( ret )
                 return ret;
             break;
@@ -639,7 +958,8 @@ static int remove_mapped_guest_device(struct its_device *dev)
         printk(XENLOG_WARNING "Can't unmap host ITS device 0x%x\n",
                dev->host_devid);
 
-    free_xenheap_pages(dev->itt_addr, dev->itt_order);
+    // TODO fix
+    // free_xenheap_pages(dev->itt_addr, dev->itt_order);
     xfree(dev->pend_irqs);
     xfree(dev->host_lpi_blocks);
     xfree(dev);
@@ -678,13 +998,40 @@ static int compare_its_guest_devices(struct its_device *dev,
     return 0;
 }
 
+int its_inv_lpi(struct host_its *its, struct its_device *dev,
+                uint32_t eventid, unsigned int cpu)
+{
+    int ret;
+
+    if ( event_is_forwarded_to_vcpu(dev, eventid) )
+    {
+        if ( gic_has_v4_1_extension() )
+        {
+            direct_lpi_inv(dev, eventid, 0, cpu);
+            return 0;
+        }
+        else
+            return its_send_cmd_vinv(its, dev, eventid);
+    }
+
+    ret = its_send_cmd_inv(its, dev->host_devid, eventid);
+    if ( ret )
+        return ret;
+
+    ret = its_send_cmd_sync(its, cpu);
+    if ( ret )
+        return ret;
+
+    return gicv3_its_wait_commands(its);
+}
+
 /*
  * On the host ITS @its, map @nr_events consecutive LPIs.
  * The mapping connects a device @devid and event @eventid pair to LPI @lpi,
  * increasing both @eventid and @lpi to cover the number of requested LPIs.
  */
 static int gicv3_its_map_host_events(struct host_its *its,
-                                     uint32_t devid, uint32_t eventid,
+                                     struct its_device *dev, uint32_t eventid,
                                      uint32_t lpi, uint32_t nr_events)
 {
     uint32_t i;
@@ -693,22 +1040,83 @@ static int gicv3_its_map_host_events(struct host_its *its,
     for ( i = 0; i < nr_events; i++ )
     {
         /* For now we map every host LPI to host CPU 0 */
-        ret = its_send_cmd_mapti(its, devid, eventid + i, lpi + i, 0);
+        ret = its_send_cmd_mapti(its, dev->host_devid, eventid + i, lpi + i, 0);
         if ( ret )
             return ret;
 
-        ret = its_send_cmd_inv(its, devid, eventid + i);
+        /* TODO: Consider using INVALL here. Didn't work on the model, though. */
+        ret = its_inv_lpi(its, dev, eventid + i, 0);
         if ( ret )
             return ret;
     }
 
-    /* TODO: Consider using INVALL here. Didn't work on the model, though. */
+    return 0;
+}
 
-    ret = its_send_cmd_sync(its, 0);
+static bool its_alloc_device_table(struct host_its *hw_its, uint32_t dev_id)
+{
+    struct its_baser *baser;
+
+    baser = its_get_baser(hw_its, GITS_BASER_TYPE_DEVICE);
+    if ( !baser )
+        return false;
+
+    return its_alloc_table_entry(baser, dev_id);
+}
+
+struct its_device *its_create_device(struct host_its *hw_its,
+                                     uint32_t host_devid, uint64_t nr_events)
+{
+    void *itt_addr = NULL;
+    struct its_device *dev = NULL;
+    int ret;
+
+    /* Sanitise the provided hardware values against the host ITS. */
+    if ( host_devid >= BIT(hw_its->devid_bits, UL) )
+        return NULL;
+
+    /* An Interrupt Translation Table needs to be 256-byte aligned. */
+    itt_addr = _xzalloc(nr_events * hw_its->itte_size, 256);
+    if ( !itt_addr )
+        return NULL;
+
+    clean_and_invalidate_dcache_va_range(itt_addr,
+                                         nr_events * hw_its->itte_size);
+
+    dev = xzalloc(struct its_device);
+    if ( !dev )
+        goto fail_itt;
+
+    if ( !its_alloc_device_table(hw_its, host_devid) )
+        goto fail_dev;
+
+    ret = its_send_cmd_mapd(hw_its, host_devid, max(fls(nr_events - 1), 1U),
+                            virt_to_maddr(itt_addr), true);
     if ( ret )
-        return ret;
+        goto fail_dev;
 
-    return gicv3_its_wait_commands(its);
+    dev->itt_addr = itt_addr;
+    dev->hw_its = hw_its;
+    dev->host_devid = host_devid;
+    dev->eventids = nr_events;
+
+    return dev;
+
+ fail_dev:
+    xfree(dev);
+ fail_itt:
+    xfree(itt_addr);
+
+    return NULL;
+}
+
+static void its_free_device(struct its_device *dev)
+{
+    xfree(dev->host_lpi_blocks);
+    xfree(dev->itt_addr);
+    if ( dev->pend_irqs )
+        xfree(dev->pend_irqs);
+    xfree(dev);
 }
 
 int gicv3_its_unmap_all_guest_device(struct domain *d)
@@ -750,12 +1158,12 @@ int gicv3_its_map_guest_device(struct domain *d,
                                paddr_t guest_doorbell, uint32_t guest_devid,
                                uint64_t nr_events, bool valid)
 {
-    void *itt_addr = NULL;
     struct host_its *hw_its;
     struct its_device *dev = NULL;
     struct rb_node **new = &d->arch.vgic.its_devices.rb_node, *parent = NULL;
     int i, ret = -ENOENT;      /* "i" must be signed to check for >= 0 below. */
-    unsigned int order;
+    // TODO fix
+    // unsigned int order;
 
     hw_its = gicv3_its_find_by_doorbell(host_doorbell);
     if ( !hw_its )
@@ -815,22 +1223,11 @@ int gicv3_its_map_guest_device(struct domain *d,
     if ( !valid )
         goto out_unlock;
 
-    ret = -ENOMEM;
-
-    /* An Interrupt Translation Table needs to be 256-byte aligned. */
-    order = get_order_from_bytes(max(nr_events * hw_its->itte_size, 256UL));
-    itt_addr = alloc_xenheap_pages(order, gicv3_its_get_memflags());
-    if ( !itt_addr )
-        goto out_unlock;
-
-    memset(itt_addr, 0, PAGE_SIZE << order);
-
-    clean_and_invalidate_dcache_va_range(itt_addr,
-                                         nr_events * hw_its->itte_size);
-
-    dev = xzalloc(struct its_device);
+    dev = its_create_device(hw_its, host_devid, nr_events);
     if ( !dev )
         goto out_unlock;
+
+    ret = -ENOMEM;
 
     /*
      * Allocate the pending_irqs for each virtual LPI. They will be put
@@ -852,18 +1249,16 @@ int gicv3_its_map_guest_device(struct domain *d,
     if ( !dev->host_lpi_blocks )
         goto out_unlock;
 
-    ret = its_send_cmd_mapd(hw_its, host_devid, fls(nr_events - 1),
-                            virt_to_maddr(itt_addr), true);
-    if ( ret )
-        goto out_unlock;
-
-    dev->itt_addr = itt_addr;
-    dev->itt_order = order;
-    dev->hw_its = hw_its;
+    // dev->itt_order = order;
     dev->guest_doorbell = guest_doorbell;
     dev->guest_devid = guest_devid;
-    dev->host_devid = host_devid;
-    dev->eventids = nr_events;
+
+
+
+    #ifdef CONFIG_GICV4
+       spin_lock_init(&dev->event_map.vlpi_lock);
+       dev->event_map.nr_lpis = nr_events;
+    #endif
 
     rb_link_node(&dev->rbnode, parent, new);
     rb_insert_color(&dev->rbnode, &d->arch.vgic.its_devices);
@@ -880,7 +1275,7 @@ int gicv3_its_map_guest_device(struct domain *d,
         if ( ret < 0 )
             break;
 
-        ret = gicv3_its_map_host_events(hw_its, host_devid, i * LPI_BLOCK,
+        ret = gicv3_its_map_host_events(hw_its, dev, i * LPI_BLOCK,
                                         dev->host_lpi_blocks[i], LPI_BLOCK);
         if ( ret < 0 )
             break;
@@ -912,19 +1307,13 @@ out_unlock:
 
 out:
     if ( dev )
-    {
-        xfree(dev->pend_irqs);
-        xfree(dev->host_lpi_blocks);
-    }
-    if ( itt_addr )
-        free_xenheap_pages(itt_addr, order);
-    xfree(dev);
+        its_free_device(dev);
 
     return ret;
 }
 
 /* Must be called with the its_device_lock held. */
-static struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
+struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
                                          uint32_t vdevid)
 {
     struct rb_node *node = d->arch.vgic.its_devices.rb_node;
@@ -994,7 +1383,8 @@ int gicv3_remove_guest_event(struct domain *d, paddr_t vdoorbell_address,
     if ( host_lpi == INVALID_LPI )
         return -EINVAL;
 
-    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI,
+                                false, INVALID_VCPU_ID);
 
     return 0;
 }
@@ -1021,7 +1411,8 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
     if ( !pirq )
         return NULL;
 
-    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, virt_lpi);
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, virt_lpi,
+                                false, INVALID_VCPU_ID);
 
     return pirq;
 }
@@ -1300,14 +1691,23 @@ int gicv3_its_init(void)
     else
         gicv3_its_acpi_init();
 
+    check_errs();
+    if ( gic_has_v4_1_extension() )
+        gicv4_its_init_nvpeid();
+
+    check_errs();
     list_for_each_entry(hw_its, &host_its_list, entry)
     {
+        check_errs();
         ret = gicv3_its_init_single_its(hw_its);
+        check_errs();
         if ( ret )
             return ret;
     }
 
+    check_errs();
     gicv3_its_validate_quirks();
+    check_errs();
 
     return 0;
 }

@@ -210,6 +210,11 @@ static inline void __iomem *ioremap_nocache(paddr_t start, size_t len)
     return ioremap_attr(start, len, PAGE_HYPERVISOR_NOCACHE);
 }
 
+static inline void __iomem *ioremap_nocache_noea(paddr_t start, size_t len)
+{
+    return ioremap_attr(start, len, PAGE_HYPERVISOR_NOCACHE_NOEARLY_ACK);
+}
+
 static inline void __iomem *ioremap_cache(paddr_t start, size_t len)
 {
     return ioremap_attr(start, len, PAGE_HYPERVISOR);

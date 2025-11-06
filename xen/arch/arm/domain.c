@@ -160,6 +160,7 @@ static void ctxt_switch_from(struct vcpu *p)
 
     /* VGIC */
     gic_save_state(p);
+    arch_vcpu_block(p);
 
     isb();
 }
@@ -180,6 +181,8 @@ static void ctxt_switch_to(struct vcpu *n)
 
     /* VGIC */
     gic_restore_state(n);
+    //TODO FIX
+    arch_vcpu_unblock(n);
 
     /* XXX MPU */
 
@@ -505,10 +508,10 @@ void dump_pageframe_info(struct domain *d)
  * The new VGIC has a bigger per-IRQ structure, so we need more than one
  * page on ARM64. Cowardly increase the limit in this case.
  */
-#if defined(CONFIG_NEW_VGIC) && defined(CONFIG_ARM_64)
+#if defined(CONFIG_NEW_VGIC) || defined(CONFIG_GICV4) && defined(CONFIG_ARM_64)
 #define MAX_PAGES_PER_VCPU  2
 #else
-#define MAX_PAGES_PER_VCPU  1
+#define MAX_PAGES_PER_VCPU  2
 #endif
 
 struct vcpu *alloc_vcpu_struct(const struct domain *d)
@@ -665,6 +668,14 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
             config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V3;
             break;
 
+        case GIC_V4:
+            config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V4;
+            break;
+
+        case GIC_V4_1:
+            config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V4_1;
+            break;
+
         default:
             ASSERT_UNREACHABLE();
             return -EINVAL;
@@ -738,6 +749,14 @@ int arch_domain_create(struct domain *d,
 
     case XEN_DOMCTL_CONFIG_GIC_V3:
         d->arch.vgic.version = GIC_V3;
+        break;
+
+    case XEN_DOMCTL_CONFIG_GIC_V4:
+        d->arch.vgic.version = GIC_V4;
+        break;
+
+    case XEN_DOMCTL_CONFIG_GIC_V4_1:
+        d->arch.vgic.version = GIC_V4_1;
         break;
 
     default:
@@ -1196,9 +1215,11 @@ void vcpu_update_evtchn_irq(struct vcpu *v)
  */
 void vcpu_block_unless_event_pending(struct vcpu *v)
 {
+    current->arch.wfi_nomask = true;
     vcpu_block();
-    if ( local_events_need_delivery_nomask() )
+    if ( local_events_need_delivery() )
         vcpu_unblock(current);
+    current->arch.wfi_nomask = false;
 }
 
 void vcpu_kick(struct vcpu *v)

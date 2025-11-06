@@ -35,7 +35,8 @@ static inline int local_events_need_delivery_nomask(void)
 
 static inline int local_events_need_delivery(void)
 {
-    if ( !vcpu_event_delivery_is_enabled(current) )
+    // if ( !vcpu_event_delivery_is_enabled(current) )
+    if ( !current->arch.wfi_nomask && !vcpu_event_delivery_is_enabled(current) )
         return 0;
     return local_events_need_delivery_nomask();
 }
