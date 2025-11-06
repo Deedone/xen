@@ -377,6 +377,12 @@ int vgic_vcpu_pending_irq(struct vcpu *v)
         }
     }
 
+#ifdef CONFIG_GICV4
+    if ( vgic_has_directVLPI(v->domain) )
+        if ( v->arch.vgic.its_vpe.pending_last )
+            rc = 1;
+#endif
+
 out:
     spin_unlock_irqrestore(&v->arch.vgic.lock, flags);
     return rc;

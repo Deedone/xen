@@ -70,6 +70,7 @@ struct pending_irq
      * LPI with the same number in an LR must be from an older LPI, which
      * has been unmapped before.
      *
+     * GIC_IRQ_GUEST_FORWARDED: the IRQ is forwarded to a VCPU(GICv4 only)
      */
 #define GIC_IRQ_GUEST_QUEUED   0
 #define GIC_IRQ_GUEST_ACTIVE   1
@@ -77,6 +78,7 @@ struct pending_irq
 #define GIC_IRQ_GUEST_ENABLED  3
 #define GIC_IRQ_GUEST_MIGRATING   4
 #define GIC_IRQ_GUEST_PRISTINE_LPI  5
+#define GIC_IRQ_GUEST_FORWARDED     6
     unsigned long status;
     struct irq_desc *desc; /* only set if the irq corresponds to a physical irq */
     unsigned int irq;
@@ -94,10 +96,30 @@ struct pending_irq
      * TODO: when implementing irq migration, taking only the current
      * vgic lock is not going to be enough. */
     struct list_head lr_queue;
+    bool hw;                    /* Tied to HW IRQ */
+#ifdef CONFIG_GICV4
+    struct its_vlpi_map *vlpi_map;
+#endif
 };
 
 #define NR_INTERRUPT_PER_RANK   32
 #define INTERRUPT_RANK_MASK (NR_INTERRUPT_PER_RANK - 1)
+
+#ifdef CONFIG_GICV4
+static inline bool pirq_is_tied_to_hw(struct pending_irq *pirq)
+{
+    ASSERT(pirq);
+    return pirq->hw;
+}
+
+static inline void pirq_clear_forwarded_to_vcpu(struct pending_irq *pirq)
+{
+    ASSERT(pirq);
+    pirq->hw = false;
+}
+#else
+#define pirq_is_tied_to_hw(pirq) ((void)pirq, false)
+#endif
 
 /* Represents state corresponding to a block of 32 interrupts */
 struct vgic_irq_rank {
@@ -126,6 +148,57 @@ struct vgic_irq_rank {
      */
     uint8_t vcpu[32];
 };
+
+#define VGIC_NR_SGIS            16
+
+#ifdef CONFIG_GICV4
+struct its_vm {
+    struct its_vpe **vpes;
+    /* Number of VPE. */
+    unsigned int nr_vpes;
+    uint32_t *db_lpi_bases;
+    unsigned int nr_db_lpis;
+    /* Property table per VM. */
+    void *vproptable;
+};
+
+struct its_vpe {
+    rwlock_t lock;
+    uint32_t vpe_id;
+    /* Pending table per VCPU. */
+    void *vpendtable;
+    uint32_t vpe_db_lpi;
+    struct its_vm *its_vm;
+    unsigned int col_idx;
+    /* Implementation Defined Area Invalid */
+    bool resident;
+    /* Pending VLPIs on schedule out? */
+    bool            pending_last;
+    union {
+        /* GICv4.0 implementations */
+        struct {
+            /* Implementation Defined Area Invalid */
+            bool idai;
+            /* VPE proxy mapping */
+            int vpe_proxy_event;
+        };
+        /* GICv4.1 implementations */
+        struct {
+            atomic_t vmapp_count;
+        };
+    };
+    struct {
+        uint8_t priority;
+        bool    enabled;
+        bool    group;
+    }sgi_config[VGIC_NR_SGIS];
+    /*
+     * Ensure mutual exclusion between affinity setting of the vPE
+     * and vLPI operations using vpe->col_idx.
+     */
+    spinlock_t vpe_lock;
+};
+#endif
 
 struct vgic_dist {
     /* Version of the vGIC */
@@ -193,6 +266,10 @@ struct vgic_dist {
      */
     bool rdists_enabled;                /* Is any redistributor enabled? */
     bool has_its;
+#ifdef CONFIG_GICV4
+    struct its_vm its_vm;
+#endif
+    bool nassgireq;
 #endif
 };
 
@@ -227,6 +304,9 @@ struct vgic_cpu {
 #define VGIC_V3_RDIST_LAST      (1 << 0)        /* last vCPU of the rdist */
 #define VGIC_V3_LPIS_ENABLED    (1 << 1)
     uint8_t flags;
+#ifdef CONFIG_GICV4
+    struct its_vpe its_vpe;
+#endif
 };
 
 struct sgi_target {
@@ -319,7 +399,8 @@ static inline paddr_t vgic_dist_base(const struct vgic_dist *vgic)
 extern struct vcpu *vgic_get_target_vcpu(struct vcpu *v, unsigned int virq);
 extern void vgic_remove_irq_from_queues(struct vcpu *v, struct pending_irq *p);
 extern void gic_remove_from_lr_pending(struct vcpu *v, struct pending_irq *p);
-extern void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq);
+extern void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq,
+                                  bool hw);
 extern struct pending_irq *irq_to_pending(struct vcpu *v, unsigned int irq);
 extern struct pending_irq *spi_to_pending(struct domain *d, unsigned int irq);
 extern struct vgic_irq_rank *vgic_rank_offset(struct vcpu *v,
@@ -345,6 +426,45 @@ extern bool vgic_to_sgi(struct vcpu *v, register_t sgir,
 extern bool vgic_migrate_irq(struct vcpu *old, struct vcpu *new, unsigned int irq);
 extern void vgic_check_inflight_irqs_pending(struct vcpu *v,
                                              unsigned int rank, uint32_t r);
+
+/* GICV4 functions */
+#ifdef CONFIG_GICV4
+extern bool vgic_has_directVLPI(struct domain *d);
+extern bool gic_support_directLPI(void);
+extern bool gic_support_vptValidDirty(void);
+extern bool gic_has_v4_1_extension(void);
+extern bool vgic_has_directVSGI(struct domain *d);
+extern bool guest_support_nassgi(struct domain *d);
+#else
+#define vgic_has_directVLPI(d) ((void)(d), false)
+#define gic_support_directLPI() (false)
+#define gic_support_vptValidDirty() (false)
+#define gic_has_v4_1_extension() (false)
+#define vgic_has_directVSGI(d) ((void)(d), false)
+#define guest_support_nassgi(d) ((void)(d), false)
+#endif
+
+extern int vgic_v4_its_vm_init(struct domain *d);
+extern void vgic_v4_free_its_vm(struct domain *d);
+extern int vgic_v4_its_vpe_init(struct vcpu *vcpu);
+extern void vgic_v4_load(struct vcpu *vcpu);
+extern void vgic_v4_put(struct vcpu *vcpu, bool need_db);
+extern void gicv4_its_init_nvpeid(void);
+extern int vgic_v4_configure_vcpu_sgi(struct vcpu *v);
+extern int its_sgi_get_pending_state(struct vcpu *v, uint32_t *ipending);
+extern int its_sgi_mask_irq(struct vcpu *v, unsigned int irq);
+extern int its_sgi_unmask_irq(struct vcpu *v, unsigned int irq);
+extern int its_sgi_set_pending_state(struct vcpu *v, unsigned int vsgi,
+                                     bool state);
+extern int its_sgi_prop_update(struct vcpu *v, unsigned int irq,
+                               uint8_t priority);
+#ifdef CONFIG_GICV4
+extern void vgic_v4_configure_vsgis(struct domain *d);
+#else
+static inline void vgic_v4_configure_vsgis(struct domain *d)
+{
+}
+#endif
 
 #endif /* !CONFIG_NEW_VGIC */
 

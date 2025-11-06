@@ -1003,6 +1003,9 @@ void vcpu_unblock(struct vcpu *v)
     if ( !test_and_clear_bit(_VPF_blocked, &v->pause_flags) )
         return;
 
+    //TODO fix
+    // arch_vcpu_unblock(v);
+
     /* Polling period ends when a VCPU is unblocked. */
     if ( unlikely(v->poll_evtchn != 0) )
     {
@@ -1416,12 +1419,13 @@ void vcpu_block(void)
 
     smp_mb__after_atomic();
 
-    arch_vcpu_block(v);
+    // arch_vcpu_block(v);
 
     /* Check for events /after/ blocking: avoids wakeup waiting race. */
     if ( local_events_need_delivery() )
     {
         clear_bit(_VPF_blocked, &v->pause_flags);
+        // arch_vcpu_unblock(v);
     }
     else
     {
@@ -1455,7 +1459,7 @@ static long do_poll(const struct sched_poll *sched_poll)
     v->poll_evtchn = -1;
     set_bit(v->vcpu_id, d->poll_mask);
 
-    arch_vcpu_block(v);
+    // arch_vcpu_block(v);
 
 #ifndef CONFIG_X86 /* set_bit() implies mb() on x86 */
     /* Check for events /after/ setting flags: avoids wakeup waiting race. */
