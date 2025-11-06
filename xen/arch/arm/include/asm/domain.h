@@ -8,6 +8,9 @@
 #include <asm/vfp.h>
 #include <asm/mmio.h>
 #include <asm/gic.h>
+#ifdef CONFIG_GICV4
+#include <asm/gic_v4_its.h>
+#endif
 #include <asm/vgic.h>
 #include <asm/vpl011.h>
 #include <public/hvm/params.h>
@@ -247,6 +250,7 @@ struct arch_vcpu
      * more easily check for softirqs and preempt the vCPU safely.
      */
     bool need_flush_to_ram;
+    bool wfi_nomask;
 
 }  __cacheline_aligned;
 
@@ -301,7 +305,13 @@ static inline void free_vcpu_guest_context(struct vcpu_guest_context *vgc)
     xfree(vgc);
 }
 
-static inline void arch_vcpu_block(struct vcpu *v) {}
+#ifdef CONFIG_GICV4
+#define arch_vcpu_block(v) vgic_v4_put(v, true)
+#define arch_vcpu_unblock(v) vgic_v4_load(v)
+#else
+#define arch_vcpu_block(v) ((void)(v))
+#define arch_vcpu_unblock(v) ((void)(v))
+#endif
 
 #define arch_vm_assist_valid_mask(d) (1UL << VMASST_TYPE_runstate_update_flag)
 

@@ -75,6 +75,10 @@ static const char *gicv_to_string(libxl_gic_version gic_version)
         return "V2";
     case LIBXL_GIC_VERSION_V3:
         return "V3";
+    case LIBXL_GIC_VERSION_V4:
+        return "V4";
+    case LIBXL_GIC_VERSION_V4_1:
+        return "V4_1";
     default:
         return "unknown";
     }
@@ -205,6 +209,12 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     case LIBXL_GIC_VERSION_V3:
         config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V3;
         break;
+    case LIBXL_GIC_VERSION_V4:
+        config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V4;
+        break;
+    case LIBXL_GIC_VERSION_V4_1:
+        config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V4_1;
+        break;
     default:
         LOG(ERROR, "Unknown GIC version %d",
             d_config->b_info.arch_arm.gic_version);
@@ -261,6 +271,12 @@ int libxl__arch_domain_save_config(libxl__gc *gc,
         break;
     case XEN_DOMCTL_CONFIG_GIC_V3:
         d_config->b_info.arch_arm.gic_version = LIBXL_GIC_VERSION_V3;
+        break;
+    case XEN_DOMCTL_CONFIG_GIC_V4:
+        d_config->b_info.arch_arm.gic_version = LIBXL_GIC_VERSION_V4;
+        break;
+    case XEN_DOMCTL_CONFIG_GIC_V4_1:
+        d_config->b_info.arch_arm.gic_version = LIBXL_GIC_VERSION_V4_1;
         break;
     default:
         LOG(ERROR, "Unexpected gic version %u", config->arch.gic_version);
@@ -1459,6 +1475,8 @@ next_resize:
                                  GUEST_GICC_BASE, GUEST_GICC_SIZE) );
             break;
         case LIBXL_GIC_VERSION_V3:
+        case LIBXL_GIC_VERSION_V4:
+        case LIBXL_GIC_VERSION_V4_1:
             FDT( make_gicv3_node(gc, fdt, d_config->num_pcidevs) );
             break;
         default:
