@@ -80,6 +80,11 @@ void smp_send_call_function_mask(const cpumask_t *mask)
     BUG_ON("unimplemented");
 }
 
+bool arch_smt_cpu_disable(unsigned int cpu)
+{
+    BUG_ON("unimplemented");
+}
+
 /* irq.c */
 
 void irq_ack_none(struct irq_desc *desc)

@@ -44,6 +44,12 @@ void smp_send_call_function_mask(const cpumask_t *mask)
     }
 }
 
+/* ARM don't have SMT so we don't need any special logic for CPU disabling  */
+bool arch_smt_cpu_disable(unsigned int cpu)
+{
+    return false;
+}
+
 /*
  * Local variables:
  * mode: C
