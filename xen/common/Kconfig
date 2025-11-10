@@ -173,6 +173,9 @@ config HAS_VMAP
 config LIBFDT
 	bool
 
+config CPU_HOTPLUG
+	bool
+
 config VM_EVENT
 	bool "Memory Access and VM events"
 	depends on HVM
