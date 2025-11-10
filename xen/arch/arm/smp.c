@@ -45,6 +45,15 @@ void smp_send_call_function_mask(const cpumask_t *mask)
 }
 
 /*
+ * We currently don't support SMT on ARM so we don't need any special logic for
+ * CPU disabling
+ */
+bool arch_cpu_can_stay_online(unsigned int cpu)
+{
+    return true;
+}
+
+/*
  * Local variables:
  * mode: C
  * c-file-style: "BSD"

@@ -173,6 +173,9 @@ config LIBFDT
 config MEM_ACCESS_ALWAYS_ON
 	bool
 
+config CPU_HOTPLUG
+	bool
+
 config VM_EVENT
 	def_bool MEM_ACCESS_ALWAYS_ON
 	prompt "Memory Access and VM events" if !MEM_ACCESS_ALWAYS_ON
