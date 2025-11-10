@@ -16,6 +16,7 @@
  * GNU General Public License for more details.
  */
 
+#include <xen/cpu.h>
 #include <asm/hardirq.h>
 #include <asm/processor.h>
 #include <xen/spinlock.h>
@@ -103,6 +104,39 @@ void smp_call_function_interrupt(void)
 
     irq_exit();
 }
+
+#ifdef CONFIG_CPU_HOTPLUG
+long cf_check cpu_up_helper(void *data)
+{
+    unsigned int cpu = (unsigned long)data;
+    int ret = cpu_up(cpu);
+
+    /* Have one more go on EBUSY. */
+    if ( ret == -EBUSY )
+        ret = cpu_up(cpu);
+
+    if ( !ret && arch_smt_cpu_disable(cpu) )
+    {
+        ret = cpu_down_helper(data);
+        if ( ret )
+            printk("Could not re-offline CPU%u (%d)\n", cpu, ret);
+        else
+            ret = -EPERM;
+    }
+
+    return ret;
+}
+
+long cf_check cpu_down_helper(void *data)
+{
+    int cpu = (unsigned long)data;
+    int ret = cpu_down(cpu);
+    /* Have one more go on EBUSY. */
+    if ( ret == -EBUSY )
+        ret = cpu_down(cpu);
+    return ret;
+}
+#endif /* CONFIG_CPU_HOTPLUG */
 
 /*
  * Local variables:

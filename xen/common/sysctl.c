@@ -483,6 +483,51 @@ long do_sysctl(XEN_GUEST_HANDLE_PARAM(xen_sysctl_t) u_sysctl)
             copyback = 1;
         break;
 
+#ifdef CONFIG_CPU_HOTPLUG
+    case XEN_SYSCTL_cpu_hotplug:
+    {
+        unsigned int cpu = op->u.cpu_hotplug.cpu;
+        unsigned int hp_op = op->u.cpu_hotplug.op;
+        bool plug;
+        long (*fn)(void *data);
+        void *hcpu;
+
+        switch ( hp_op )
+        {
+        case XEN_SYSCTL_CPU_HOTPLUG_ONLINE:
+            plug = true;
+            fn = cpu_up_helper;
+            hcpu = _p(cpu);
+            break;
+
+        case XEN_SYSCTL_CPU_HOTPLUG_OFFLINE:
+            plug = false;
+            fn = cpu_down_helper;
+            hcpu = _p(cpu);
+            break;
+
+        case XEN_SYSCTL_CPU_HOTPLUG_SMT_ENABLE:
+        case XEN_SYSCTL_CPU_HOTPLUG_SMT_DISABLE:
+            /* Use arch specific handlers as SMT is very arch-dependent */
+            ret = arch_do_sysctl(op, u_sysctl);
+            copyback = 0;
+            goto out;
+
+        default:
+            ret = -EOPNOTSUPP;
+            break;
+        }
+
+        if ( !ret )
+            ret = plug ? xsm_resource_plug_core(XSM_HOOK)
+                       : xsm_resource_unplug_core(XSM_HOOK);
+
+        if ( !ret )
+            ret = continue_hypercall_on_cpu(0, fn, hcpu);
+        break;
+    }
+#endif
+
     default:
         ret = arch_do_sysctl(op, u_sysctl);
         copyback = 0;
