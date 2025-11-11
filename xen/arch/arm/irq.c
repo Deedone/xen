@@ -158,6 +158,58 @@ static int init_local_irq_data(unsigned int cpu)
     return 0;
 }
 
+static int cpu_next;
+
+static void balance_irq(int irq, unsigned int from, bool up)
+{
+    struct irq_desc *desc = irq_to_desc(irq);
+    unsigned long flags;
+
+    ASSERT(!cpumask_empty(&cpu_online_map));
+
+    spin_lock_irqsave(&desc->lock, flags);
+    if ( likely(!desc->action) )
+        goto out;
+
+    if ( likely(test_bit(_IRQ_GUEST, &desc->status) ||
+                test_bit(_IRQ_MOVE_PENDING, &desc->status)) )
+        goto out;
+
+    /*
+     * Setting affinity to a mask of multiple CPUs causes the GIC drivers to
+     * select one CPU from that mask. If the dying CPU was included in the IRQ's
+     * affinity mask, we cannot determine exactly which CPU the interrupt is
+     * currently routed to, as GIC drivers lack a concrete get_affinity API. So
+     * to be safe we must reroute it to a new, definitely online, CPU. In the
+     * case of CPU going down, we move only the interrupt that could reside on
+     * it. Otherwise, we rearrange all interrupts in a round-robin fashion.
+     */
+    if ( !up && !cpumask_test_cpu(from, desc->affinity) )
+        goto out;
+
+    cpu_next = cpumask_cycle(cpu_next, &cpu_online_map);
+    irq_set_affinity(desc, cpumask_of(cpu_next));
+
+out:
+    spin_unlock_irqrestore(&desc->lock, flags);
+}
+
+void rebalance_irqs(unsigned int from, bool up)
+{
+    int irq;
+
+    if ( cpumask_empty(&cpu_online_map) )
+        return;
+
+    for ( irq = NR_LOCAL_IRQS; irq < NR_IRQS; irq++ )
+        balance_irq(irq, from, up);
+
+#ifdef CONFIG_GICV3_ESPI
+    for ( irq = ESPI_BASE_INTID; irq < ESPI_MAX_INTID; irq++ )
+        balance_irq(irq, from, up);
+#endif
+}
+
 static int cpu_callback(struct notifier_block *nfb, unsigned long action,
                         void *hcpu)
 {
@@ -172,6 +224,8 @@ static int cpu_callback(struct notifier_block *nfb, unsigned long action,
             printk(XENLOG_ERR "Unable to allocate local IRQ for CPU%u\n",
                    cpu);
         break;
+    case CPU_ONLINE:
+        rebalance_irqs(cpu, true);
     }
 
     return notifier_from_errno(rc);
