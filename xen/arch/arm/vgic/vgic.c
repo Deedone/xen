@@ -812,22 +812,27 @@ void arch_move_irqs(struct vcpu *v)
     {
         struct vgic_irq *irq = vgic_get_irq(d, NULL, i + VGIC_NR_PRIVATE_IRQS);
         unsigned long flags;
+        irq_desc_t *desc;
 
         if ( !irq )
             continue;
 
-        spin_lock_irqsave(&irq->irq_lock, flags);
-
-        /* Only hardware mapped vIRQs that are targeting this vCPU. */
-        if ( irq->hw && irq->target_vcpu == v)
+        if ( !irq->hw )
         {
-            irq_desc_t *desc = irq_to_desc(irq->hwintid);
-
-            irq_set_affinity(desc, cpumask_of(v->processor));
+            vgic_put_irq(d, irq);
+            continue;
         }
 
-        spin_unlock_irqrestore(&irq->irq_lock, flags);
-        vgic_put_irq(d, irq);
+        desc = irq_to_desc(irq->hwintid);
+        spin_lock_irqsave(&desc->lock, flags);
+        spin_lock(&irq->irq_lock);
+
+        /* Only hardware mapped vIRQs that are targeting this vCPU. */
+        if ( irq->target_vcpu == v )
+            irq_set_affinity(desc, cpumask_of(v->processor));
+
+        spin_unlock(&irq->irq_lock);
+        spin_unlock_irqrestore(&desc->lock, flags);
     }
 }
 
