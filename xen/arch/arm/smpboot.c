@@ -425,6 +425,8 @@ void __cpu_disable(void)
 
     smp_mb();
 
+    evacuate_irqs(cpu);
+
     /* Return to caller; eventually the IPI mechanism will unwind and the 
      * scheduler will drop to the idle loop, which will call stop_cpu(). */
 }
