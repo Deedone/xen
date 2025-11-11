@@ -219,7 +219,10 @@ static inline struct domain *irq_get_domain(struct irq_desc *desc)
 void irq_set_affinity(struct irq_desc *desc, const cpumask_t *mask)
 {
     if ( desc != NULL )
+    {
+        cpumask_copy(desc->affinity, mask);
         desc->handler->set_affinity(desc, mask);
+    }
 }
 
 int request_irq(unsigned int irq, unsigned int irqflags,
