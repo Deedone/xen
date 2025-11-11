@@ -159,24 +159,23 @@ static void vgic_mmio_write_target(struct vcpu *vcpu,
     for ( i = 0; i < len; i++ )
     {
         struct vgic_irq *irq = vgic_get_irq(vcpu->domain, NULL, intid + i);
+        struct irq_desc *desc = irq_to_desc(irq->hwintid);
 
-        spin_lock_irqsave(&irq->irq_lock, flags);
+        spin_lock_irqsave(&desc->lock, flags);
+        spin_lock(&irq->irq_lock);
 
         irq->targets = (val >> (i * 8)) & cpu_mask;
         if ( irq->targets )
         {
             irq->target_vcpu = vcpu->domain->vcpu[ffs(irq->targets) - 1];
             if ( irq->hw )
-            {
-                struct irq_desc *desc = irq_to_desc(irq->hwintid);
-
                 irq_set_affinity(desc, cpumask_of(irq->target_vcpu->processor));
-            }
         }
         else
             irq->target_vcpu = NULL;
 
-        spin_unlock_irqrestore(&irq->irq_lock, flags);
+        spin_unlock(&irq->irq_lock);
+        spin_unlock_irqrestore(&desc->lock, flags);
         vgic_put_irq(vcpu->domain, irq);
     }
 }
