@@ -425,6 +425,12 @@ void __cpu_disable(void)
 
     smp_mb();
 
+    /*
+     * Now that the interrupts are cleared and the si CPU marked as offline,
+     * move interrupts out of it
+     */
+    evacuate_irqs(cpu);
+
     /* Return to caller; eventually the IPI mechanism will unwind and the 
      * scheduler will drop to the idle loop, which will call stop_cpu(). */
 }

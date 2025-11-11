@@ -158,6 +158,56 @@ static int init_local_irq_data(unsigned int cpu)
     return 0;
 }
 
+static void evacuate_irq(int irq, unsigned int from)
+{
+    struct irq_desc *desc = irq_to_desc(irq);
+    unsigned long flags;
+
+    /* Don't move irqs from CPU 0 as it is always last to be disabled */
+    if ( from == 0 )
+        return;
+
+    ASSERT(!cpumask_empty(&cpu_online_map));
+    ASSERT(!cpumask_test_cpu(from, &cpu_online_map));
+
+    spin_lock_irqsave(&desc->lock, flags);
+    if ( likely(!desc->action) )
+        goto out;
+
+    if ( likely(test_bit(_IRQ_GUEST, &desc->status) ||
+                test_bit(_IRQ_MOVE_PENDING, &desc->status)) )
+        goto out;
+
+    /*
+     * Setting affinity to a mask of multiple CPUs causes the GIC drivers to
+     * select one CPU from that mask. If the dying CPU was included in the IRQ's
+     * affinity mask, we cannot determine exactly which CPU the interrupt is
+     * currently routed to, as GIC drivers lack a concrete get_affinity API. So
+     * to be completely safe we must reroute it to a new, definitely online,
+     * CPU. Set the new affinity to a mask of currently online CPUs so the GIC
+     * driver picks one of them at random.
+     */
+    if ( cpumask_test_cpu(from, desc->affinity) )
+        irq_set_affinity(desc, &cpu_online_map);
+
+out:
+    spin_unlock_irqrestore(&desc->lock, flags);
+    return;
+}
+
+void evacuate_irqs(unsigned int from)
+{
+    int irq;
+
+    for ( irq = NR_LOCAL_IRQS; irq < NR_IRQS; irq++ )
+        evacuate_irq(irq, from);
+
+#ifdef CONFIG_GICV3_ESPI
+    for ( irq = ESPI_BASE_INTID; irq < ESPI_MAX_INTID; irq++ )
+        evacuate_irq(irq, from);
+#endif
+}
+
 static int cpu_callback(struct notifier_block *nfb, unsigned long action,
                         void *hcpu)
 {
