@@ -126,6 +126,12 @@ bool irq_type_set_by_domain(const struct domain *d);
 void irq_end_none(struct irq_desc *irq);
 #define irq_end_none irq_end_none
 
+#ifdef CONFIG_CPU_HOTPLUG
+void rebalance_irqs(unsigned int from, bool up);
+#else
+static inline void rebalance_irqs(unsigned int from, bool up) {}
+#endif
+
 #endif /* _ASM_HW_IRQ_H */
 /*
  * Local variables:
