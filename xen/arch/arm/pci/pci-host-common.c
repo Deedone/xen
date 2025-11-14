@@ -232,7 +232,7 @@ static int pci_bus_find_domain_nr(struct dt_device_node *dev)
     return domain;
 }
 
-struct pci_host_bridge *
+struct pci_host_bridge * __init
 pci_host_common_probe(struct dt_device_node *dev,
                       const struct pci_ecam_ops *ops,
                       const struct pci_ecam_ops *child_ops)
