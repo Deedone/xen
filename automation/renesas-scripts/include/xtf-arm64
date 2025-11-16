@@ -31,9 +31,9 @@ MEMORY_START="0x40000000"
 MEMORY_END="0xC0000000"
 
 XEN="xen"
-DEVICE_TREE="virt-gicv2.dtb"
-
 XEN_CMD="${XEN_CMDLINE}"
+
+DEVICE_TREE="virt-gicv3.dtb"
 
 DOM0_KERNEL="xtf-test"
 
@@ -46,18 +46,21 @@ NUM_DOMUS=1
 LOAD_CMD="tftpb"
 UBOOT_SOURCE="boot.source"
 UBOOT_SCRIPT="boot.scr"
+DBG_FDT_PRINT_CHOSEN=1
 EOF
     cp ${XTF_BINARY} ${WORKDIR}/xtf-test
 
-    # Generate virt-gicv2.dtb
+    # Generate virt-gicv3.dtb
     ${WORKDIR}/qemu-system-aarch64 \
-        -machine virtualization=true \
-        -cpu cortex-a57 \
-        -machine type=virt \
+        -cpu cortex-a53 \
+        -machine virt,virtualization=true,gic-version=3 \
         -m 2048 \
         -smp 2 \
         -display none \
-        -machine dumpdtb=${WORKDIR}/virt-gicv2.dtb
+        -machine dumpdtb=${WORKDIR}/virt-gicv3.dtb
+
+    # Decompile host's DTB into a readable format
+    dtc -I dtb -O dts -o ${WORKDIR}/virt-gicv3.dts ${WORKDIR}/virt-gicv3.dtb
 
     # Generate U-Boot environment
     bash -x imagebuilder/scripts/uboot-script-gen \
@@ -66,9 +69,8 @@ EOF
         -c ${WORKDIR}/config
 
     export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
-        -machine virtualization=true \
-        -cpu cortex-a57 \
-        -machine type=virt \
+        -cpu cortex-a53 \
+        -machine virt,virtualization=true,gic-version=3 \
         -no-reboot \
         -nographic \
         -monitor none \
