@@ -11,6 +11,19 @@ cc="${CROSS_COMPILE}${CC}"
 
 $cc --version
 
+# Directory for the artefacts to be dumped into
+mkdir -p binaries
+
+if [[ "${TOOLS_ONLY}" == "y" ]]; then
+    ./configure --enable-tools --disable-docs --disable-stubdom --disable-xen \
+        --with-system-qemu=/bin/false
+    make -j$(nproc) dist-tools
+
+    (cd dist/install; find | cpio -R 0:0 -o -H newc | gzip) \
+        > binaries/xen-tools.cpio.gz
+    exit 0
+fi
+
 # random config or default config
 if [[ "${RANDCONFIG}" == "y" ]]; then
 
@@ -39,9 +52,6 @@ fi
 # Save the config file before building because build failure causes the script
 # to exit early -- bash is invoked with -e.
 cp xen/.config xen-config
-
-# Directory for the artefacts to be dumped into
-mkdir -p binaries
 
 collect_xen_artefacts()
 {
