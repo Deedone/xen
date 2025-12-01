@@ -455,6 +455,7 @@ static void execute_timer(struct timers *ts, struct timer *t)
 }
 
 
+void arm_smmu_check_errs(void);
 static void cf_check timer_softirq_action(void)
 {
     struct timer  *t, **heap, *next;
@@ -464,6 +465,7 @@ static void cf_check timer_softirq_action(void)
     ts = &this_cpu(timers);
     heap = ts->heap;
 
+    arm_smmu_check_errs();
     /* If we overflowed the heap, try to allocate a larger heap. */
     if ( unlikely(ts->list != NULL) )
     {

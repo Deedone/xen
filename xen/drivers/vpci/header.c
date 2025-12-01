@@ -90,6 +90,8 @@ static int cf_check map_range(
          * - {un}map_mmio_regions doesn't support preemption.
          */
 
+         printk("MAP MMIO REGIONS MFN %lx GFN %lx size %lx\n",
+                mfn_x(map_mfn), s, size);
         rc = map->map ? map_mmio_regions(map->d, _gfn(s), size, map_mfn, p2m_mmio_direct_dev)
                       : unmap_mmio_regions(map->d, _gfn(s), size, map_mfn);
         if ( rc == 0 )
@@ -323,6 +325,7 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
     unsigned int i, j;
     int rc;
 
+    printk("MODIFY BARS DEVICE %x CMD %x ROM_ONLY %d\n", pdev->sbdf.sbdf, cmd, rom_only);
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
     /*
@@ -500,7 +503,7 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             }
         }
 
-        if ( !is_hardware_domain(d) )
+        if ( !pci_is_hardware_domain(d,0 ,0) )
             break;
 
         d = dom_xen;
@@ -533,6 +536,7 @@ static void cf_check cmd_write(
 {
     struct vpci_header *header = data;
 
+    printk("CMD WRITE!!!!!!!1\n");
     if ( !pci_is_hardware_domain(pdev->domain, pdev->seg, pdev->bus) )
     {
         const struct vpci *vpci = pdev->vpci;
@@ -562,16 +566,19 @@ static void cf_check cmd_write(
      * decoding one. Bits that are not allowed for DomU are already
      * handled above.
      */
-    if ( header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) )
+    if ( header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) ) {
         /*
          * Ignore the error. No memory has been added or removed from the p2m
          * (because the actual p2m changes are deferred in defer_map) and the
          * memory decoding bit has not been changed, so leave everything as-is,
          * hoping the guest will realize and try again.
          */
+         printk("HERE call modify\n");
         modify_bars(pdev, cmd, false);
-    else
+    } else {
+        printk("HERE dont call modify\n");
         pci_conf_write16(pdev->sbdf, reg, cmd);
+    }
 }
 
 static uint32_t cf_check guest_cmd_read(
@@ -600,6 +607,7 @@ static void cf_check bar_write(
     else
         val &= PCI_BASE_ADDRESS_MEM_MASK;
 
+    printk("BAR WRITE sbdf %x bar addr %x\n", pdev->sbdf.sbdf, val);
     /*
      * Xen only cares whether the BAR is mapped into the p2m, so allow BAR
      * writes as long as the BAR is not mapped into the p2m.

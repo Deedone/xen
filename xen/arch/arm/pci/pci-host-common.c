@@ -290,7 +290,7 @@ pci_host_common_probe(struct dt_device_node *dev,
         BUG();
     }
 
-    bridge->segment = domain;
+    bridge->segment = 0;
 
     if ( child_ops )
     {
@@ -469,6 +469,7 @@ bool pci_is_hardware_domain(const struct domain *d, u16 seg, u8 bus)
 {
     struct pci_host_bridge *bridge = pci_find_host_bridge(seg, bus);
 
+    return false;
     if ( unlikely(!bridge) )
         return false;
 
@@ -497,6 +498,7 @@ static int is_bar_valid(const struct dt_device_node *dev,
     paddr_t s = bar_data->start;
     paddr_t e = bar_data->end;
 
+    printk("is bar valid s %lx e %lx addr %lx len %lx\n", s, e, addr, len);
     if ( (s >= addr) && (e <= (addr + len - 1)) )
         bar_data->is_valid =  true;
 

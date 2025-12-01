@@ -522,6 +522,13 @@ struct arm_smmu_queue {
 
 	u32 __iomem			*prod_reg;
 	u32 __iomem			*cons_reg;
+
+	/*
+	 * According to SMMU spec section 3.16, some systems may have
+	 * SMMUs, that are non-coherent to PE (processing elements).
+	 * In such case manual cache management is needed.
+	 */
+	bool				non_coherent;
 };
 
 struct arm_smmu_cmdq {

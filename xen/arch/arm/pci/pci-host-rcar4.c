@@ -362,6 +362,7 @@ static void dw_pcie_prog_outbound_atu(struct pci_host_bridge *pci, int index,
                                       int type, uint64_t cpu_addr,
                                       uint64_t pci_addr, uint64_t size)
 {
+    return;
     __dw_pcie_prog_outbound_atu(pci, 0, index, type,
                                 cpu_addr, pci_addr, size);
 }
@@ -404,6 +405,7 @@ static int rcar4_child_config_read(struct pci_host_bridge *bridge,
     }
 
     ret = pci_generic_config_read(bridge, sbdf, reg, len, value);
+    return ret;
     if ( !ret && (priv->num_viewport <= 2) )
         dw_pcie_prog_outbound_atu(bridge, PCIE_ATU_REGION_INDEX1,
                                   PCIE_ATU_TYPE_IO,
@@ -457,6 +459,7 @@ static const struct dt_device_match __initconstrel rcar4_pcie_dt_match[] =
 {
     { .compatible = "renesas,r8a779f0-pcie" },
     { .compatible = "renesas,r8a779g0-pcie" },
+    {. compatible = "renesas,rcar-gen5-pcie6"},
     { },
 };
 
@@ -469,6 +472,7 @@ static int __init pci_host_generic_probe(struct dt_device_node *dev,
     paddr_t atu_size;
     int atu_idx, ret;
 
+    printk("HOST PROBE %d\n", __LINE__);
     bridge = pci_host_common_probe(dev, &rcar4_pcie_ops, &rcar4_pcie_child_ops,
                                    sizeof(*priv));
     if ( IS_ERR(bridge) )
@@ -476,12 +480,14 @@ static int __init pci_host_generic_probe(struct dt_device_node *dev,
 
     priv = bridge->priv;
 
+    printk("HOST PROBE %d\n", __LINE__);
     atu_idx = dt_property_match_string(dev, "reg-names", "atu");
     if ( atu_idx < 0 )
     {
         printk(XENLOG_ERR "Cannot find \"atu\" range index in device tree\n");
         return atu_idx;
     }
+    printk("HOST PROBE %d\n", __LINE__);
     ret = dt_device_get_address(dev, atu_idx, &atu_phys_addr, &atu_size);
     if ( ret )
     {
@@ -497,6 +503,7 @@ static int __init pci_host_generic_probe(struct dt_device_node *dev,
         return ENXIO;
     }
 
+    printk("HOST PROBE %d\n", __LINE__);
     if ( !dt_property_read_u32(dev, "num-viewport", &priv->num_viewport) )
         priv->num_viewport = 2;
 
@@ -505,11 +512,14 @@ static int __init pci_host_generic_probe(struct dt_device_node *dev,
      * HW is not yet initialized by Domain-0: leave it for later.
      */
 
+     printk("HOST PROBE %d\n", __LINE__);
     printk(XENLOG_INFO "%s number of view ports: %d\n", dt_node_full_name(dev),
            priv->num_viewport);
 
+    printk("HOST PROBE %d\n", __LINE__);
     priv->version = RCAR4_DWC_VERSION;
 
+    printk("HOST PROBE %d\n", __LINE__);
     return 0;
 }
 

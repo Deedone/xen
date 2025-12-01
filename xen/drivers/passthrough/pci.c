@@ -314,7 +314,7 @@ static struct pci_dev *alloc_pdev(struct pci_seg *pseg, u8 bus, u8 devfn)
 {
     struct pci_dev *pdev;
     unsigned int pos;
-    int rc;
+    int __maybe_unused rc;
 
     list_for_each_entry ( pdev, &pseg->alldevs_list, alldevs_list )
         if ( pdev->bus == bus && pdev->devfn == devfn )
@@ -331,12 +331,12 @@ static struct pci_dev *alloc_pdev(struct pci_seg *pseg, u8 bus, u8 devfn)
 
     arch_pci_init_pdev(pdev);
 
-    rc = pdev_msi_init(pdev);
-    if ( rc )
-    {
-        xfree(pdev);
-        return NULL;
-    }
+    // rc = pdev_msi_init(pdev);
+    // if ( rc )
+    // {
+    //     xfree(pdev);
+    //     return NULL;
+    // }
 
     list_add(&pdev->alldevs_list, &pseg->alldevs_list);
 
@@ -563,35 +563,35 @@ struct pci_dev *pci_get_pdev(const struct domain *d, pci_sbdf_t sbdf)
  * pci_enable_acs - enable ACS if hardware support it
  * @dev: the PCI device
  */
-static void pci_enable_acs(struct pci_dev *pdev)
-{
-    int pos;
-    uint16_t cap, ctrl;
+// static void pci_enable_acs(struct pci_dev *pdev)
+// {
+//     int pos;
+//     uint16_t cap, ctrl;
 
-    if ( !is_iommu_enabled(pdev->domain) )
-        return;
+//     if ( !is_iommu_enabled(pdev->domain) )
+//         return;
 
-    pos = pci_find_ext_capability(pdev->sbdf, PCI_EXT_CAP_ID_ACS);
-    if (!pos)
-        return;
+//     pos = pci_find_ext_capability(pdev->sbdf, PCI_EXT_CAP_ID_ACS);
+//     if (!pos)
+//         return;
 
-    cap = pci_conf_read16(pdev->sbdf, pos + PCI_ACS_CAP);
-    ctrl = pci_conf_read16(pdev->sbdf, pos + PCI_ACS_CTRL);
+//     cap = pci_conf_read16(pdev->sbdf, pos + PCI_ACS_CAP);
+//     ctrl = pci_conf_read16(pdev->sbdf, pos + PCI_ACS_CTRL);
 
-    /* Source Validation */
-    ctrl |= (cap & PCI_ACS_SV);
+//     /* Source Validation */
+//     ctrl |= (cap & PCI_ACS_SV);
 
-    /* P2P Request Redirect */
-    ctrl |= (cap & PCI_ACS_RR);
+//     /* P2P Request Redirect */
+//     ctrl |= (cap & PCI_ACS_RR);
 
-    /* P2P Completion Redirect */
-    ctrl |= (cap & PCI_ACS_CR);
+//     /* P2P Completion Redirect */
+//     ctrl |= (cap & PCI_ACS_CR);
 
-    /* Upstream Forwarding */
-    ctrl |= (cap & PCI_ACS_UF);
+//     /* Upstream Forwarding */
+//     ctrl |= (cap & PCI_ACS_UF);
 
-    pci_conf_write16(pdev->sbdf, pos + PCI_ACS_CTRL, ctrl);
-}
+//     pci_conf_write16(pdev->sbdf, pos + PCI_ACS_CTRL, ctrl);
+// }
 
 static int iommu_add_device(struct pci_dev *pdev);
 static int iommu_enable_device(struct pci_dev *pdev);
@@ -649,7 +649,7 @@ int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
 {
     struct pci_seg *pseg;
     struct pci_dev *pdev;
-    unsigned int slot = PCI_SLOT(devfn), func = PCI_FUNC(devfn);
+    unsigned int __maybe_unused slot = PCI_SLOT(devfn), func = PCI_FUNC(devfn);
     const char *type;
     int ret;
     bool pf_is_extfn = false;
@@ -675,6 +675,7 @@ int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
     else
         type = "device";
 
+    printk("%s %d\n", __func__, __LINE__);
     if ( d != dom_io )
     {
         ret = xsm_resource_plug_pci(XSM_PRIV, (seg << 16) | (bus << 8) | devfn);
@@ -682,18 +683,23 @@ int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
             return ret;
     }
 
+    printk("%s %d\n", __func__, __LINE__);
     ret = -ENOMEM;
 
+    printk("%s %d\n", __func__, __LINE__);
     pcidevs_lock();
     pseg = alloc_pseg(seg);
     if ( !pseg )
         goto out;
+    printk("%s %d\n", __func__, __LINE__);
     pdev = alloc_pdev(pseg, bus, devfn);
     if ( !pdev )
         goto out;
 
+    printk("%s %d\n", __func__, __LINE__);
     pdev->node = node;
 
+    printk("%s %d\n", __func__, __LINE__);
     if ( info )
     {
         pdev->info = *info;
@@ -751,22 +757,28 @@ int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
     if ( !pdev->domain )
     {
         pdev->domain = d;
+        printk("%s %d\n", __func__, __LINE__);
+        printk("d is %px\n", d);
         write_lock(&d->pci_lock);
+        printk("%s %d\n", __func__, __LINE__);
         list_add(&pdev->domain_list, &pdev->domain->pdev_list);
+        printk("%s %d\n", __func__, __LINE__);
 
         /*
          * For devices not discovered by Xen during boot, add vPCI handlers
          * when Dom0 first informs Xen about such devices.
          */
-        ret = vpci_assign_device(pdev);
-        if ( ret )
-        {
-            list_del(&pdev->domain_list);
-            write_unlock(&d->pci_lock);
-            pdev->domain = NULL;
-            printk(XENLOG_ERR "Setup of vPCI failed: %d\n", ret);
-            goto out;
-        }
+         printk("%s %d\n", __func__, __LINE__);
+        // ret = vpci_assign_device(pdev);
+        // if ( ret )
+        // {
+        //     list_del(&pdev->domain_list);
+        //     write_unlock(&d->pci_lock);
+        //     pdev->domain = NULL;
+        //     printk(XENLOG_ERR "Setup of vPCI failed: %d\n", ret);
+        //     goto out;
+        // }
+        printk("%s %d\n", __func__, __LINE__);
         write_unlock(&d->pci_lock);
         ret = iommu_add_device(pdev);
         if ( ret )
@@ -787,22 +799,24 @@ int pci_add_device(struct domain *d, u16 seg, u8 bus, u8 devfn,
         goto out;
     }
 
-    pci_enable_acs(pdev);
+    printk("%s %d\n", __func__, __LINE__);
+    // pci_enable_acs(pdev);
 
 out:
+printk("%s %d\n", __func__, __LINE__);
     pcidevs_unlock();
-    if ( !ret )
-    {
-        printk(XENLOG_DEBUG "PCI add %s %pp\n", type, &pdev->sbdf);
-        while ( pdev->phantom_stride )
-        {
-            func += pdev->phantom_stride;
-            if ( PCI_SLOT(func) )
-                break;
-            printk(XENLOG_DEBUG "PCI phantom %pp\n",
-                   &PCI_SBDF(seg, bus, slot, func));
-        }
-    }
+    // if ( !ret )
+    // {
+    //     printk(XENLOG_DEBUG "PCI add %s %pp\n", type, &pdev->sbdf);
+    //     while ( pdev->phantom_stride )
+    //     {
+    //         func += pdev->phantom_stride;
+    //         if ( PCI_SLOT(func) )
+    //             break;
+    //         printk(XENLOG_DEBUG "PCI phantom %pp\n",
+    //                &PCI_SBDF(seg, bus, slot, func));
+    //     }
+    // }
     return ret;
 }
 

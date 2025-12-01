@@ -196,6 +196,7 @@ static int cf_check init_msi(struct pci_dev *pdev)
     if ( !pos )
         return 0;
 
+    return 0;
     pdev->vpci->msi = xzalloc(struct vpci_msi);
     if ( !pdev->vpci->msi )
         return -ENOMEM;

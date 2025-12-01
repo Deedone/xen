@@ -334,17 +334,44 @@ static int queue_poll_cons(struct arm_smmu_queue *q, bool sync, bool wfe)
 static void queue_write(__le64 *dst, u64 *src, size_t n_dwords)
 {
 	int i;
+	const void *p;
+	size_t cacheline_mask = dcache_line_bytes - 1;
 
-	for (i = 0; i < n_dwords; ++i)
+	for (i = 0; i < n_dwords; ++i) {
 		*dst++ = cpu_to_le64(*src++);
+		/*
+		 * WA HACK: without invadlidating the cache here, the SMMU
+		 * will read invalid commands, due to some possible race issues
+		 * while updating prod_reg in advance of writing actual
+		 * data to the queue. This happens when more than one CPU
+		 * is enabled and while starting DomU, while a lot of SMMU
+		 * invalidation commands are sent to the SMMU. No memory
+		 * barrier is not working,  as well as more logical using
+		 * of proper cleaning of caches. Also, moving the same code just
+		 * below the cycle is not working too. The issue was
+		 * reproduced only once on the native BSP.
+		 *
+		 * NOTE: This hack should be removed once the root cause
+		 * of the issue is found and fixed properly.
+		 * Second NOTE: raw __invalidate_dcache_one function is used,
+		 * due to bug in Xen while invoking the invalidate_dcache_va_range,
+		 * while calculating the size which may overflow.
+		 */
+		p = (void *)((uintptr_t)dst & ~cacheline_mask);
+		asm volatile (__invalidate_dcache_one(0) : : "r" (p));
+	}
 }
 
 static int queue_insert_raw(struct arm_smmu_queue *q, u64 *ent)
 {
+	__le64 *q_addr = Q_ENT(q, q->llq.prod);
+
 	if (queue_full(&q->llq))
 		return -ENOSPC;
 
-	queue_write(Q_ENT(q, q->llq.prod), ent, q->ent_dwords);
+	queue_write(q_addr, ent, q->ent_dwords);
+	if (q->non_coherent)
+		clean_dcache_va_range(q_addr, q->ent_dwords * sizeof(*q_addr));
 	queue_inc_prod(&q->llq);
 	queue_sync_prod_out(q);
 	return 0;
@@ -360,10 +387,15 @@ static void queue_read(u64 *dst, __le64 *src, size_t n_dwords)
 
 static int queue_remove_raw(struct arm_smmu_queue *q, u64 *ent)
 {
+	__le64 *q_addr = Q_ENT(q, q->llq.cons);
+
 	if (queue_empty(&q->llq))
 		return -EAGAIN;
 
-	queue_read(ent, Q_ENT(q, q->llq.cons), q->ent_dwords);
+	if (q->non_coherent)
+		invalidate_dcache_va_range(q_addr, q->ent_dwords * sizeof(*q_addr));
+
+	queue_read(ent, q_addr, q->ent_dwords);
 	queue_inc_cons(&q->llq);
 	queue_sync_cons_out(q);
 	return 0;
@@ -458,6 +490,7 @@ static void arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu)
 	struct arm_smmu_queue *q = &smmu->cmdq.q;
 	u32 cons = readl_relaxed(q->cons_reg);
 	u32 idx = FIELD_GET(CMDQ_CONS_ERR, cons);
+	__le64 *q_addr = Q_ENT(q, cons);
 	struct arm_smmu_cmdq_ent cmd_sync = {
 		.opcode = CMDQ_OP_CMD_SYNC,
 	};
@@ -484,11 +517,14 @@ static void arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu)
 		break;
 	}
 
+	if (q->non_coherent)
+		invalidate_dcache_va_range(q_addr, q->ent_dwords * sizeof(*q_addr));
+
 	/*
 	 * We may have concurrent producers, so we need to be careful
 	 * not to touch any of the shadow cmdq state.
 	 */
-	queue_read(cmd, Q_ENT(q, cons), q->ent_dwords);
+	queue_read(cmd, q_addr, q->ent_dwords);
 	dev_err(smmu->dev, "skipping command in error state:\n");
 	for (i = 0; i < ARRAY_SIZE(cmd); ++i)
 		dev_err(smmu->dev, "\t0x%016llx\n", (unsigned long long)cmd[i]);
@@ -499,7 +535,10 @@ static void arm_smmu_cmdq_skip_err(struct arm_smmu_device *smmu)
 		return;
 	}
 
-	queue_write(Q_ENT(q, cons), cmd, q->ent_dwords);
+	queue_write(q_addr, cmd, q->ent_dwords);
+
+	if (q->non_coherent)
+		clean_dcache_va_range(q_addr, q->ent_dwords * sizeof(*q_addr));
 }
 
 static void arm_smmu_cmdq_insert_cmd(struct arm_smmu_device *smmu, u64 *cmd)
@@ -626,6 +665,7 @@ arm_smmu_write_strtab_l1_desc(__le64 *dst, struct arm_smmu_strtab_l1_desc *desc)
 
 	/* See comment in arm_smmu_write_ctx_desc() */
 	write_atomic(dst, cpu_to_le64(val));
+	clean_dcache_va_range(dst, sizeof(__le64));
 }
 
 static void arm_smmu_sync_ste_for_sid(struct arm_smmu_device *smmu, u32 sid)
@@ -661,7 +701,7 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 	 * 2. Write everything apart from dword 0, sync, write dword 0, sync
 	 * 3. Update Config, sync
 	 */
-	u64 val = le64_to_cpu(dst[0]);
+	u64 val;
 	bool ste_live = false;
 	struct arm_smmu_device *smmu = NULL;
 	struct arm_smmu_s2_cfg *s2_cfg = NULL;
@@ -672,6 +712,10 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 			.sid	= sid,
 		},
 	};
+	
+	invalidate_dcache_va_range(dst, sizeof(*dst) * 4);;
+	
+	val = le64_to_cpu(dst[0]);
 
 	if (master) {
 		smmu_domain = master->domain;
@@ -714,13 +758,17 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 		 * The SMMU can perform negative caching, so we must sync
 		 * the STE regardless of whether the old value was live.
 		 */
+		clean_dcache_va_range(dst, sizeof(*dst) * 4);;
 		if (smmu)
 			arm_smmu_sync_ste_for_sid(smmu, sid);
 		return;
 	}
 
 	if (s2_cfg) {
-		BUG_ON(ste_live);
+    	printk("write strtab for vmid %x sid %x\n", s2_cfg->vmid, sid);
+		// BUG_ON(ste_live);
+		if (ste_live)
+		    return;
 		dst[2] = cpu_to_le64(
 			 FIELD_PREP(STRTAB_STE_2_S2VMID, s2_cfg->vmid) |
 			 FIELD_PREP(STRTAB_STE_2_VTCR, s2_cfg->vtcr) |
@@ -739,8 +787,10 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 		dst[1] |= cpu_to_le64(FIELD_PREP(STRTAB_STE_1_EATS,
 						 STRTAB_STE_1_EATS_TRANS));
 
+	clean_dcache_va_range(dst, sizeof(*dst) * 4);;
 	arm_smmu_sync_ste_for_sid(smmu, sid);
 	write_atomic(&dst[0], cpu_to_le64(val));
+	clean_dcache_va_range(dst, sizeof(*dst) * 4);;
 	arm_smmu_sync_ste_for_sid(smmu, sid);
 
 	/* It's likely that we'll want to use the new STE soon */
@@ -934,6 +984,17 @@ static void arm_smmu_combined_irq_handler(int irq, void *dev,
 	arm_smmu_gerror_handler(irq, dev, regs);
 
 	tasklet_schedule(&(smmu->combined_irq_tasklet));
+}
+
+int counter = 0;
+void arm_smmu_check_errs(void)
+{
+    struct arm_smmu_device *smmu;
+    counter++;
+    if (counter % 100 == 0)
+        list_for_each_entry(smmu, &arm_smmu_devices, devices) {
+            arm_smmu_combined_irq_handler(0, smmu, NULL);
+    	}
 }
 
 static void arm_smmu_combined_irq_tasklet(void *dev)
@@ -1445,12 +1506,14 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 	if (smmu_domain->stage != ARM_SMMU_DOMAIN_BYPASS)
 		master->ats_enabled = arm_smmu_ats_supported(master);
 
+	printk("call install ste\n");
 	arm_smmu_install_ste_for_dev(master);
 
 	spin_lock_irqsave(&smmu_domain->devices_lock, flags);
 	list_add(&master->domain_head, &smmu_domain->devices);
 	spin_unlock_irqrestore(&smmu_domain->devices_lock, flags);
 
+	printk("call enable ats\n");
 	arm_smmu_enable_ats(master);
 
 out_unlock:
@@ -1625,6 +1688,9 @@ static int arm_smmu_init_one_queue(struct arm_smmu_device *smmu,
 	q->q_base |= FIELD_PREP(Q_BASE_LOG2SIZE, q->llq.max_n_shift);
 
 	q->llq.prod = q->llq.cons = 0;
+
+	q->non_coherent = !(smmu->features & ARM_SMMU_FEAT_COHERENCY);
+
 	return 0;
 }
 
@@ -2661,6 +2727,7 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 	struct arm_smmu_domain *smmu_domain;
 	struct arm_smmu_xen_domain *xen_domain = dom_iommu(d)->arch.priv;
 
+	printk("assign dev called\n");
 #ifdef CONFIG_HAS_PCI
 	if ( dev_is_pci(dev) )
 	{
@@ -2673,9 +2740,13 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 			       pdev->seg, pdev->bus, PCI_SLOT(devfn),
 			       PCI_FUNC(devfn), d->domain_id);
 
-			if ( devfn != pdev->devfn || pdev->domain == d )
-				return 0;
+			// if ( devfn != pdev->devfn || pdev->domain == d ) {
+			//     printk("early return devfn %x pdev->devfn %x pdev->domain %d d %d\n",
+			// 	devfn, pdev->devfn, pdev->domain->domain_id, d->domain_id);
+			// 	return 0;
+			// }
 
+		}
 		ASSERT(pcidevs_locked());
 
 		/* TODO: acquire pci_lock */
@@ -2705,6 +2776,7 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 			 */
 			if ( io_domain )
 			{
+			    printk("deaassign from hwdom\n");
 				ret = arm_smmu_deassign_dev(hardware_domain, devfn, dev);
 				if ( ret )
 					return ret;
@@ -2712,8 +2784,10 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 		}
 
 		/* dom_io is used as a sentinel for quarantined devices */
-		if ( d == dom_io )
+		if ( d == dom_io ) {
+		    printk("dom io early return\n");
 			return 0;
+		}
 	}
 #endif
 
@@ -2725,6 +2799,7 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 	 */
 	io_domain = arm_smmu_get_domain(d, dev);
 	if (!io_domain) {
+	    printk("alloc new domain\n");
 		io_domain = arm_smmu_domain_alloc();
 		if (!io_domain) {
 			ret = -ENOMEM;
@@ -2737,6 +2812,7 @@ static int arm_smmu_assign_dev(struct domain *d, u8 devfn,
 		list_add(&io_domain->list, &xen_domain->contexts);
 	}
 
+	printk("call attach dev\n");
 	ret = arm_smmu_attach_dev(io_domain, dev);
 	if (ret) {
 		if (io_domain->ref.counter == 0)
