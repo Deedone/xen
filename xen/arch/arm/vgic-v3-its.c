@@ -1594,6 +1594,14 @@ static int vgic_v3_its_init_virtual(struct domain *d, paddr_t guest_addr,
     uint64_t base_attr;
     paddr_t host_doorbell_addr = host_addr + ITS_DOORBELL_OFFSET;
 
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
+    printk("ITS INIT VIRTUAL!!!!!!!!!!!!!!!!!!!!!!!!!!!1\n");
     its = xzalloc(struct virt_its);
     if ( !its )
         return -ENOMEM;

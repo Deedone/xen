@@ -1211,7 +1211,7 @@ static void its_vpe_inv_db(struct its_vpe *vpe)
 void its_vpe_mask_db(struct its_vpe *vpe)
 {
     /* Only clear enable bit. */
-    printk("MASK DB\n");
+    // printk("MASK DB\n");
     lpi_write_config(lpi_data.lpi_property, vpe->vpe_db_lpi, LPI_PROP_ENABLED, 0);
     its_vpe_inv_db(vpe);
 }
@@ -1219,8 +1219,8 @@ void its_vpe_mask_db(struct its_vpe *vpe)
 static void its_vpe_unmask_db(struct its_vpe *vpe)
 {
     /* Only set enable bit. */
-    printk("UNMASK DB\n");
-    printk("db lpi %x\n", vpe->vpe_db_lpi);
+    // printk("UNMASK DB\n");
+    // printk("db lpi %x\n", vpe->vpe_db_lpi);
     lpi_write_config(lpi_data.lpi_property, vpe->vpe_db_lpi, 0, LPI_PROP_ENABLED);
     its_vpe_inv_db(vpe);
 }

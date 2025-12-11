@@ -1165,6 +1165,7 @@ int gicv3_its_map_guest_device(struct domain *d,
     // TODO fix
     // unsigned int order;
 
+    printk("MAP GUEST DEVICE\n hd %lx hdevid %x guest_doorbell %lx guest_devid %x\n", host_doorbell, host_devid, guest_doorbell, guest_devid);
     hw_its = gicv3_its_find_by_doorbell(host_doorbell);
     if ( !hw_its )
         return ret;
@@ -1456,6 +1457,13 @@ int gicv3_its_make_hwdom_dt_nodes(const struct domain *d,
     if ( list_empty(&host_its_list) )
         return 0;
 
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printk("CREATE HDWOM ITS NODE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
     /* The sub-nodes require the ranges property */
     prop = dt_get_property(gic, "ranges", &len);
     if ( !prop )
@@ -1526,6 +1534,14 @@ int __init gicv3_its_make_emulated_dt_node(const struct domain *d, void *fdt)
     if ( list_empty(&host_its_list) )
         return 0;
 
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
+    printk("MAKE EMULATED DT NODE\n");
     if ( domain_use_host_layout(d) )
     {
         struct host_its *hw_its;

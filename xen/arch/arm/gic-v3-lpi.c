@@ -383,6 +383,7 @@ static int gicv3_lpi_set_proptable(void __iomem * rdist_base)
     reg |= virt_to_maddr(lpi_data.lpi_property);
 
     writeq_relaxed(reg, rdist_base + GICR_PROPBASER);
+    printk("REDIST propbase: %lx\n", reg);
     reg = readq_relaxed(rdist_base + GICR_PROPBASER);
 
     /* If we can't do shareable, we have to drop cacheability as well. */

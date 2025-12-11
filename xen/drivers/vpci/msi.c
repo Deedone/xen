@@ -26,6 +26,7 @@ static uint32_t cf_check control_read(
 {
     const struct vpci_msi *msi = data;
 
+    printk("CONTROL READ\n");
     return MASK_INSR(fls(pdev->msi_maxvec) - 1, PCI_MSI_FLAGS_QMASK) |
            MASK_INSR(fls(msi->vectors) - 1, PCI_MSI_FLAGS_QSIZE) |
            (msi->enabled ? PCI_MSI_FLAGS_ENABLE : 0) |
@@ -42,6 +43,7 @@ static void cf_check control_write(
                                  pdev->msi_maxvec);
     bool new_enabled = val & PCI_MSI_FLAGS_ENABLE;
 
+    printk("CONTROL WRITE\n");
     /*
      * No change if the enable field and the number of vectors is
      * the same or the device is not enabled, in which case the
@@ -93,6 +95,7 @@ static void update_msi(const struct pci_dev *pdev, struct vpci_msi *msi)
     if ( !msi->enabled )
         return;
 
+    printk("UPDATE MSI\n");
     vpci_msi_arch_update(msi, pdev);
 }
 
@@ -110,6 +113,7 @@ static void cf_check address_write(
 {
     struct vpci_msi *msi = data;
 
+    printk("ADDRESS WRITE\n");
     /* Clear low part. */
     msi->address &= ~0xffffffffULL;
     msi->address |= val;
@@ -201,9 +205,12 @@ static int cf_check init_msi(struct pci_dev *pdev)
     if ( !pos )
         return 0;
 
+    return 0;
     pdev->vpci->msi = xzalloc(struct vpci_msi);
     if ( !pdev->vpci->msi )
         return -ENOMEM;
+
+    printk("INIT MSI\n");
 
     ret = vpci_add_register(pdev->vpci, control_read, control_write,
                             msi_control_reg(pos), 2, pdev->vpci->msi);
