@@ -298,6 +298,11 @@ The table columns are as follows:
      - 63
      - See Section "4.3 Identifiers" of GCC_MANUAL.
 
+   * - Number of macros simultaneously defined in a single translation unit
+     - ARM64, X86_64
+     - 8192
+     - As stated in Section "11.2 Implementation limits" of CPP_MANUAL the only limit is available memory, but an arbitrary threshold is estabilished to avoid unchecked growth.
+
 
 Implementation-Defined Behaviors
 ________________________________

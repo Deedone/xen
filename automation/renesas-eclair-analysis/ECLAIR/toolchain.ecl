@@ -179,8 +179,9 @@ ext_sizeof_alignof_void_type"
 -config=STD.inclnest,behavior+={c99, GCC_X86_64, 32}
 -doc_end
 
--doc_begin="FIXME: why is C90 used?"
--config=STD.ppifnest,behavior+={c90, GCC_X86_64, 32}
+-doc_begin="See Section \"11.2 Implementation limits\" of "CPP_MANUAL"."
+-config=STD.macident,behavior+={c99, GCC_ARM64, 8192}
+-config=STD.macident,behavior+={c99, GCC_X86_64, 8192}
 -doc_end
 
 -doc_begin="See Section \"4.12 Statements\" of "GCC_MANUAL"."
