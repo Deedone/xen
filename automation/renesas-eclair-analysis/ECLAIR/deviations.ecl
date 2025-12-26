@@ -606,10 +606,10 @@ in assignments; (5) as initializers, possibly designated, in initalizer lists;
 -config=MC3A2.R20.7,expansion_context=
 {safe, "context(__call_expr_arg_contexts)"},
 {safe, "left_right(^[(,\\[]$,^[),\\]]$)"},
-{safe, "context(skip_to(__expr_non_syntactic_contexts, stmt_child(node(array_subscript_expr), subscript)))"},
-{safe, "context(skip_to(__expr_non_syntactic_contexts, stmt_child(operator(assign), lhs)))"},
-{safe, "context(skip_to(__expr_non_syntactic_contexts, stmt_child(node(init_list_expr||designated_init_expr), init)))"},
-{safe, "context(skip_to(__expr_non_syntactic_contexts, stmt_child(node(case_stmt), lower||upper)))"}
+{safe, "context(skip(__expr_non_syntactic_contexts, is(subscript)&&parent(node(array_subscript_expr))))"},
+{safe, "context(skip(__expr_non_syntactic_contexts, is(lhs)&&parent(stmt(operator(assign)))))"},
+{safe, "context(skip(__expr_non_syntactic_contexts, is(init)&&parent(node(init_list_expr||designated_init_expr))))"},
+{safe, "context(skip(__expr_non_syntactic_contexts, is(lower||upper)&&parent(node(case_stmt))))"}
 -doc_end
 
 -doc_begin="Violations involving the __config_enabled macros cannot be fixed without
