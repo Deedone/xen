@@ -32,7 +32,60 @@
 #include <asm/gic_v3_its.h>
 #include <asm/io.h>
 #include <asm/sysregs.h>
+void __iomem *gict_base;
 
+void map_gict(paddr_t dist_paddr)
+{
+    uint32_t val;
+    uint32_t iidr;
+    uint32_t devid;
+    printk("MAPPIG GICT BASE ADDRESS %lx\n", dist_paddr + 0x20000);
+    
+    gict_base = ioremap_nocache(dist_paddr + 0x20000, SZ_64K);
+    
+    val = readl(gict_base);
+    iidr = readl(gict_base + 0xe100);
+    devid = readl(gict_base + 0xFFC8);
+    printk("GICT_ERR val %x\n", val);
+    printk("GICT_IIDR val %x\n", iidr);
+    printk("GICT_DEVID val %x\n", devid);
+}
+
+#define GICT_STATUS(x) (0x0010 + (x * 64))
+#define GICT_ADDR(x) (0x0018 + (x * 64))
+#define GICT_MISC0(x) (0x0020 + (x * 64))
+#define GICT_MISC1(x) (0x0028 + (x * 64))
+#define GICT_STATUS_VALID (1UL << 30)
+#define GICT_STATUS_CE GENMASK(25, 24)
+#define GICT_STATUS_SERR GENMASK(7, 0)
+#define GICT_STATUS_IERR GENMASK(15, 8)
+#define GICT_STATUS_UE (1UL << 29)
+void check_errs(void)
+{
+    int i;
+    bool err = 0;
+    // printk("CHECK ERRS\n");
+    for (i = 0; i < 40; i++) {
+        uint32_t status = readl(gict_base + GICT_STATUS(i));
+        uint64_t misc0 = readq(gict_base + GICT_MISC0(i));
+        uint64_t misc1 = readq(gict_base + GICT_MISC1(i));
+        uint64_t addr = readq(gict_base + GICT_ADDR(i));
+        if (status & GICT_STATUS_VALID) {
+            printk("GICT STATUS ERR %d: STATUS=0x%x\n", i, status);
+            if (status & GICT_STATUS_UE)
+                printk("  Uncorrectable Error\n");
+            else if (status & GICT_STATUS_CE)
+                printk("  Correctable Error\n");
+            printk("  SERR=0x%lx\n", status & GICT_STATUS_SERR);
+            printk("  IERR=0x%lx\n", (status & GICT_STATUS_IERR) >> 8);
+            printk("  MISC0=0x%lx\n", misc0);
+            printk("  MISC1=0x%lx\n", misc1);
+            printk("  ADDR=0x%lx\n", addr);
+            err = 1;
+        }
+    }
+    BUG_ON(err);
+}
 /* Global state */
 static struct {
     void __iomem *map_dbase;  /* Mapped address of distributor registers */
@@ -1555,6 +1608,8 @@ static void __init gicv3_dt_init(void)
         panic("GICv3: Cannot find a valid distributor address\n");
 
     gicv3_ioremap_distributor(dbase);
+    map_gict(dbase);
+    check_errs();
 
     if ( !dt_property_read_u32(node, "#redistributor-regions",
                 &gicv3.rdist_count) )
