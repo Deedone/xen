@@ -256,6 +256,7 @@ int request_irq(unsigned int irq, unsigned int irqflags,
     return retval;
 }
 
+void check_errs(void);
 /* Dispatch an interrupt */
 void do_IRQ(struct cpu_user_regs *regs, unsigned int irq, int is_fiq)
 {
@@ -263,6 +264,7 @@ void do_IRQ(struct cpu_user_regs *regs, unsigned int irq, int is_fiq)
     struct irqaction *action;
     const struct cpu_user_regs *old_regs = set_irq_regs(regs);
 
+    check_errs();
     perfc_incr(irqs);
 
     /* Statically assigned SGIs do not come down this path */
