@@ -235,6 +235,8 @@ enum gic_version {
     GIC_INVALID = 0,    /* the default until explicitly set up */
     GIC_V2,
     GIC_V3,
+    GIC_V4,
+    GIC_V4_1,
 };
 
 DECLARE_PER_CPU(uint64_t, lr_mask);

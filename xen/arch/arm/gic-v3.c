@@ -100,6 +100,38 @@ static struct {
 
 static struct gic_info gicv3_info;
 
+#ifdef CONFIG_GICV4
+/* Global state */
+static struct {
+    bool has_vlpis;
+    bool has_direct_lpi;
+    bool has_vpend_valid_dirty;
+    bool has_rvpeid;
+} gicv4 = { .has_vlpis = true, .has_direct_lpi = true,
+            .has_vpend_valid_dirty = true, .has_rvpeid = true, };
+
+
+bool gic_support_directLPI(void)
+{
+    return gicv4.has_direct_lpi;
+}
+
+bool gic_support_vptValidDirty(void)
+{
+    return gicv4.has_vpend_valid_dirty;
+}
+
+bool gic_has_v4_1_extension(void)
+{
+    return gicv4.has_rvpeid;
+}
+
+bool gic_is_gicv4(void)
+{
+    return gicv4.has_vlpis;
+}
+#endif
+
 /* per-cpu re-distributor base */
 static DEFINE_PER_CPU(void __iomem*, rbase);
 
@@ -914,7 +946,8 @@ static bool gicv3_enable_lpis(void)
     return true;
 }
 
-static int __init gicv3_populate_rdist(void)
+static int __init gic_iterate_rdists(int (*fn)(struct rdist_region *,
+                                               void __iomem *))
 {
     int i;
     uint32_t aff;
@@ -958,40 +991,16 @@ static int __init gicv3_populate_rdist(void)
 
             if ( (typer >> 32) == aff )
             {
+                int ret;
+
                 this_cpu(rbase) = ptr;
 
-                if ( typer & GICR_TYPER_PLPIS )
-                {
-                    paddr_t rdist_addr;
-                    unsigned int procnum;
-                    int ret;
+                ret = fn(gicv3.rdist_regions + i, ptr);
+                if ( ret )
+                    return ret;
 
-                    /*
-                     * The ITS refers to redistributors either by their physical
-                     * address or by their ID. Which one to use is an ITS
-                     * choice. So determine those two values here (which we
-                     * can do only here in GICv3 code) and tell the
-                     * ITS code about it, so it can use them later to be able
-                     * to address those redistributors accordingly.
-                     */
-                    rdist_addr = gicv3.rdist_regions[i].base;
-                    rdist_addr += ptr - gicv3.rdist_regions[i].map_base;
-                    procnum = (typer & GICR_TYPER_PROC_NUM_MASK);
-                    procnum >>= GICR_TYPER_PROC_NUM_SHIFT;
-
-                    gicv3_set_redist_address(rdist_addr, procnum);
-
-                    ret = gicv3_lpi_init_rdist(ptr);
-                    if ( ret && ret != -ENODEV )
-                    {
-                        printk("GICv3: CPU%d: Cannot initialize LPIs: %u\n",
-                               smp_processor_id(), ret);
-                        break;
-                    }
-                }
-
-                printk("GICv3: CPU%d: Found redistributor in region %d @%p\n",
-                        smp_processor_id(), i, ptr);
+                printk("GICv3: CPU%d: Found redistributor @%p\n",
+                       smp_processor_id(), ptr);
                 return 0;
             }
 
@@ -1010,11 +1019,107 @@ static int __init gicv3_populate_rdist(void)
         } while ( !(typer & GICR_TYPER_LAST) );
     }
 
+    return -ENODEV;
+}
+
+static int __init __gicv3_populate_rdist(struct rdist_region *region,
+                                         void __iomem *ptr)
+{
+    uint64_t typer;
+
+    typer = readq_relaxed(ptr + GICR_TYPER);
+    if ( typer & GICR_TYPER_PLPIS )
+    {
+        paddr_t rdist_addr;
+        unsigned int procnum;
+        int ret;
+
+        /*
+         * The ITS refers to redistributors either by their physical
+         * address or by their ID. Which one to use is an ITS
+         * choice. So determine those two values here (which we
+         * can do only here in GICv3 code) and tell the
+         * ITS code about it, so it can use them later to be able
+         * to address those redistributors accordingly.
+         */
+        rdist_addr = region->base;
+        rdist_addr += ptr - region->map_base;
+        procnum = (typer & GICR_TYPER_PROC_NUM_MASK);
+        procnum >>= GICR_TYPER_PROC_NUM_SHIFT;
+
+        gicv3_set_redist_address(rdist_addr, procnum);
+
+        ret = gicv3_lpi_init_rdist(ptr);
+        if ( ret && ret != -ENODEV )
+        {
+            printk("GICv3: CPU%d: Cannot initialize LPIs: %d\n",
+                   smp_processor_id(), ret);
+            printk("%s %d\n", __func__, __LINE__);
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
+static int __init gicv3_populate_rdist(void)
+{
+    int ret = gic_iterate_rdists(__gicv3_populate_rdist);
+    if ( ret == 0)
+        return 0;
+
     dprintk(XENLOG_ERR, "GICv3: CPU%d: mpidr 0x%"PRIregister" has no re-distributor!\n",
             smp_processor_id(), cpu_logical_map(smp_processor_id()));
+    return -ENODEV;
+}
+
+#ifdef CONFIG_GICV4
+static int __init __gicv4_update_vlpi_properties(struct rdist_region *region,
+                                                 void __iomem *ptr)
+{
+    uint64_t typer;
+
+    typer = readq_relaxed(ptr + GICR_TYPER);
+    gicv4.has_vlpis &= !!(typer & GICR_TYPER_VLPIS);
+    gicv4.has_rvpeid &= !!(typer & GICR_TYPER_RVPEID);
+    /* RVPEID implies some form of DirectLPI. */
+    gicv4.has_direct_lpi &= (!!(typer & GICR_TYPER_DirectLPIS) ||
+                             !!(typer & GICR_TYPER_RVPEID));
+    gicv4.has_vpend_valid_dirty &= !!(typer & GICR_TYPER_DIRTY);
+
+    /* Detect non-sensical configurations */
+    if ( gicv4.has_rvpeid && !gicv4.has_vlpis )
+    {
+        gicv4.has_direct_lpi = false;
+        gicv4.has_vlpis = false;
+        gicv4.has_rvpeid = false;
+    }
+
+    printk("GICv4: CPU%d: %sVLPI support, %sdirect LPI support, %sValid+Dirty support, %sRVPEID support\n",
+           smp_processor_id(), !!(typer & GICR_TYPER_VLPIS) ? "" : "no ",
+           (!!(typer & GICR_TYPER_DirectLPIS) ||
+            !!(typer & GICR_TYPER_RVPEID)) ? "" : "no ",
+           !!(typer & GICR_TYPER_DIRTY) ? "" : "no ",
+           !!(typer & GICR_TYPER_RVPEID) ? "" : "no ");
+
+    return 0;
+}
+
+static int __init gicv4_update_vlpi_properties(void)
+{
+    int ret = gic_iterate_rdists(__gicv4_update_vlpi_properties);
+
+    if ( ret == 0 )
+        return 0;
 
     return -ENODEV;
 }
+#else
+static int __init gicv4_update_vlpi_properties(void)
+{
+    return 0;
+}
+#endif
 
 static int gicv3_cpu_init(void)
 {
@@ -1023,6 +1128,10 @@ static int gicv3_cpu_init(void)
     /* Register ourselves with the rest of the world */
     if ( gicv3_populate_rdist() )
         return -ENODEV;
+
+    ret = gicv4_update_vlpi_properties();
+    if ( ret )
+        return ret;
 
     if ( gicv3_enable_redist() )
         return -ENODEV;

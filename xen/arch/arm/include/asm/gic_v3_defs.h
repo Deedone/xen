@@ -93,6 +93,12 @@
 
 #define GICD_TYPE_LPIS               (1U << 17)
 
+#define GICD_TYPER2                  0x000c
+
+#define GICD_TYPER2_VIL              (1U << 7)
+#define GICD_TYPER2_VID              GENMASK(4, 0)
+#define GICD_TYPER2_nASSGIcap        (1U << 8)
+
 #define GICD_CTLR_RWP                (1UL << 31)
 #define GICD_CTLR_ARE_NS             (1U << 4)
 #define GICD_CTLR_ENABLE_G1A         (1U << 1)
@@ -149,7 +155,10 @@
 
 #define GICR_TYPER_PLPIS             (1U << 0)
 #define GICR_TYPER_VLPIS             (1U << 1)
+#define GICR_TYPER_DIRTY             (1U << 2)
+#define GICR_TYPER_DirectLPIS        (1U << 3)
 #define GICR_TYPER_LAST              (1U << 4)
+#define GICR_TYPER_RVPEID            (1U << 7)
 #define GICR_TYPER_PROC_NUM_SHIFT    8
 #define GICR_TYPER_PROC_NUM_MASK     (0xffff << GICR_TYPER_PROC_NUM_SHIFT)
 
