@@ -46,29 +46,7 @@ union host_lpi {
 #define LPI_PROPTABLE_NEEDS_FLUSHING    (1U << 0)
 
 /* Global state */
-static struct {
-    /* The global LPI property table, shared by all redistributors. */
-    uint8_t *lpi_property;
-    /*
-     * A two-level table to lookup LPIs firing on the host and look up the
-     * VCPU and virtual LPI number to inject into.
-     */
-    union host_lpi **host_lpis;
-    /*
-     * Number of physical LPIs the host supports. This is a property of
-     * the GIC hardware. We depart from the habit of naming these things
-     * "physical" in Xen, as the GICv3/4 spec uses the term "physical LPI"
-     * in a different context to differentiate them from "virtual LPIs".
-     */
-    unsigned long int max_host_lpi_ids;
-    /*
-     * Protects allocation and deallocation of host LPIs and next_free_lpi,
-     * but not the actual data stored in the host_lpi entry.
-     */
-    spinlock_t host_lpis_lock;
-    uint32_t next_free_lpi;
-    unsigned int flags;
-} lpi_data;
+struct __lpi_data lpi_data;
 
 struct lpi_redist_data {
     paddr_t             redist_addr;
@@ -490,6 +468,21 @@ static int find_unused_host_lpi(uint32_t start, uint32_t *index)
     }
 
     return -1;
+}
+
+void lpi_write_config(uint8_t *prop_table, uint32_t lpi, uint8_t clr,
+                      uint8_t set)
+{
+    u8 *cfg;
+
+    cfg = prop_table + lpi - 8192;
+    *cfg &= ~clr;
+    *cfg |= set | LPI_PROP_RES1;
+
+    /* Make the above write visible to the redistributors. */
+    if ( lpi_data.flags & LPI_PROPTABLE_NEEDS_FLUSHING ) {
+        clean_and_invalidate_dcache_va_range(cfg, sizeof(*cfg));
+    }
 }
 
 /*
