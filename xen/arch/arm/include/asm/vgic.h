@@ -127,6 +127,42 @@ struct vgic_irq_rank {
     uint8_t vcpu[32];
 };
 
+#ifdef CONFIG_GICV4
+struct its_vm {
+    struct its_vpe **vpes;
+    /* Number of VPE. */
+    unsigned int nr_vpes;
+    uint32_t *db_lpi_bases;
+    unsigned int nr_db_lpis;
+    /* Property table per VM. */
+    void *vproptable;
+};
+
+struct its_vpe {
+    rwlock_t lock;
+    uint32_t vpe_id;
+    /* Pending table per VCPU. */
+    void *vpendtable;
+    uint32_t vpe_db_lpi;
+    struct its_vm *its_vm;
+    unsigned int col_idx;
+    bool resident;
+    /* Pending VLPIs on schedule out? */
+    bool            pending_last;
+    struct {
+        /* Implementation Defined Area Invalid */
+        bool idai;
+        /* VPE proxy mapping */
+        int vpe_proxy_event;
+    };
+    /*
+     * Ensure mutual exclusion between affinity setting of the vPE
+     * and vLPI operations using vpe->col_idx.
+     */
+    spinlock_t vpe_lock;
+};
+#endif
+
 struct vgic_dist {
     /* Version of the vGIC */
     enum gic_version version;
@@ -193,6 +229,10 @@ struct vgic_dist {
      */
     bool rdists_enabled;                /* Is any redistributor enabled? */
     bool has_its;
+#ifdef CONFIG_GICV4
+    struct its_vm *its_vm;
+#endif
+    bool nassgireq;
 #endif
 };
 
@@ -227,6 +267,9 @@ struct vgic_cpu {
 #define VGIC_V3_RDIST_LAST      (1 << 0)        /* last vCPU of the rdist */
 #define VGIC_V3_LPIS_ENABLED    (1 << 1)
     uint8_t flags;
+#ifdef CONFIG_GICV4
+    struct its_vpe *its_vpe;
+#endif
 };
 
 struct sgi_target {
