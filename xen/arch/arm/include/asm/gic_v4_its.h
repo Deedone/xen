@@ -29,6 +29,26 @@
 #define GITS_CMD_VINVALL                 0x2d
 #define GITS_CMD_INVDB                   0x2e
 
+/* Describes the mapping of a VLPI */
+struct its_vlpi_map {
+    struct its_vm       *vm;
+    unsigned int        vpe_idx;    /* Index of the VPE */
+    uint32_t            vintid;     /* Virtual LPI number */
+    bool                db_enabled; /* Is the VPE doorbell to be generated? */
+    uint8_t             properties;
+    struct pending_irq  *pirq;
+    struct its_device   *dev;
+    uint32_t            eventid;
+};
+
+struct event_vlpi_map {
+    unsigned int            nr_lpis;
+    spinlock_t              vlpi_lock;
+    struct its_vm           *vm;
+    struct its_vlpi_map     *vlpi_maps;
+    unsigned int            nr_vlpis;
+};
+
 #endif
 
 /*

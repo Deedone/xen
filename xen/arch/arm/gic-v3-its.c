@@ -315,6 +315,20 @@ int its_send_cmd_inv(struct host_its *its,
     return its_send_command(its, cmd);
 }
 
+int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
+                         uint32_t eventid)
+{
+    uint64_t cmd[4];
+    uint32_t deviceid = dev->host_devid;
+
+    cmd[0] = GITS_CMD_DISCARD | ((uint64_t)deviceid << 32);
+    cmd[1] = (uint64_t)eventid;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
 /* Set up the (1:1) collection mapping for the given host CPU. */
 int gicv3_its_setup_collection(unsigned int cpu)
 {
