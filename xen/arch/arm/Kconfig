@@ -255,6 +255,12 @@ config ARM64_BTI
 	  Branch Target Identification support.
 	  This feature is not supported in Xen.
 
+config GICV4
+	bool "GICv4 driver"
+	depends on GICV3 && HAS_ITS
+	help
+	  Driver for ARM Generic Interrupt Controller v4 extension.
+
 source "arch/arm/tee/Kconfig"
 
 config PARTIAL_EMULATION
