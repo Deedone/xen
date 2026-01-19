@@ -194,6 +194,9 @@ int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
                          uint32_t eventid);
 int its_send_cmd_inv(struct host_its *its, uint32_t deviceid, uint32_t eventid);
 int its_send_cmd_clear(struct host_its *its, uint32_t deviceid, uint32_t eventid);
+int gicv3_its_wait_commands(struct host_its *hw_its);
+int its_inv_lpi(struct host_its *its, struct its_device *dev,
+                uint32_t eventid, unsigned int cpu);
 int its_send_cmd_mapti(struct host_its *its, uint32_t deviceid,
                        uint32_t eventid, uint32_t pintid, uint16_t icid);
 #ifdef CONFIG_ACPI
@@ -267,6 +270,8 @@ int gicv4_assign_guest_event(struct domain *d, paddr_t vdoorbell_address,
                              uint32_t vdevid, uint32_t eventid,
                              struct pending_irq *pirq);
 int gicv4_its_vlpi_move(struct pending_irq *pirq, struct vcpu *vcpu);
+int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
+                      uint32_t eventid);
 #ifndef CONFIG_GICV4
 #define event_is_forwarded_to_vcpu(dev, eventid) ((void)dev, (void)eventid, false)
 #else

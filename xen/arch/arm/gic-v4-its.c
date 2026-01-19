@@ -286,3 +286,25 @@ int gicv4_its_vlpi_move(struct pending_irq *pirq, struct vcpu *vcpu)
     return gicv4_its_vlpi_map(map);
 }
 
+/*
+ * There is no real VINV command.
+ * We do a normal INV, with a VSYNC instead of a SYNC.
+ */
+int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
+                      uint32_t eventid)
+{
+    int ret;
+    struct its_vlpi_map *map = &dev->event_map.vlpi_maps[eventid];
+    uint16_t vpeid = map->vm->vpes[map->vpe_idx]->vpe_id;
+
+    ret = its_send_cmd_inv(its, dev->host_devid, eventid);
+    if ( ret )
+        return ret;
+
+    ret = its_send_cmd_vsync(its, vpeid);
+    if ( ret )
+        return ret;
+
+    return gicv3_its_wait_commands(its);
+}
+

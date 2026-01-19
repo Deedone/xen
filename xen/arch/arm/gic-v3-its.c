@@ -201,7 +201,7 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
 }
 
 /* Wait for an ITS to finish processing all commands. */
-static int gicv3_its_wait_commands(struct host_its *hw_its)
+int gicv3_its_wait_commands(struct host_its *hw_its)
 {
     /*
      * As there could be quite a number of commands in a queue, we will
@@ -670,6 +670,25 @@ static int compare_its_guest_devices(struct its_device *dev,
         return 1;
 
     return 0;
+}
+
+int its_inv_lpi(struct host_its *its, struct its_device *dev,
+                uint32_t eventid, unsigned int cpu)
+{
+    int ret;
+
+    if ( event_is_forwarded_to_vcpu(dev, eventid) )
+        return its_send_cmd_vinv(its, dev, eventid);
+
+    ret = its_send_cmd_inv(its, dev->host_devid, eventid);
+    if ( ret )
+        return ret;
+
+    ret = its_send_cmd_sync(its, cpu);
+    if ( ret )
+        return ret;
+
+    return gicv3_its_wait_commands(its);
 }
 
 /*
