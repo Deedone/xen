@@ -2083,6 +2083,22 @@ static bool gic_dist_supports_lpis(void)
     return (readl_relaxed(GICD + GICD_TYPER) & GICD_TYPE_LPIS);
 }
 
+#ifdef CONFIG_GICV4
+static void __init gicv4_init(void)
+{
+        gicv3_info.hw_version = GIC_V4;
+
+
+    gicv4_its_vpeid_allocator_init();
+
+}
+#else
+static void __init gicv4_init(void)
+{
+    ASSERT_UNREACHABLE();
+}
+#endif
+
 /* Set up the GIC */
 static int __init gicv3_init(void)
 {
@@ -2157,6 +2173,8 @@ static int __init gicv3_init(void)
 
     gicv3_hyp_init();
 
+    if ( gic_is_gicv4() )
+        gicv4_init();
 out:
     spin_unlock(&gicv3.lock);
 

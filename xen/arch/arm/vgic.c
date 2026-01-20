@@ -22,6 +22,7 @@
 
 #include <asm/mmio.h>
 #include <asm/gic.h>
+#include <asm/gic_v3_its.h>
 #include <asm/vgic.h>
 
 
@@ -329,6 +330,15 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
     for ( i = 0; i < NR_GIC_SGI; i++ )
         set_bit(i, d->arch.vgic.allocated_irqs);
 
+    if ( gic_is_gicv4() )
+    {
+        ret = vgic_v4_its_vm_init(d);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "GICv4 its vm allocation failed\n");
+            return ret;
+        }
+    }
     return 0;
 }
 
@@ -366,11 +376,14 @@ void domain_vgic_free(struct domain *d)
 #endif
     xfree(d->arch.vgic.pending_irqs);
     xfree(d->arch.vgic.allocated_irqs);
+
+    if ( gic_is_gicv4() )
+        vgic_v4_free_its_vm(d);
 }
 
 int vcpu_vgic_init(struct vcpu *v)
 {
-    int i;
+    int i, ret;
 
     v->arch.vgic.private_irqs = xzalloc(struct vgic_irq_rank);
     if ( v->arch.vgic.private_irqs == NULL )
@@ -388,6 +401,16 @@ int vcpu_vgic_init(struct vcpu *v)
     INIT_LIST_HEAD(&v->arch.vgic.inflight_irqs);
     INIT_LIST_HEAD(&v->arch.vgic.lr_pending);
     spin_lock_init(&v->arch.vgic.lock);
+
+    if ( gic_is_gicv4() && gicv3_its_host_has_its())
+    {
+        ret = vgic_v4_its_vpe_init(v);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "GICv4 its vpe allocation failed\n");
+            return ret;
+        }
+    }
 
     return 0;
 }

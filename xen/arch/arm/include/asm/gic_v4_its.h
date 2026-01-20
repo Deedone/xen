@@ -49,6 +49,7 @@ struct event_vlpi_map {
     unsigned int            nr_vlpis;
 };
 
+void gicv4_its_vpeid_allocator_init(void);
 #endif
 
 /*

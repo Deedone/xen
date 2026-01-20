@@ -31,6 +31,8 @@
 LIST_HEAD(host_its_list);
 
 
+unsigned int nvpeid = 16;
+
 /*
  * It is unlikely that a platform implements ITSes with different quirks,
  * so assume they all share the same.
@@ -228,7 +230,7 @@ int gicv3_its_wait_commands(struct host_its *hw_its)
     return -ETIMEDOUT;
 }
 
-static uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu,
+uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu,
                               uint64_t reg)
 {
     reg &= ~GENMASK(51, 16);
@@ -441,6 +443,54 @@ struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type)
     }
 
     return NULL;
+}
+
+bool its_alloc_table_entry(struct its_baser *baser, uint32_t id)
+{
+    uint64_t reg = baser->val;
+    bool indirect = reg & GITS_BASER_INDIRECT;
+    unsigned int idx;
+    __le64 *table;
+    unsigned int entry_size = GITS_BASER_ENTRY_SIZE(reg);
+
+    /* Don't allow id that exceeds single, flat table limit */
+    if ( !indirect )
+        return (id < (baser->table_size / entry_size));
+
+    /* Compute 1st level table index & check if that exceeds table limit */
+    idx = id / (baser->pagesz / entry_size);
+    if ( idx >= (baser->pagesz / GITS_LVL1_ENTRY_SIZE) )
+        return false;
+
+    table = baser->base;
+
+    /* Allocate memory for 2nd level table */
+    if (!table[idx])
+    {
+        unsigned int page_size = baser->pagesz;
+        void *buffer;
+
+        buffer = alloc_xenheap_pages(get_order_from_bytes(page_size),
+                                     gicv3_its_get_memflags());
+        if ( !buffer )
+            return -ENOMEM;
+
+        /* Flush Lvl2 table to PoC if hw doesn't support coherency */
+        if ( gicv3_its_get_cacheability() <= GIC_BASER_CACHE_nC )
+            clean_and_invalidate_dcache_va_range(buffer, page_size);
+
+        table[idx] = cpu_to_le64(virt_to_maddr(buffer) | GITS_VALID_BIT);
+
+        /* Flush Lvl1 entry to PoC if hw doesn't support coherency */
+        if ( gicv3_its_get_cacheability() <= GIC_BASER_CACHE_nC )
+            clean_and_invalidate_dcache_va_range(table + idx,
+                                                 GITS_LVL1_ENTRY_SIZE);
+
+        /* Ensure updated table contents are visible to ITS hardware */
+        dsb(sy);
+    }
+
+    return true;
 }
 
 static int its_map_baser(void __iomem *basereg, uint64_t regc,
@@ -737,13 +787,75 @@ static int gicv3_its_map_host_events(struct host_its *its,
             return ret;
     }
 
-    /* TODO: Consider using INVALL here. Didn't work on the model, though. */
+    return 0;
+}
 
-    ret = its_send_cmd_sync(its, 0);
+static bool its_alloc_device_table(struct host_its *hw_its, uint32_t dev_id)
+{
+    struct its_baser *baser;
+
+    baser = its_get_baser(hw_its, GITS_BASER_TYPE_DEVICE);
+    if ( !baser )
+        return false;
+
+    return its_alloc_table_entry(baser, dev_id);
+}
+
+struct its_device *its_create_device(struct host_its *hw_its,
+                                     uint32_t host_devid, uint64_t nr_events)
+{
+    void *itt_addr = NULL;
+    struct its_device *dev = NULL;
+    int ret;
+
+    /* Sanitise the provided hardware values against the host ITS. */
+    if ( host_devid >= BIT(hw_its->devid_bits, UL) )
+        return NULL;
+
+    dev = xzalloc(struct its_device);
+    if ( !dev )
+        return NULL;
+
+    /* An Interrupt Translation Table needs to be 256-byte aligned. */
+    dev->itt_order = get_order_from_bytes(nr_events * hw_its->itte_size);
+    itt_addr = alloc_xenheap_pages(dev->itt_order, gicv3_its_get_memflags());
+    if ( !itt_addr )
+        goto fail_dev;
+
+    clean_and_invalidate_dcache_va_range(itt_addr,
+                                         nr_events * hw_its->itte_size);
+
+
+    if ( !its_alloc_device_table(hw_its, host_devid) )
+        goto fail_itt;
+
+    ret = its_send_cmd_mapd(hw_its, host_devid, max(fls(nr_events - 1), 1U),
+                            virt_to_maddr(itt_addr), true);
     if ( ret )
-        return ret;
+        goto fail_itt;
 
-    return gicv3_its_wait_commands(its);
+    dev->itt_addr = itt_addr;
+    dev->hw_its = hw_its;
+    dev->host_devid = host_devid;
+    dev->eventids = nr_events;
+
+    return dev;
+
+fail_itt:
+    free_xenheap_pages(itt_addr, dev->itt_order);
+fail_dev:
+    xfree(dev);
+
+    return NULL;
+}
+
+static void its_free_device(struct its_device *dev)
+{
+    xfree(dev->host_lpi_blocks);
+    xfree(dev->itt_addr);
+    if ( dev->pend_irqs )
+        xfree(dev->pend_irqs);
+    xfree(dev);
 }
 
 /*
@@ -758,12 +870,10 @@ int gicv3_its_map_guest_device(struct domain *d,
                                paddr_t guest_doorbell, uint32_t guest_devid,
                                uint64_t nr_events, bool valid)
 {
-    void *itt_addr = NULL;
     struct host_its *hw_its;
     struct its_device *dev = NULL;
     struct rb_node **new = &d->arch.vgic.its_devices.rb_node, *parent = NULL;
     int i, ret = -ENOENT;      /* "i" must be signed to check for >= 0 below. */
-    unsigned int order;
 
     hw_its = gicv3_its_find_by_doorbell(host_doorbell);
     if ( !hw_its )
@@ -823,22 +933,11 @@ int gicv3_its_map_guest_device(struct domain *d,
     if ( !valid )
         goto out_unlock;
 
-    ret = -ENOMEM;
-
-    /* An Interrupt Translation Table needs to be 256-byte aligned. */
-    order = get_order_from_bytes(max(nr_events * hw_its->itte_size, 256UL));
-    itt_addr = alloc_xenheap_pages(order, gicv3_its_get_memflags());
-    if ( !itt_addr )
-        goto out_unlock;
-
-    memset(itt_addr, 0, PAGE_SIZE << order);
-
-    clean_and_invalidate_dcache_va_range(itt_addr,
-                                         nr_events * hw_its->itte_size);
-
-    dev = xzalloc(struct its_device);
+    dev = its_create_device(hw_its, host_devid, nr_events);
     if ( !dev )
         goto out_unlock;
+
+    ret = -ENOMEM;
 
     /*
      * Allocate the pending_irqs for each virtual LPI. They will be put
@@ -860,14 +959,6 @@ int gicv3_its_map_guest_device(struct domain *d,
     if ( !dev->host_lpi_blocks )
         goto out_unlock;
 
-    ret = its_send_cmd_mapd(hw_its, host_devid, fls(nr_events - 1),
-                            virt_to_maddr(itt_addr), true);
-    if ( ret )
-        goto out_unlock;
-
-    dev->itt_addr = itt_addr;
-    dev->itt_order = order;
-    dev->hw_its = hw_its;
     dev->guest_doorbell = guest_doorbell;
     dev->guest_devid = guest_devid;
     dev->host_devid = host_devid;
@@ -920,13 +1011,7 @@ out_unlock:
 
 out:
     if ( dev )
-    {
-        xfree(dev->pend_irqs);
-        xfree(dev->host_lpi_blocks);
-    }
-    if ( itt_addr )
-        free_xenheap_pages(itt_addr, order);
-    xfree(dev);
+        its_free_device(dev);
 
     return ret;
 }

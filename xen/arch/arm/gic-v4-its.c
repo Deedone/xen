@@ -25,6 +25,85 @@
 #include <asm/gic_v3_its.h>
 #include <asm/gic_v4_its.h>
 #include <asm/vgic.h>
+
+
+/*
+ * VPE ID is at most 16 bits.
+ * Using a bitmap here limits us to 65536 concurrent VPEs.
+ */
+static unsigned long *vpeid_mask;
+
+static spinlock_t vpeid_alloc_lock = SPIN_LOCK_UNLOCKED;
+
+void __init gicv4_its_vpeid_allocator_init(void)
+{
+    /* Allocate space for vpeid_mask based on MAX_VPEID */
+    vpeid_mask = xzalloc_array(unsigned long, BITS_TO_LONGS(MAX_VPEID));
+
+    if ( !vpeid_mask )
+        panic("Could not allocate VPEID bitmap space\n");
+}
+
+static int __init its_alloc_vpeid(struct its_vpe *vpe)
+{
+    int id;
+
+    spin_lock(&vpeid_alloc_lock);
+
+    id = find_first_zero_bit(vpeid_mask, MAX_VPEID);
+
+    if ( id == MAX_VPEID )
+    {
+        id = -EBUSY;
+        printk(XENLOG_ERR "VPEID pool exhausted\n");
+        goto out;
+    }
+
+    set_bit(id, vpeid_mask);
+
+out:
+    spin_unlock(&vpeid_alloc_lock);
+
+    return id;
+}
+
+static void __init its_free_vpeid(uint32_t vpe_id)
+{
+    spin_lock(&vpeid_alloc_lock);
+
+    clear_bit(vpe_id, vpeid_mask);
+
+    spin_unlock(&vpeid_alloc_lock);
+}
+
+static bool __init its_alloc_vpe_entry(uint32_t vpe_id)
+{
+    struct host_its *hw_its;
+
+    /*
+     * Make sure the L2 tables are allocated on *all* v4 ITSs. We
+     * could try and only do it on ITSs corresponding to devices
+     * that have interrupts targeted at this VPE, but the
+     * complexity becomes crazy.
+     */
+    list_for_each_entry(hw_its, &host_its_list, entry)
+    {
+        struct its_baser *baser;
+
+        if ( !hw_its->is_v4 )
+            continue;
+
+        baser = its_get_baser(hw_its, GITS_BASER_TYPE_VCPU);
+        if ( !baser )
+            return false;
+
+        if ( !its_alloc_table_entry(baser, vpe_id) )
+            return false;
+    }
+
+    return true;
+}
+
 static int its_send_cmd_vsync(struct host_its *its, uint16_t vpeid)
 {
     uint64_t cmd[4];
@@ -35,6 +114,188 @@ static int its_send_cmd_vsync(struct host_its *its, uint16_t vpeid)
     cmd[3] = 0x00;
 
     return its_send_command(its, cmd);
+}
+
+static int its_send_cmd_vmapp(struct host_its *its, struct its_vpe *vpe,
+                              bool valid)
+{
+    uint64_t cmd[4];
+    uint16_t vpeid = vpe->vpe_id;
+    uint64_t vpt_addr;
+    int ret;
+
+    cmd[0] = GITS_CMD_VMAPP;
+    cmd[1] = (uint64_t)vpeid << 32;
+    cmd[2] = valid ? GITS_VALID_BIT : 0;
+
+    /* Unmap command */
+    if ( !valid )
+        goto out;
+
+    /* Target redistributor */
+    cmd[2] |= encode_rdbase(its, vpe->col_idx, 0x0);
+    vpt_addr = virt_to_maddr(vpe->vpendtable);
+    cmd[3] = (vpt_addr & GENMASK(51, 16)) |
+             ((HOST_LPIS_NRBITS - 1) & GENMASK(4, 0));
+
+ out:
+    ret = its_send_command(its, cmd);
+
+    return ret;
+}
+
+static int its_send_cmd_vinvall(struct host_its *its, struct its_vpe *vpe)
+{
+    uint64_t cmd[4];
+    uint16_t vpeid = vpe->vpe_id;
+
+    cmd[0] = GITS_CMD_VINVALL;
+    cmd[1] = (uint64_t)vpeid << 32;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
+static int its_map_vpe(struct host_its *its, struct its_vpe *vpe)
+{
+    int ret;
+
+    /*
+     * VMAPP command maps the vPE to the target RDbase, including an
+     * associated virtual LPI Pending table.
+     */
+    ret = its_send_cmd_vmapp(its, vpe, true);
+    if ( ret )
+        return ret;
+
+    ret = its_send_cmd_vinvall(its, vpe);
+    if ( ret )
+        return ret;
+
+    ret = its_send_cmd_vsync(its, vpe->vpe_id);
+    if ( ret )
+        return ret;
+
+    return 0;
+}
+static int __init its_vpe_init(struct its_vpe *vpe)
+{
+    int vpe_id, rc = -ENOMEM;
+    struct page_info *vpendtable;
+    struct host_its *hw_its;
+
+    /* Allocate vpe id */
+    vpe_id = its_alloc_vpeid(vpe);
+    if ( vpe_id < 0 )
+        return rc;
+
+    /* Allocate VPT */
+    vpendtable = lpi_allocate_pendtable();
+
+    if ( !vpendtable )
+        goto fail_vpt;
+
+    if ( !its_alloc_vpe_entry(vpe_id) )
+        goto fail_entry;
+
+    rwlock_init(&vpe->lock);
+    vpe->vpe_id = vpe_id;
+    vpe->vpendtable = page_to_virt(vpendtable);
+    /*
+     * We eagerly inform all the v4 ITS and map vPE to the first
+     * possible CPU
+     */
+    vpe->col_idx = cpumask_first(&cpu_online_map);
+    list_for_each_entry(hw_its, &host_its_list, entry)
+    {
+        if ( !hw_its->is_v4 )
+            continue;
+
+        if ( its_map_vpe(hw_its, vpe) )
+            goto fail_entry;
+    }
+
+    return 0;
+
+ fail_entry:
+    xfree(page_to_virt(vpendtable));
+ fail_vpt:
+    its_free_vpeid(vpe_id);
+
+    return rc;
+}
+
+static void __init its_vpe_teardown(struct its_vpe *vpe)
+{
+    unsigned int order;
+
+    order = get_order_from_bytes(max(lpi_data.max_host_lpi_ids / 8, (unsigned long)SZ_64K));
+    its_free_vpeid(vpe->vpe_id);
+    free_xenheap_pages(vpe->vpendtable, order);
+    xfree(vpe);
+}
+
+int vgic_v4_its_vm_init(struct domain *d)
+{
+    unsigned int nr_vcpus = d->max_vcpus;
+    int ret = -ENOMEM;
+
+    if ( !gicv3_its_host_has_its() )
+        return 0;
+
+    d->arch.vgic.its_vm = xzalloc(struct its_vm);
+    if ( !d->arch.vgic.its_vm )
+        return ret;
+
+    d->arch.vgic.its_vm->vpes = xzalloc_array(struct its_vpe *, nr_vcpus);
+    if ( !d->arch.vgic.its_vm->vpes )
+        goto fail_vpes;
+    d->arch.vgic.its_vm->nr_vpes = nr_vcpus;
+
+    d->arch.vgic.its_vm->vproptable = lpi_allocate_proptable();
+    if ( !d->arch.vgic.its_vm->vproptable )
+        goto fail_vprop;
+
+    return 0;
+
+fail_vprop:
+    xfree(d->arch.vgic.its_vm->vpes);
+ fail_vpes:
+    xfree(d->arch.vgic.its_vm);
+
+    return ret;
+}
+
+void vgic_v4_free_its_vm(struct domain *d)
+{
+    struct its_vm *its_vm = d->arch.vgic.its_vm;
+    if ( its_vm->vpes )
+        xfree(its_vm->vpes);
+    if ( its_vm->vproptable )
+        lpi_free_proptable(its_vm);
+}
+
+int vgic_v4_its_vpe_init(struct vcpu *vcpu)
+{
+    int ret;
+    struct its_vm *its_vm = vcpu->domain->arch.vgic.its_vm;
+    unsigned int vcpuid = vcpu->vcpu_id;
+
+    vcpu->arch.vgic.its_vpe = xzalloc(struct its_vpe);
+    if ( !vcpu->arch.vgic.its_vpe )
+        return -ENOMEM;
+
+    its_vm->vpes[vcpuid] = vcpu->arch.vgic.its_vpe;
+    vcpu->arch.vgic.its_vpe->its_vm = its_vm;
+
+    ret = its_vpe_init(vcpu->arch.vgic.its_vpe);
+    if ( ret )
+    {
+        its_vpe_teardown(vcpu->arch.vgic.its_vpe);
+        return ret;
+    }
+    return 0;
 }
 
 static int its_send_cmd_vmapti(struct host_its *its, struct its_device *dev,
@@ -307,4 +568,3 @@ int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
 
     return gicv3_its_wait_commands(its);
 }
-

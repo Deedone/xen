@@ -77,6 +77,7 @@
 #define GITS_BASER_ENTRY_SIZE_SHIFT     48
 #define GITS_BASER_ENTRY_SIZE(reg)                                       \
                         ((((reg) >> GITS_BASER_ENTRY_SIZE_SHIFT) & 0x1f) + 1)
+#define GITS_LVL1_ENTRY_SIZE            8UL
 #define GITS_BASER_SHAREABILITY_SHIFT   10
 #define GITS_BASER_PAGE_SIZE_SHIFT      8
 #define GITS_BASER_SIZE_MASK            0xff
@@ -117,9 +118,19 @@
 /* We allocate LPIs on the hosts in chunks of 32 to reduce handling overhead. */
 #define LPI_BLOCK                       32U
 
+extern unsigned int nvpeid;
+/* The maximum number of VPEID bits supported by VLPI commands */
+#define ITS_MAX_VPEID_BITS      nvpeid
+#define MAX_VPEID               (1UL << ITS_MAX_VPEID_BITS)
+
 #ifdef CONFIG_GICV4
 #include <asm/gic_v4_its.h>
 #endif
+
+extern uint32_t lpi_id_bits;
+#define HOST_LPIS_NRBITS   lpi_id_bits
+#define MAX_HOST_LPIS      BIT(lpi_id_bits, UL)
+
 /*
  * Describes a device which is using the ITS and is used by a guest.
  * Since device IDs are per ITS (in contrast to vLPIs, which are per
@@ -169,6 +180,7 @@ struct host_its {
     void *cmd_buf;
     unsigned int flags;
     struct its_baser tables[GITS_BASER_NR_REGS];
+    bool is_v4;
 };
 
 /* Map a collection for this host CPU to each host ITS. */
@@ -273,8 +285,13 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
 void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
                                  uint32_t virt_lpi);
 struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type);
+bool its_alloc_table_entry(struct its_baser *baser, uint32_t id);
+struct page_info *lpi_allocate_pendtable(void);
+void *lpi_allocate_proptable(void);
+void lpi_free_proptable(void *vproptable);
 void lpi_write_config(uint8_t *prop_table, uint32_t lpi, uint8_t clr,
                       uint8_t set);
+uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu, uint64_t reg);
 int its_send_command(struct host_its *hw_its, const void *its_cmd);
 
 struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
