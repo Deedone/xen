@@ -17,6 +17,8 @@
  * along with this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <asm/arm64/io.h>
+
 #ifndef __ASM_ARM_GICV4_ITS_H__
 #define __ASM_ARM_GICV4_ITS_H__
 
@@ -50,6 +52,42 @@ struct event_vlpi_map {
 };
 
 void gicv4_its_vpeid_allocator_init(void);
+
+#define GICR_VPROPBASER                              0x0070
+#define GICR_VPENDBASER                              0x0078
+
+#define GICR_VPENDBASER_Dirty                   (1UL << 60)
+#define GICR_VPENDBASER_PendingLast             (1UL << 61)
+#define GICR_VPENDBASER_IDAI                    (1UL << 62)
+#define GICR_VPENDBASER_Valid                   (1UL << 63)
+
+#define GICR_VPENDBASER_OUTER_CACHEABILITY_SHIFT         56
+#define GICR_VPENDBASER_SHAREABILITY_SHIFT               10
+#define GICR_VPENDBASER_INNER_CACHEABILITY_SHIFT          7
+
+#define gits_read_vpropbaser(c)         readq_relaxed(c)
+#define gits_write_vpropbaser(v, c)     {writeq_relaxed(v, c);}
+
+/*
+ * GICR_VPENDBASER - the Valid bit must be cleared before changing
+ * anything else.
+ */
+static inline void gits_write_vpendbaser(uint64_t val, void __iomem *addr)
+{
+    uint64_t tmp;
+
+    tmp = readq_relaxed(addr);
+    while ( tmp & GICR_VPENDBASER_Valid )
+    {
+        tmp &= ~GICR_VPENDBASER_Valid;
+        writeq_relaxed(tmp, addr);
+        tmp = readq_relaxed(addr);
+    }
+
+    writeq_relaxed(val, addr);
+}
+#define gits_read_vpendbaser(c)     readq_relaxed(c)
+
 #endif
 
 /*
