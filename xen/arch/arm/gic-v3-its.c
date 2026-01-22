@@ -31,6 +31,8 @@
 LIST_HEAD(host_its_list);
 
 
+unsigned long its_list_map;
+
 unsigned int nvpeid = 16;
 
 /*
@@ -612,10 +614,47 @@ static int gicv3_disable_its(struct host_its *hw_its)
     return -ETIMEDOUT;
 }
 
+static int __init its_compute_its_list_map(struct host_its *hw_its)
+{
+    int its_number;
+    uint32_t ctlr;
+
+    its_number = find_first_zero_bit(&its_list_map, GICv4_ITS_LIST_MAX);
+    if ( its_number >= GICv4_ITS_LIST_MAX )
+    {
+        printk(XENLOG_ERR
+               "ITS@%lx: No ITSList entry available!\n", hw_its->addr);
+        return -EINVAL;
+    }
+
+    ctlr = readl_relaxed(hw_its->its_base + GITS_CTLR);
+    ctlr &= ~GITS_CTLR_ITS_NUMBER;
+    ctlr |= its_number << GITS_CTLR_ITS_NUMBER_SHIFT;
+    writel_relaxed(ctlr, hw_its->its_base + GITS_CTLR);
+    ctlr = readl_relaxed(hw_its->its_base + GITS_CTLR);
+    if ( (ctlr & GITS_CTLR_ITS_NUMBER) !=
+         (its_number << GITS_CTLR_ITS_NUMBER_SHIFT) )
+    {
+        its_number = ctlr & GITS_CTLR_ITS_NUMBER;
+        its_number >>= GITS_CTLR_ITS_NUMBER_SHIFT;
+    }
+
+    if ( test_and_set_bit(its_number, &its_list_map) )
+    {
+        printk(XENLOG_ERR
+               "ITS@%lx: Duplicate ITSList entry %d\n",
+               hw_its->addr, its_number);
+        return -EINVAL;
+    }
+
+    return its_number;
+}
+
 static int gicv3_its_init_single_its(struct host_its *hw_its)
 {
     uint64_t reg;
     int i, ret;
+    int its_number;
 
     hw_its->its_base = ioremap_nocache(hw_its->addr, hw_its->size);
     if ( !hw_its->its_base )
@@ -633,6 +672,22 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
     hw_its->itte_size = GITS_TYPER_ITT_SIZE(reg);
     if ( reg & GITS_TYPER_PTA )
         hw_its->flags |= HOST_ITS_USES_PTA;
+    hw_its->is_v4 = reg & GITS_TYPER_VLPIS;
+    if ( hw_its->is_v4 )
+    {
+        if ( !(reg & GITS_TYPER_VMOVP) )
+        {
+            its_number = its_compute_its_list_map(hw_its);
+            if ( its_number < 0 )
+                return its_number;
+            dprintk(XENLOG_INFO,
+                    "ITS@%lx: Using ITS number %d\n",
+                    hw_its->addr, its_number);
+        }
+        else
+            dprintk(XENLOG_INFO,
+                    "ITS@%lx: Single VMOVP capable\n", hw_its->addr);
+    }
     spin_lock_init(&hw_its->cmd_lock);
 
     for ( i = 0; i < GITS_BASER_NR_REGS; i++ )

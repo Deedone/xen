@@ -36,6 +36,9 @@ static unsigned long *vpeid_mask;
 
 static spinlock_t vpeid_alloc_lock = SPIN_LOCK_UNLOCKED;
 
+static uint16_t vmovp_seq_num;
+static spinlock_t vmovp_lock = SPIN_LOCK_UNLOCKED;
+
 void __init gicv4_its_vpeid_allocator_init(void)
 {
     /* Allocate space for vpeid_mask based on MAX_VPEID */
@@ -240,6 +243,57 @@ static int __init its_vpe_init(struct its_vpe *vpe)
     its_free_vpeid(vpe_id);
 
     return rc;
+}
+
+static int its_send_cmd_vmovp(struct its_vpe *vpe)
+{
+    uint16_t vpeid = vpe->vpe_id;
+    int ret;
+    struct host_its *hw_its;
+
+    if ( !its_list_map )
+    {
+        uint64_t cmd[4];
+
+        hw_its = list_first_entry(&host_its_list, struct host_its, entry);
+        cmd[0] = GITS_CMD_VMOVP;
+        cmd[1] = (uint64_t)vpeid << 32;
+        cmd[2] = encode_rdbase(hw_its, vpe->col_idx, 0x0);
+        cmd[3] = 0x00;
+
+        return its_send_command(hw_its, cmd);
+    }
+
+    /*
+     * If using the its_list "feature", we need to make sure that all ITSs
+     * receive all VMOVP commands in the same order. The only way
+     * to guarantee this is to make vmovp a serialization point.
+     */
+    spin_lock(&vmovp_lock);
+
+    vmovp_seq_num++;
+
+    /* Emit VMOVPs */
+    list_for_each_entry(hw_its, &host_its_list, entry)
+    {
+        uint64_t cmd[4];
+
+        cmd[0] = GITS_CMD_VMOVP | ((uint64_t)vmovp_seq_num << 32);
+        cmd[1] = its_list_map | ((uint64_t)vpeid << 32);
+        cmd[2] = encode_rdbase(hw_its, vpe->col_idx, 0x0);
+        cmd[3] = 0x00;
+
+        ret = its_send_command(hw_its, cmd);
+        if ( ret )
+        {
+            spin_unlock(&vmovp_lock);
+            return ret;
+        }
+    }
+
+    spin_unlock(&vmovp_lock);
+
+    return 0;
 }
 
 static void __init its_vpe_teardown(struct its_vpe *vpe)
@@ -684,6 +738,52 @@ static void its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
     vpe->pending_last = val & GICR_VPENDBASER_PendingLast;
 }
 
+static int vpe_to_cpuid_lock(struct its_vpe *vpe, unsigned long *flags)
+{
+    spin_lock_irqsave(&vpe->vpe_lock, *flags);
+    return vpe->col_idx;
+}
+
+static void vpe_to_cpuid_unlock(struct its_vpe *vpe, unsigned long *flags)
+{
+    spin_unlock_irqrestore(&vpe->vpe_lock, *flags);
+}
+
+static int gicv4_vpe_set_affinity(struct vcpu *vcpu)
+{
+    struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
+    unsigned int from, to = vcpu->processor;
+    unsigned long flags;
+    int ret = 0;
+
+    /*
+     * Changing affinity is mega expensive, so let's be as lazy as
+     * we can and only do it if we really have to. Also, if mapped
+     * into the proxy device, we need to move the doorbell interrupt
+     * to its new location.
+     *
+     * Another thing is that changing the affinity of a vPE affects
+     * *other interrupts* such as all the vLPIs that are routed to
+     * this vPE. This means that we must ensure nobody samples
+     * vpe->col_idx during the update, hence the lock below which
+     * must also be taken on any vLPI handling path that evaluates
+     * vpe->col_idx, such as reg-based vLPI invalidation.
+     */
+    from = vpe_to_cpuid_lock(vpe, &flags);
+    if ( from == to )
+        goto out;
+
+    vpe->col_idx = to;
+
+    ret = its_send_cmd_vmovp(vpe);
+    if ( ret )
+        goto out;
+
+ out:
+    vpe_to_cpuid_unlock(vpe, &flags);
+    return ret;
+}
+
 void vgic_v4_load(struct vcpu *vcpu)
 {
     struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
@@ -692,6 +792,11 @@ void vgic_v4_load(struct vcpu *vcpu)
     if ( vpe->resident )
         return;
 
+    /*
+     * Before making the VPE resident, make sure the redistributor
+     * corresponding to our current CPU expects us here
+     */
+    WARN_ON(gicv4_vpe_set_affinity(vcpu));
     its_make_vpe_resident(vpe, vcpu->processor);
     vpe->resident = true;
 }

@@ -43,6 +43,9 @@
 #define GITS_CTLR_QUIESCENT             BIT(31, UL)
 #define GITS_CTLR_ENABLE                BIT(0, UL)
 
+#define GITS_CTLR_ITS_NUMBER_SHIFT      4
+#define GITS_CTLR_ITS_NUMBER            (0xfUL << GITS_CTLR_ITS_NUMBER_SHIFT)
+
 #define GITS_TYPER_PTA                  BIT(19, UL)
 #define GITS_TYPER_DEVIDS_SHIFT         13
 #define GITS_TYPER_DEVIDS_MASK          (0x1fUL << GITS_TYPER_DEVIDS_SHIFT)
@@ -60,6 +63,8 @@
                                                  GITS_TYPER_ITT_SIZE_SHIFT) + 1)
 #define GITS_TYPER_PHYSICAL             (1U << 0)
 
+#define GITS_TYPER_VLPIS                (1UL << 1)
+#define GITS_TYPER_VMOVP                (1UL << 37)
 #define GITS_BASER_INDIRECT             BIT(62, UL)
 #define GITS_BASER_INNER_CACHEABILITY_SHIFT        59
 #define GITS_BASER_TYPE_SHIFT           56
@@ -117,6 +122,12 @@
 
 /* We allocate LPIs on the hosts in chunks of 32 to reduce handling overhead. */
 #define LPI_BLOCK                       32U
+
+/*
+ * Maximum number of ITSs when GITS_TYPER.VMOVP == 0, using the
+ * ITSList mechanism to perform inter-ITS synchronization.
+ */
+#define GICv4_ITS_LIST_MAX      16
 
 extern unsigned int nvpeid;
 /* The maximum number of VPEID bits supported by VLPI commands */
@@ -214,6 +225,7 @@ struct __lpi_data {
 extern struct __lpi_data lpi_data;
 
 extern struct list_head host_its_list;
+extern unsigned long its_list_map;
 
 int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
                          uint32_t eventid);
