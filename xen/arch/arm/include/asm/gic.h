@@ -362,7 +362,7 @@ struct gic_hw_operations {
     /* Save GIC registers */
     void (*save_state)(struct vcpu *v);
     /* Restore GIC registers */
-    void (*restore_state)(const struct vcpu *v);
+    void (*restore_state)(struct vcpu *v);
     /* Dump GIC LR register information */
     void (*dump_state)(const struct vcpu *v);
 

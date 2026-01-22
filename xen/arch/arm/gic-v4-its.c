@@ -18,6 +18,7 @@
  * GNU General Public License for more details.
  */
 
+#include <xen/delay.h>
 #include <xen/errno.h>
 #include <xen/sched.h>
 #include <xen/spinlock.h>
@@ -42,6 +43,21 @@ void __init gicv4_its_vpeid_allocator_init(void)
 
     if ( !vpeid_mask )
         panic("Could not allocate VPEID bitmap space\n");
+}
+
+static void __iomem *gic_data_rdist_vlpi_base(unsigned int cpu)
+{
+    /*
+     * Each Redistributor defines two 64KB frames in the physical address map.
+     * In GICv4, there are two additional 64KB frames.
+     * The frames for each Redistributor must be contiguous and must be
+     * ordered as follows:
+     * 1. RD_base
+     * 2. SGI_base
+     * 3. VLPI_base
+     * 4. Reserved
+     */
+    return GICD_RDIST_BASE_CPU(cpu) + SZ_128K;
 }
 
 static int __init its_alloc_vpeid(struct its_vpe *vpe)
@@ -567,4 +583,126 @@ int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
         return ret;
 
     return gicv3_its_wait_commands(its);
+}
+
+static uint64_t read_vpend_dirty_clean(void __iomem *vlpi_base,
+                                       unsigned int count)
+{
+    uint64_t val;
+    bool clean;
+
+    do {
+        val = gits_read_vpendbaser(vlpi_base + GICR_VPENDBASER);
+        /* Poll GICR_VPENDBASER.Dirty until it reads 0. */
+        clean = !(val & GICR_VPENDBASER_Dirty);
+        if ( !clean )
+        {
+            count--;
+            cpu_relax();
+            udelay(1);
+        }
+    } while ( !clean && count );
+
+    if ( !clean )
+    {
+        printk(XENLOG_WARNING "ITS virtual pending table not totally parsed\n");
+        val |= GICR_VPENDBASER_PendingLast;
+    }
+
+    return val;
+}
+
+/*
+ * When a vPE is made resident, the GIC starts parsing the virtual pending
+ * table to deliver pending interrupts. This takes place asynchronously,
+ * and can at times take a long while.
+ */
+static void its_wait_vpt_parse_complete(void __iomem *vlpi_base)
+{
+    if ( !gic_support_vptValidDirty() )
+        return;
+
+    read_vpend_dirty_clean(vlpi_base, 500);
+}
+
+static uint64_t its_clear_vpend_valid(void __iomem *vlpi_base, uint64_t clr,
+                                      uint64_t set)
+{
+    unsigned int count = 1000000;    /* 1s! */
+    uint64_t val;
+
+    /*
+     * Clearing the Valid bit informs the Redistributor that a context
+     * switch is taking place.
+     */
+    val = gits_read_vpendbaser(vlpi_base + GICR_VPENDBASER);
+    val &= ~GICR_VPENDBASER_Valid;
+    val &= ~clr;
+    val |= set;
+    gits_write_vpendbaser(val, vlpi_base + GICR_VPENDBASER);
+
+    return read_vpend_dirty_clean(vlpi_base, count);
+}
+
+static void its_make_vpe_resident(struct its_vpe *vpe, unsigned int cpu)
+{
+    void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
+    uint64_t val;
+
+    /* Switch in this VM's virtual property table. */
+    val  = virt_to_maddr(vpe->its_vm->vproptable) & GENMASK(51, 12);
+    val |= gicv3_its_get_cacheability() << GICR_VPROPBASER_INNER_CACHEABILITY_SHIFT;
+    val |= gicv3_its_get_shareability() << GICR_VPROPBASER_SHAREABILITY_SHIFT;
+    val |= GIC_BASER_CACHE_SameAsInner << GICR_VPROPBASER_OUTER_CACHEABILITY_SHIFT;
+    val |= (HOST_LPIS_NRBITS - 1) & GICR_VPROPBASER_IDBITS_MASK;
+    gits_write_vpropbaser(val, vlpi_base + GICR_VPROPBASER);
+
+    /* Switch in this VCPU's VPT. */
+    val  = virt_to_maddr(vpe->vpendtable) & GENMASK(51, 16);
+    val |= gicv3_its_get_cacheability() << GICR_VPENDBASER_INNER_CACHEABILITY_SHIFT;
+    val |= gicv3_its_get_shareability() << GICR_VPENDBASER_SHAREABILITY_SHIFT;
+    val |= GIC_BASER_CACHE_SameAsInner << GICR_VPENDBASER_OUTER_CACHEABILITY_SHIFT;
+    /*
+     * When the GICR_VPENDBASER.Valid bit is written from 0 to 1,
+     * this bit is RES1.
+     */
+    val |= GICR_VPENDBASER_PendingLast;
+    val |= vpe->idai ? GICR_VPENDBASER_IDAI : 0;
+    val |= GICR_VPENDBASER_Valid;
+    gits_write_vpendbaser(val, vlpi_base + GICR_VPENDBASER);
+
+    its_wait_vpt_parse_complete(vlpi_base);
+}
+
+static void its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
+{
+    void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
+    uint64_t val;
+
+    val = its_clear_vpend_valid(vlpi_base, 0, 0);
+    vpe->idai = val & GICR_VPENDBASER_IDAI;
+    vpe->pending_last = val & GICR_VPENDBASER_PendingLast;
+}
+
+void vgic_v4_load(struct vcpu *vcpu)
+{
+    struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
+
+
+    if ( vpe->resident )
+        return;
+
+    its_make_vpe_resident(vpe, vcpu->processor);
+    vpe->resident = true;
+}
+
+void vgic_v4_put(struct vcpu *vcpu, bool need_db)
+{
+    struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
+
+    if ( !vpe->resident )
+        return;
+
+    its_make_vpe_non_resident(vpe, vcpu->processor);
+    vpe->resident = false;
 }

@@ -181,7 +181,7 @@ static void gicv2_save_state(struct vcpu *v)
     writel_gich(0, GICH_HCR);
 }
 
-static void gicv2_restore_state(const struct vcpu *v)
+static void gicv2_restore_state(struct vcpu *v)
 {
     int i;
 

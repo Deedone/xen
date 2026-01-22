@@ -257,6 +257,12 @@ struct rdist_region {
     bool single_rdist;
 };
 
+/* per-cpu re-distributor base */
+DECLARE_PER_CPU(void __iomem*, rbase);
+
+#define GICD_RDIST_BASE             (this_cpu(rbase))
+#define GICD_RDIST_BASE_CPU(cpu)    (per_cpu(rbase, cpu))
+
 #endif /* __ASM_ARM_GIC_V3_DEFS_H__ */
 
 /*
