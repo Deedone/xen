@@ -342,18 +342,24 @@ static struct vcpu *alloc_vcpu_struct(const struct domain *d)
 # define arch_vcpu_struct_memflags(d) ((void)(d), 0)
 #endif
     struct vcpu *v;
+    unsigned int order = get_order_from_bytes(sizeof(*v));
 
-    BUILD_BUG_ON(sizeof(*v) > PAGE_SIZE);
-    v = alloc_xenheap_pages(0, arch_vcpu_struct_memflags(d));
+    v = alloc_xenheap_pages(order, arch_vcpu_struct_memflags(d));
     if ( v )
-        clear_page(v);
+    {
+        unsigned int i;
+
+        for ( i = 0; i < DIV_ROUND_UP(sizeof(*v), PAGE_SIZE); i++ )
+            clear_page((void *)v + i * PAGE_SIZE);
+    }
 
     return v;
 }
 
 static void free_vcpu_struct(struct vcpu *v)
 {
-    free_xenheap_page(v);
+    unsigned int order = get_order_from_bytes(sizeof(*v));
+    free_xenheap_pages(v, order);
 }
 
 static void vmtrace_free_buffer(struct vcpu *v)
