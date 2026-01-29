@@ -604,6 +604,14 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
             config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V3;
             break;
 
+        case GIC_V4:
+            config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V4;
+            break;
+
+        case GIC_V4_1:
+            config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V4_1;
+            break;
+
         default:
             ASSERT_UNREACHABLE();
             return -EINVAL;
@@ -677,6 +685,14 @@ int arch_domain_create(struct domain *d,
 
     case XEN_DOMCTL_CONFIG_GIC_V3:
         d->arch.vgic.version = GIC_V3;
+        break;
+
+    case XEN_DOMCTL_CONFIG_GIC_V4:
+        d->arch.vgic.version = GIC_V4;
+        break;
+
+    case XEN_DOMCTL_CONFIG_GIC_V4_1:
+        d->arch.vgic.version = GIC_V4_1;
         break;
 
     default:

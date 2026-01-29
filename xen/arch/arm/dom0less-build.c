@@ -157,6 +157,7 @@ int __init make_intc_domU_node(struct kernel_info *kinfo)
     {
 #ifdef CONFIG_GICV3
     case GIC_V3:
+    case GIC_V4:
         return make_gicv3_domU_node(kinfo);
 #endif
 #ifdef CONFIG_VGICV2

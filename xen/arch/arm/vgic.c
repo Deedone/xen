@@ -153,6 +153,7 @@ int domain_vgic_register(struct domain *d, unsigned int *mmio_count)
     {
 #ifdef CONFIG_GICV3
     case GIC_V3:
+    case GIC_V4:
         if ( vgic_v3_init(d, mmio_count) )
            return -ENODEV;
         break;
@@ -932,6 +933,7 @@ unsigned int vgic_max_vcpus(unsigned int domctl_vgic_version)
 
 #ifdef CONFIG_GICV3
     case XEN_DOMCTL_CONFIG_GIC_V3:
+    case XEN_DOMCTL_CONFIG_GIC_V4:
         return 4096;
 #endif
 
