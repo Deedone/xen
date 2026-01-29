@@ -112,7 +112,7 @@ struct vgic_irq_rank *vgic_rank_irq(struct vcpu *v, unsigned int irq)
     return vgic_get_rank(v, rank);
 }
 
-void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq)
+void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq, bool hw)
 {
     /* The lpi_vcpu_id field must be big enough to hold a VCPU ID. */
     BUILD_BUG_ON(BIT(sizeof(p->lpi_vcpu_id) * 8, UL) < MAX_VIRT_CPUS);
@@ -122,6 +122,8 @@ void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq)
     INIT_LIST_HEAD(&p->lr_queue);
     p->irq = virq;
     p->lpi_vcpu_id = INVALID_VCPU_ID;
+    /* Whether virtual irq is tied to a HW one. */
+    p->hw = hw;
 }
 
 static void vgic_rank_init(struct vgic_irq_rank *rank, uint8_t index,
@@ -202,7 +204,7 @@ static int init_vgic_espi(struct domain *d)
     for ( i = d->arch.vgic.nr_spis, idx = 0;
           i < vgic_num_spi_lines(d); i++, idx++ )
         vgic_init_pending_irq(&d->arch.vgic.pending_irqs[i],
-                              espi_idx_to_intid(idx));
+                              espi_idx_to_intid(idx), false);
 
     for ( i = 0; i < DOMAIN_NR_EXT_RANKS(d); i++ )
         vgic_rank_init(&d->arch.vgic.ext_shared_irqs[i],
@@ -304,7 +306,7 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
         return -ENOMEM;
 
     for (i=0; i<d->arch.vgic.nr_spis; i++)
-        vgic_init_pending_irq(&d->arch.vgic.pending_irqs[i], i + 32);
+        vgic_init_pending_irq(&d->arch.vgic.pending_irqs[i], i + 32, false);
 
     /* SPIs are routed to VCPU0 by default */
     for ( i = 0; i < DOMAIN_NR_RANKS(d); i++ )
@@ -381,7 +383,7 @@ int vcpu_vgic_init(struct vcpu *v)
 
     memset(&v->arch.vgic.pending_irqs, 0, sizeof(v->arch.vgic.pending_irqs));
     for (i = 0; i < 32; i++)
-        vgic_init_pending_irq(&v->arch.vgic.pending_irqs[i], i);
+        vgic_init_pending_irq(&v->arch.vgic.pending_irqs[i], i, false);
 
     INIT_LIST_HEAD(&v->arch.vgic.inflight_irqs);
     INIT_LIST_HEAD(&v->arch.vgic.lr_pending);
@@ -743,6 +745,9 @@ void vgic_clear_pending_irqs(struct vcpu *v)
 void vgic_remove_irq_from_queues(struct vcpu *v, struct pending_irq *p)
 {
     ASSERT(spin_is_locked(&v->arch.vgic.lock));
+
+    if ( pirq_is_tied_to_hw(p) )
+        return;
 
     clear_bit(GIC_IRQ_GUEST_QUEUED, &p->status);
     list_del_init(&p->inflight);

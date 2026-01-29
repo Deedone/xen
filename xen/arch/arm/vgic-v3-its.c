@@ -610,7 +610,7 @@ static int its_discard_event(struct virt_its *its,
 
     /* Cleanup the pending_irq and disconnect it from the LPI. */
     vgic_remove_irq_from_queues(vcpu, p);
-    vgic_init_pending_irq(p, INVALID_LPI);
+    vgic_init_pending_irq(p, INVALID_LPI, false);
 
     spin_unlock_irqrestore(&vcpu->arch.vgic.lock, flags);
 
@@ -749,7 +749,7 @@ static int its_handle_mapti(struct virt_its *its, uint64_t *cmdptr)
     if ( !pirq )
         goto out_remove_mapping;
 
-    vgic_init_pending_irq(pirq, intid);
+    vgic_init_pending_irq(pirq, intid, gic_is_gicv4());
 
     /*
      * Now read the guest's property table to initialize our cached state.

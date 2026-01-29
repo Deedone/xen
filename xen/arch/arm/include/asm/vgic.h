@@ -94,10 +94,22 @@ struct pending_irq
      * TODO: when implementing irq migration, taking only the current
      * vgic lock is not going to be enough. */
     struct list_head lr_queue;
+    bool hw;                    /* Tied to HW IRQ */
 };
 
 #define NR_INTERRUPT_PER_RANK   32
 #define INTERRUPT_RANK_MASK (NR_INTERRUPT_PER_RANK - 1)
+
+#ifdef CONFIG_GICV4
+static inline bool pirq_is_tied_to_hw(struct pending_irq *pirq)
+{
+    ASSERT(pirq);
+    return pirq->hw;
+}
+
+#else
+#define pirq_is_tied_to_hw(pirq) ((void)pirq, false)
+#endif
 
 /* Represents state corresponding to a block of 32 interrupts */
 struct vgic_irq_rank {
@@ -360,7 +372,8 @@ static inline paddr_t vgic_dist_base(const struct vgic_dist *vgic)
 extern struct vcpu *vgic_get_target_vcpu(struct vcpu *v, unsigned int virq);
 extern void vgic_remove_irq_from_queues(struct vcpu *v, struct pending_irq *p);
 extern void gic_remove_from_lr_pending(struct vcpu *v, struct pending_irq *p);
-extern void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq);
+extern void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq,
+                                  bool hw);
 extern struct pending_irq *irq_to_pending(struct vcpu *v, unsigned int irq);
 extern struct pending_irq *spi_to_pending(struct domain *d, unsigned int irq);
 extern struct vgic_irq_rank *vgic_rank_offset(struct vcpu *v,
