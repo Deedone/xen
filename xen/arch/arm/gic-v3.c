@@ -1366,10 +1366,10 @@ static void gicv3_update_lr(int lr, unsigned int virq, uint8_t priority,
     val =  (((uint64_t)state & 0x3) << ICH_LR_STATE_SHIFT);
 
     /*
-     * When the guest is GICv3, all guest IRQs are Group 1, as Group0
-     * would result in a FIQ in the guest, which it wouldn't expect
+     * When the guest is GICv3/GICv4/GICv4.1, all guest IRQs are Group 1, as
+     * Group0 would result in a FIQ in the guest, which it wouldn't expect
      */
-    if ( current->domain->arch.vgic.version == GIC_V3 )
+    if ( current->domain->arch.vgic.version >= GIC_V3 )
         val |= ICH_LR_GRP1;
 
     val |= (uint64_t)priority << ICH_LR_PRIORITY_SHIFT;
@@ -1455,10 +1455,10 @@ static void gicv3_write_lr(int lr, const struct gic_lr *lr_reg)
     }
 
     /*
-     * When the guest is using vGICv3, all the IRQs are Group 1. Group 0
-     * would result in a FIQ, which will not be expected by the guest OS.
+     * When the guest is using vGICv3/vGICv4/vGICv4.1, all the IRQs are Group 1.
+     * Group 0 would result in a FIQ, which will not be expected by the guest OS.
      */
-    if ( vgic_version == GIC_V3 )
+    if ( vgic_version >= GIC_V3 )
         lrv |= ICH_LR_GRP1;
 
     gicv3_ich_write_lr(lr, lrv);
