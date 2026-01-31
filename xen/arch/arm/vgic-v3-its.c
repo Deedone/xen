@@ -387,7 +387,7 @@ out_unlock:
  * property table and update the virtual IRQ's state in the given pending_irq.
  * Must be called with the respective VGIC VCPU lock held.
  */
-static int update_lpi_property(struct domain *d, struct pending_irq *p)
+int update_lpi_property(struct domain *d, struct pending_irq *p, bool needs_inv)
 {
     paddr_t addr;
     uint8_t property;
@@ -417,6 +417,9 @@ static int update_lpi_property(struct domain *d, struct pending_irq *p)
     else
         clear_bit(GIC_IRQ_GUEST_ENABLED, &p->status);
 
+    if ( pirq_is_tied_to_hw(p) )
+        return its_vlpi_prop_update(p, property, needs_inv);
+
     return 0;
 }
 
@@ -430,6 +433,9 @@ static int update_lpi_property(struct domain *d, struct pending_irq *p)
  */
 static void update_lpi_vgic_status(struct vcpu *v, struct pending_irq *p)
 {
+    if ( pirq_is_tied_to_hw(p) )
+        return;
+
     ASSERT(spin_is_locked(&v->arch.vgic.lock));
 
     if ( test_bit(GIC_IRQ_GUEST_ENABLED, &p->status) )
@@ -479,7 +485,7 @@ static int its_handle_inv(struct virt_its *its, uint64_t *cmdptr)
     spin_lock_irqsave(&vcpu->arch.vgic.lock, flags);
 
     /* Read the property table and update our cached status. */
-    if ( update_lpi_property(d, p) )
+    if ( update_lpi_property(d, p, true) )
         goto out_unlock;
 
     /* Check whether the LPI needs to go on a VCPU. */
@@ -552,7 +558,7 @@ static int its_handle_invall(struct virt_its *its, uint64_t *cmdptr)
 
             vlpi = pirqs[i]->irq;
             /* If that fails for a single LPI, carry on to handle the rest. */
-            err = update_lpi_property(its->d, pirqs[i]);
+            err = update_lpi_property(its->d, pirqs[i], false);
             if ( !err )
                 update_lpi_vgic_status(vcpu, pirqs[i]);
             else
@@ -785,7 +791,7 @@ static int its_handle_mapti(struct virt_its *its, uint64_t *cmdptr)
      * We don't need the VGIC VCPU lock here, because the pending_irq isn't
      * in the radix tree yet.
      */
-    ret = update_lpi_property(its->d, pirq);
+    ret = update_lpi_property(its->d, pirq, true);
     if ( ret )
         goto out_remove_host_entry;
 

@@ -1016,8 +1016,11 @@ int gicv3_its_map_guest_device(struct domain *d,
 
     dev->guest_doorbell = guest_doorbell;
     dev->guest_devid = guest_devid;
-    dev->host_devid = host_devid;
-    dev->eventids = nr_events;
+
+    #ifdef CONFIG_GICV4
+       spin_lock_init(&dev->event_map.vlpi_lock);
+       dev->event_map.nr_lpis = nr_events;
+    #endif
 
     rb_link_node(&dev->rbnode, parent, new);
     rb_insert_color(&dev->rbnode, &d->arch.vgic.its_devices);
@@ -1142,7 +1145,8 @@ int gicv3_remove_guest_event(struct domain *d, paddr_t vdoorbell_address,
     if ( host_lpi == INVALID_LPI )
         return -EINVAL;
 
-    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI);
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, INVALID_LPI,
+                                false, INVALID_VCPU_ID);
 
     return 0;
 }
@@ -1169,7 +1173,8 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
     if ( !pirq )
         return NULL;
 
-    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, virt_lpi);
+    gicv3_lpi_update_host_entry(host_lpi, d->domain_id, virt_lpi,
+                                false, INVALID_VCPU_ID);
 
     return pirq;
 }
