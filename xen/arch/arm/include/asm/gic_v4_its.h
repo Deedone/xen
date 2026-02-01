@@ -52,6 +52,7 @@ struct event_vlpi_map {
 };
 
 void gicv4_its_vpeid_allocator_init(void);
+int gicv4_init_vpe_proxy(void);
 
 #define GICR_VPROPBASER                              0x0070
 #define GICR_VPENDBASER                              0x0078
@@ -96,6 +97,10 @@ static inline void gits_write_vpendbaser(uint64_t val, void __iomem *addr)
     writeq_relaxed(val, addr);
 }
 #define gits_read_vpendbaser(c)     readq_relaxed(c)
+
+#define GICR_INVLPIR_INTID                GENMASK_ULL(31, 0)
+#define GICR_INVLPIR_VPEID                GICR_INVALLR_VPEID
+#define GICR_INVLPIR_V                    GICR_INVALLR_V
 
 #endif
 

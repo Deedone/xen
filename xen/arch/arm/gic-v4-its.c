@@ -39,6 +39,13 @@ static spinlock_t vpeid_alloc_lock = SPIN_LOCK_UNLOCKED;
 static uint16_t vmovp_seq_num;
 static spinlock_t vmovp_lock = SPIN_LOCK_UNLOCKED;
 
+static struct {
+    spinlock_t lock;
+    struct its_device *dev;
+    struct its_vpe **vpes;
+    int next_victim;
+} vpe_proxy;
+
 void __init gicv4_its_vpeid_allocator_init(void)
 {
     /* Allocate space for vpeid_mask based on MAX_VPEID */
@@ -201,6 +208,124 @@ static int its_map_vpe(struct host_its *its, struct its_vpe *vpe)
 
     return 0;
 }
+static int gicv4_vpe_db_proxy_unmap_locked(struct its_vpe *vpe)
+{
+    int ret;
+
+    /* Already unmapped? */
+    if ( vpe->vpe_proxy_event == -1 )
+        return 0;
+
+    ret = its_send_cmd_discard(vpe_proxy.dev->hw_its, vpe_proxy.dev,
+                               vpe->vpe_proxy_event);
+    if ( ret )
+        return ret;
+    vpe_proxy.vpes[vpe->vpe_proxy_event] = NULL;
+
+    /*
+     * We don't track empty slots at all, so let's move the
+     * next_victim pointer to quickly reuse the unmapped slot
+     */
+    if ( vpe_proxy.vpes[vpe_proxy.next_victim] )
+        vpe_proxy.next_victim = vpe->vpe_proxy_event;
+
+    vpe->vpe_proxy_event = -1;
+
+    return 0;
+}
+
+static void gicv4_vpe_db_proxy_unmap(struct its_vpe *vpe)
+{
+    if ( !gic_support_directLPI() )
+    {
+        unsigned long flags;
+
+        spin_lock_irqsave(&vpe_proxy.lock, flags);
+        gicv4_vpe_db_proxy_unmap_locked(vpe);
+        spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+    }
+}
+
+/*
+ * If a GICv4.0 doesn't implement Direct LPIs (which is extremely
+ * likely), the only way to perform an invalidate is to use a fake
+ * device to issue an INV command, implying that the LPI has first
+ * been mapped to some event on that device. Since this is not exactly
+ * cheap, we try to keep that mapping around as long as possible, and
+ * only issue an UNMAP if we're short on available slots.
+ *
+ * GICv4.1 mandates that we're able to invalidate by writing to a
+ * MMIO register. And most of the time, we don't even have to invalidate
+ * vPE doorbell, as the redistributor can be told whether to generate a
+ * doorbell or not.
+ */
+static int gicv4_vpe_db_proxy_map_locked(struct its_vpe *vpe)
+{
+    int ret;
+
+    /* Already mapped? */
+    if ( vpe->vpe_proxy_event != -1 )
+        return 0;
+
+    /* This slot was already allocated. Kick the other VPE out. */
+    if ( vpe_proxy.vpes[vpe_proxy.next_victim] )
+    {
+        struct its_vpe *old_vpe = vpe_proxy.vpes[vpe_proxy.next_victim];
+
+        ret = gicv4_vpe_db_proxy_unmap_locked(old_vpe);
+        if ( ret )
+            return ret;
+    }
+
+    /* Map the new VPE instead */
+    vpe_proxy.vpes[vpe_proxy.next_victim] = vpe;
+    vpe->vpe_proxy_event = vpe_proxy.next_victim;
+    vpe_proxy.next_victim = (vpe_proxy.next_victim + 1) %
+                            vpe_proxy.dev->eventids;
+
+    return its_send_cmd_mapti(vpe_proxy.dev->hw_its, vpe_proxy.dev->host_devid,
+                              vpe->vpe_proxy_event, vpe->vpe_db_lpi,
+                              vpe->col_idx);
+}
+
+int __init gicv4_init_vpe_proxy(void)
+{
+    struct host_its *hw_its;
+    uint32_t devid;
+
+    if ( gic_support_directLPI() )
+    {
+        printk("ITS: Using DirectLPI for GICv4 VPE invalidation\n");
+        return 0;
+    }
+
+    /* Any ITS will do, even if not v4 */
+    hw_its = list_first_entry(&host_its_list, struct host_its, entry);
+
+    vpe_proxy.vpes = xzalloc_array(struct its_vpe *, nr_cpu_ids);
+    if ( !vpe_proxy.vpes )
+    {
+        printk(XENLOG_ERR "ITS: Can't allocate GICv4 VPE proxy device array\n");
+        return -ENOMEM;
+    }
+
+    /* Use the last possible DevID */
+    devid = BIT(hw_its->devid_bits, UL) - 1;
+    vpe_proxy.dev = its_create_device(hw_its, devid, nr_cpu_ids);
+    if ( !vpe_proxy.dev )
+    {
+        printk(XENLOG_ERR "ITS: Can't allocate GICv4 VPE proxy device\n");
+        return -ENOMEM;
+    }
+
+    spin_lock_init(&vpe_proxy.lock);
+    vpe_proxy.next_victim = 0;
+    printk(XENLOG_INFO
+           "ITS: Allocated DevID %u as GICv4 VPE proxy device\n", devid);
+
+    return 0;
+}
+
 static int __init its_vpe_init(struct its_vpe *vpe)
 {
     int vpe_id, rc = -ENOMEM;
@@ -224,6 +349,7 @@ static int __init its_vpe_init(struct its_vpe *vpe)
     rwlock_init(&vpe->lock);
     vpe->vpe_id = vpe_id;
     vpe->vpendtable = page_to_virt(vpendtable);
+        vpe->vpe_proxy_event = -1;
     /*
      * We eagerly inform all the v4 ITS and map vPE to the first
      * possible CPU
@@ -299,16 +425,45 @@ static int its_send_cmd_vmovp(struct its_vpe *vpe)
     return 0;
 }
 
+/* GICR_SYNCR.Busy == 1 until the invalidation completes. */
+static void wait_for_syncr(void __iomem *rdbase)
+{
+    while ( readl_relaxed(rdbase + GICR_SYNCR) & 1 )
+        cpu_relax();
+}
+
+void direct_lpi_inv(struct its_device *dev, uint32_t eventid,
+                    uint32_t db_lpi, unsigned int cpu)
+{
+    void __iomem *rdbase;
+    uint64_t val;
+    /* Register-based LPI invalidation for DB on GICv4.0 */
+    val = FIELD_PREP(GICR_INVLPIR_INTID, db_lpi);
+
+    rdbase = per_cpu(rbase, cpu);
+    writeq_relaxed(val, rdbase + GICR_INVLPIR);
+    wait_for_syncr(rdbase);
+}
 
 static void its_vpe_send_inv_db(struct its_vpe *vpe)
 {
-    // struct its_device *dev = vpe_proxy.dev;
-    // unsigned long flags;
+    if ( gic_support_directLPI() )
+    {
+        unsigned int cpu = vpe->col_idx;
 
-    // spin_lock_irqsave(&vpe_proxy.lock, flags);
-    // gicv4_vpe_db_proxy_map_locked(vpe);
-    // its_send_cmd_inv(dev->hw_its, dev->host_devid, vpe->vpe_proxy_event);
-    // spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+        /* Target the redistributor this VPE is currently known on */
+        direct_lpi_inv(NULL, 0, vpe->vpe_db_lpi, cpu);
+    }
+    else
+    {
+        struct its_device *dev = vpe_proxy.dev;
+        unsigned long flags;
+
+        spin_lock_irqsave(&vpe_proxy.lock, flags);
+        gicv4_vpe_db_proxy_map_locked(vpe);
+        its_send_cmd_inv(dev->hw_its, dev->host_devid, vpe->vpe_proxy_event);
+        spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+    }
 }
 
 static void its_vpe_inv_db(struct its_vpe *vpe)
@@ -335,6 +490,7 @@ static void __init its_vpe_teardown(struct its_vpe *vpe)
     unsigned int order;
 
     order = get_order_from_bytes(max(lpi_data.max_host_lpi_ids / 8, (unsigned long)SZ_64K));
+    gicv4_vpe_db_proxy_unmap(vpe);
     its_free_vpeid(vpe->vpe_id);
     free_xenheap_pages(vpe->vpendtable, order);
     xfree(vpe);
@@ -827,6 +983,43 @@ static void vpe_to_cpuid_unlock(struct its_vpe *vpe, unsigned long *flags)
     spin_unlock_irqrestore(&vpe->vpe_lock, *flags);
 }
 
+static void gicv4_vpe_db_proxy_move(struct its_vpe *vpe, unsigned int from,
+                                    unsigned int to)
+{
+    unsigned long flags;
+
+    if ( gic_support_directLPI() )
+    {
+        void __iomem *rdbase;
+
+        rdbase = per_cpu(rbase, from);
+        /* Clear potential pending state on the old redistributor */
+        writeq_relaxed(vpe->vpe_db_lpi, rdbase + GICR_CLRLPIR);
+        wait_for_syncr(rdbase);
+        return;
+    }
+
+    spin_lock_irqsave(&vpe_proxy.lock, flags);
+
+    gicv4_vpe_db_proxy_map_locked(vpe);
+
+    /* MOVI instructs the appropriate Redistributor to move the pending state */
+    its_send_cmd_movi(vpe_proxy.dev->hw_its, vpe_proxy.dev->host_devid,
+                      vpe->vpe_proxy_event, to);
+
+    /*
+     * ARM spec says that If, after using MOVI to move an interrupt from
+     * collection A to collection B, software moves the same interrupt again
+     * from collection B to collection C, a SYNC command must be used before
+     * the second MOVI for the Redistributor associated with collection A to
+     * ensure correct behavior.
+     * So each time we issue VMOVI, we VSYNC the old VPE for good measure.
+     */
+    WARN_ON(its_send_cmd_sync(vpe_proxy.dev->hw_its, from));
+
+    spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+}
+
 static int gicv4_vpe_set_affinity(struct vcpu *vcpu)
 {
     struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
@@ -856,6 +1049,7 @@ static int gicv4_vpe_set_affinity(struct vcpu *vcpu)
     ret = its_send_cmd_vmovp(vpe);
     if ( ret )
         goto out;
+    gicv4_vpe_db_proxy_move(vpe, from, to);
 
  out:
     vpe_to_cpuid_unlock(vpe, &flags);
@@ -937,4 +1131,3 @@ int its_vlpi_prop_update(struct pending_irq *pirq, uint8_t property,
 
     return its_vlpi_set_doorbell(map, property & LPI_PROP_ENABLED);
 }
-

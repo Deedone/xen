@@ -407,9 +407,11 @@ extern void vgic_check_inflight_irqs_pending(struct vcpu *v,
 
 /* GICV4 functions */
 #ifdef CONFIG_GICV4
+bool gic_support_directLPI(void);
 bool gic_support_vptValidDirty(void);
 bool gic_is_gicv4(void);
 #else
+#define gic_support_directLPI() (false)
 #define gic_support_vptValidDirty() (false)
 #define gic_is_gicv4() (false)
 #endif

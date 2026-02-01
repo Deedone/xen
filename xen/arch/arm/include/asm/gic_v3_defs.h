@@ -20,6 +20,13 @@
 
 #include <xen/sizes.h>
 
+#ifndef FIELD_GET
+#define FIELD_GET(_mask, _reg)			\
+	((typeof(_mask))(((_reg) & (_mask)) >> (ffs64(_mask) - 1)))
+#endif
+
+#define FIELD_PREP(_mask, _val)			\
+	(((typeof(_mask))(_val) << (ffs64(_mask) - 1)) & (_mask))
 /*
  * Additional registers defined in GIC v3.
  * Common GICD registers are defined in gic.h
