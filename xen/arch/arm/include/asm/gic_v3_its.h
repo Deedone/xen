@@ -299,12 +299,16 @@ int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
 int its_send_cmd_inv(struct host_its *its, uint32_t deviceid, uint32_t eventid);
 int its_send_cmd_mapti(struct host_its *its, uint32_t deviceid,
                        uint32_t eventid, uint32_t pintid, uint16_t icid);
+int its_send_cmd_movi(struct host_its *its, uint32_t deviceid, uint32_t eventid,
+                      uint16_t icid);
 int its_send_cmd_sync(struct host_its *its, unsigned int cpu);
 int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
                       uint32_t eventid);
 
 int its_send_command(struct host_its *hw_its, const void *its_cmd);
 
+struct its_device *its_create_device(struct host_its *hw_its,
+                                     uint32_t host_devid, uint64_t nr_events);
 struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type);
 int its_alloc_table_entry(struct its_baser *baser, uint32_t id);
 struct page_info *lpi_allocate_pendtable(void);

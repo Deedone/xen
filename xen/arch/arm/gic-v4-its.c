@@ -20,6 +20,7 @@
  */
 
 #include <xen/delay.h>
+#include <xen/err.h>
 #include <xen/errno.h>
 #include <xen/sched.h>
 #include <xen/spinlock.h>
@@ -35,6 +36,7 @@
  */
 #define INVALID_VPEID (~0U)
 #define GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US 100000U
+#define GICR_SYNCR_POLL_TIMEOUT_US 100000U
 
 static unsigned long *vpeid_mask;
 
@@ -239,6 +241,146 @@ static int its_map_vpe(struct host_its *its, struct its_vpe *vpe)
     return ret;
 }
 
+static int gicv4_vpe_db_proxy_unmap_locked(struct its_vpe *vpe)
+{
+    int ret;
+
+    /* Already unmapped? */
+    if ( vpe->vpe_proxy_event == -1 )
+        return 0;
+
+    ret = its_send_cmd_discard(vpe_proxy.dev->hw_its, vpe_proxy.dev,
+                               vpe->vpe_proxy_event);
+    if ( ret )
+        return ret;
+    vpe_proxy.vpes[vpe->vpe_proxy_event] = NULL;
+
+    /*
+     * We don't track empty slots at all, so let's move the
+     * next_victim pointer to quickly reuse the unmapped slot
+     */
+    if ( vpe_proxy.vpes[vpe_proxy.next_victim] )
+        vpe_proxy.next_victim = vpe->vpe_proxy_event;
+
+    vpe->vpe_proxy_event = -1;
+
+    return 0;
+}
+
+static void gicv4_vpe_db_proxy_unmap(struct its_vpe *vpe)
+{
+    if ( !gic_support_directLPI() )
+    {
+        unsigned long flags;
+        int ret;
+
+        spin_lock_irqsave(&vpe_proxy.lock, flags);
+        ret = gicv4_vpe_db_proxy_unmap_locked(vpe);
+        spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+
+        if ( ret )
+            printk(XENLOG_WARNING
+                   "ITS: failed to unmap GICv4 VPE proxy event: %d\n", ret);
+    }
+}
+
+/*
+ * If a GICv4.0 doesn't implement Direct LPIs (which is extremely
+ * likely), the only way to perform an invalidate is to use a fake
+ * device to issue an INV command, implying that the LPI has first
+ * been mapped to some event on that device. Since this is not exactly
+ * cheap, we try to keep that mapping around as long as possible, and
+ * only issue an UNMAP if we're short on available slots.
+ *
+ * GICv4.1 mandates that we're able to invalidate by writing to a
+ * MMIO register. And most of the time, we don't even have to invalidate
+ * vPE doorbell, as the redistributor can be told whether to generate a
+ * doorbell or not.
+ */
+static int gicv4_vpe_db_proxy_map_locked(struct its_vpe *vpe)
+{
+    unsigned int eventid;
+    int ret;
+
+    /* Already mapped? */
+    if ( vpe->vpe_proxy_event != -1 )
+        return 0;
+
+    /* This slot was already allocated. Kick the other VPE out. */
+    eventid = vpe_proxy.next_victim;
+
+    if ( vpe_proxy.vpes[eventid] )
+    {
+        struct its_vpe *old_vpe = vpe_proxy.vpes[eventid];
+
+        ret = gicv4_vpe_db_proxy_unmap_locked(old_vpe);
+        if ( ret )
+            return ret;
+    }
+
+    ret = its_send_cmd_mapti(vpe_proxy.dev->hw_its, vpe_proxy.dev->host_devid,
+                             eventid, vpe->vpe_db_lpi, vpe->col_idx);
+    if ( ret )
+        return ret;
+
+    /* Commit the software state only after the ITS accepted the mapping. */
+    vpe_proxy.vpes[eventid] = vpe;
+    vpe->vpe_proxy_event = eventid;
+    vpe_proxy.next_victim = (eventid + 1) % vpe_proxy.dev->eventids;
+
+    return 0;
+}
+
+int __init gicv4_init_vpe_proxy(void)
+{
+    struct host_its *hw_its;
+    uint32_t devid;
+
+    if ( gic_support_directLPI() )
+    {
+        printk("ITS: Using DirectLPI for GICv4 VPE invalidation\n");
+        return 0;
+    }
+
+    /*
+     * The proxy invalidation path uses a fake device with plain ITS
+     * MAPTI/INV/MOVI commands, so any host ITS is sufficient here.
+     */
+    hw_its = list_first_entry_or_null(&host_its_list, struct host_its, entry);
+    if ( !hw_its )
+    {
+        printk(XENLOG_ERR "ITS: No host ITS available for VPE proxy device\n");
+        return -ENODEV;
+    }
+
+    vpe_proxy.vpes = xzalloc_array(struct its_vpe *, nr_cpu_ids);
+    if ( !vpe_proxy.vpes )
+    {
+        printk(XENLOG_ERR "ITS: Can't allocate GICv4 VPE proxy device array\n");
+        return -ENOMEM;
+    }
+
+    /* Use the last possible DevID */
+    devid = BIT(hw_its->devid_bits, UL) - 1;
+    vpe_proxy.dev = its_create_device(hw_its, devid, nr_cpu_ids);
+    if ( IS_ERR(vpe_proxy.dev) )
+    {
+        int ret = PTR_ERR(vpe_proxy.dev);
+
+        printk(XENLOG_ERR "ITS: Can't allocate GICv4 VPE proxy device\n");
+        XFREE(vpe_proxy.vpes);
+        vpe_proxy.dev = NULL;
+        return ret;
+    }
+
+    spin_lock_init(&vpe_proxy.lock);
+    vpe_proxy.next_victim = 0;
+    printk(XENLOG_INFO
+           "ITS: Allocated DevID %u as GICv4 VPE proxy device\n", devid);
+
+    return 0;
+}
+
 static void its_free_vpendtable(void *vpendtable)
 {
     unsigned int order;
@@ -285,6 +427,7 @@ static int its_vpe_init(struct its_vpe *vpe)
     rwlock_init(&vpe->lock);
     spin_lock_init(&vpe->vpe_lock);
     vpe->vpendtable = vpendtable;
+    vpe->vpe_proxy_event = -1;
     /*
      * We eagerly inform all the v4 ITS and map vPE to the first
      * possible CPU
@@ -478,6 +621,8 @@ static void its_vpe_teardown(struct its_vpe *vpe)
 
     if ( !vpe )
         return;
+
+    gicv4_vpe_db_proxy_unmap(vpe);
 
     list_for_each_entry(hw_its, &host_its_list, entry)
     {
@@ -1124,6 +1269,63 @@ static void vpe_to_cpuid_unlock(struct its_vpe *vpe, unsigned long *flags)
     spin_unlock_irqrestore(&vpe->vpe_lock, *flags);
 }
 
+static int gicv4_vpe_db_proxy_move(struct its_vpe *vpe, unsigned int from,
+                                   unsigned int to)
+{
+    unsigned long flags;
+    int ret;
+
+    if ( gic_support_directLPI() )
+    {
+        void __iomem *rdbase;
+
+        rdbase = per_cpu(rbase, from);
+
+        ret = wait_for_syncr(rdbase, "CLRLPIR pre-check");
+        if ( ret )
+        {
+            /*
+             * VMOVP already retargeted the VPE. Clearing any stale pending
+             * state on the old redistributor is best-effort only, so keep the
+             * move successful and rely on wait_for_syncr() for timeout logging.
+             */
+            return 0;
+        }
+
+        /* Clear potential pending state on the old redistributor */
+        writeq_relaxed(vpe->vpe_db_lpi, rdbase + GICR_CLRLPIR);
+
+        (void)wait_for_syncr(rdbase, "CLRLPIR");
+        return 0;
+    }
+
+    spin_lock_irqsave(&vpe_proxy.lock, flags);
+
+    ret = gicv4_vpe_db_proxy_map_locked(vpe);
+    if ( ret )
+        goto out;
+
+    /* MOVI instructs the appropriate Redistributor to move the pending state */
+    ret = its_send_cmd_movi(vpe_proxy.dev->hw_its, vpe_proxy.dev->host_devid,
+                            vpe->vpe_proxy_event, to);
+    if ( ret )
+        goto out;
+
+    /*
+     * ARM spec says that If, after using MOVI to move an interrupt from
+     * collection A to collection B, software moves the same interrupt again
+     * from collection B to collection C, a SYNC command must be used before
+     * the second MOVI for the Redistributor associated with collection A to
+     * ensure correct behavior.
+     * So each time we issue VMOVI, we VSYNC the old VPE for good measure.
+     */
+    ret = its_send_cmd_sync(vpe_proxy.dev->hw_its, from);
+
+ out:
+    spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+    return ret;
+}
+
 static int gicv4_vpe_set_affinity(struct vcpu *vcpu)
 {
     struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
@@ -1160,6 +1362,7 @@ static int gicv4_vpe_set_affinity(struct vcpu *vcpu)
         vpe->col_idx = from;
         goto out;
     }
+    ret = gicv4_vpe_db_proxy_move(vpe, from, to);
 
  out:
     vpe_to_cpuid_unlock(vpe, &flags);
