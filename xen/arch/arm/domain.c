@@ -624,6 +624,7 @@ int arch_sanitise_domain_config(struct xen_domctl_createdomain *config)
             break;
 
         case GIC_V3:
+        case GIC_V4:
             config->arch.gic_version = XEN_DOMCTL_CONFIG_GIC_V3;
             break;
 
