@@ -149,11 +149,15 @@
 #define GICR_NSACR                   (0x0E00)
 
 #define GICR_CTLR_ENABLE_LPIS        (1U << 0)
+#define GICR_CTLR_IR                 (1U << 2)
 #define GICR_CTLR_RWP                (1U << 3)
 
 #define GICR_TYPER_PLPIS             (1U << 0)
 #define GICR_TYPER_VLPIS             (1U << 1)
+#define GICR_TYPER_DIRTY             (1U << 2)
+#define GICR_TYPER_DirectLPIS        (1U << 3)
 #define GICR_TYPER_LAST              (1U << 4)
+#define GICR_TYPER_RVPEID            (1U << 7)
 #define GICR_TYPER_PROC_NUM_SHIFT    8
 #define GICR_TYPER_PROC_NUM_MASK     (0xffff << GICR_TYPER_PROC_NUM_SHIFT)
 

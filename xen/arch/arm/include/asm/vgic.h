@@ -369,6 +369,13 @@ extern bool vgic_migrate_irq(struct vcpu *old, struct vcpu *new, unsigned int ir
 extern void vgic_check_inflight_irqs_pending(struct vcpu *v,
                                              unsigned int rank, uint32_t r);
 
+/* GICV4 functions */
+#ifdef CONFIG_GICV4
+bool gic_support_vptValidDirty(void);
+#else
+#define gic_support_vptValidDirty() (false)
+#endif
+
 #endif /* !CONFIG_NEW_VGIC */
 
 /*** Common VGIC functions used by Xen arch code ****/
