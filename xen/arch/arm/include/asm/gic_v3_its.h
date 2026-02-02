@@ -258,8 +258,14 @@ int its_send_cmd_inv(struct host_its *its, uint32_t deviceid, uint32_t eventid);
 int its_send_cmd_mapti(struct host_its *its, uint32_t deviceid,
                        uint32_t eventid, uint32_t pintid, uint16_t icid);
 int its_send_cmd_sync(struct host_its *its, unsigned int cpu);
+int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
+                      uint32_t eventid);
 
 int its_send_command(struct host_its *hw_its, const void *its_cmd);
+
+int gicv3_its_wait_commands(struct host_its *hw_its);
+int its_inv_lpi(struct host_its *its, struct its_device *dev, uint32_t eventid,
+                unsigned int cpu);
 
 /* Must be called with the its_device_lock held. */
 struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
