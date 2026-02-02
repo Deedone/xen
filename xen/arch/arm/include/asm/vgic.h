@@ -144,6 +144,8 @@ struct vgic_irq_rank {
     uint8_t vcpu[32];
 };
 
+#define VGIC_NR_SGIS            16
+
 #ifdef CONFIG_GICV4
 struct its_vm {
     struct its_vpe **vpes;
@@ -166,12 +168,24 @@ struct its_vpe {
     bool resident;
     /* Pending VLPIs on schedule out? */
     bool            pending_last;
-    struct {
-        /* Implementation Defined Area Invalid */
-        bool idai;
-        /* VPE proxy mapping */
-        int vpe_proxy_event;
+    union {
+        /* GICv4.0 implementations */
+        struct {
+            /* Implementation Defined Area Invalid */
+            bool idai;
+            /* VPE proxy mapping */
+            int vpe_proxy_event;
+        };
+        /* GICv4.1 implementations */
+        struct {
+            atomic_t vmapp_count;
+        };
     };
+    struct {
+        uint8_t priority;
+        bool    enabled;
+        bool    group;
+    }sgi_config[VGIC_NR_SGIS];
     /*
      * Ensure mutual exclusion between affinity setting of the vPE
      * and vLPI operations using vpe->col_idx.
@@ -410,10 +424,20 @@ extern void vgic_check_inflight_irqs_pending(struct vcpu *v,
 bool gic_support_directLPI(void);
 bool gic_support_vptValidDirty(void);
 bool gic_is_gicv4(void);
+bool gic_has_v4_1_extension(void);
+bool vgic_has_directVSGI(struct domain *d);
+bool guest_support_nassgi(struct domain *d);
+void vgic_v4_configure_vsgis(struct domain *d);
 #else
 #define gic_support_directLPI() (false)
 #define gic_support_vptValidDirty() (false)
 #define gic_is_gicv4() (false)
+#define gic_has_v4_1_extension() (false)
+#define vgic_has_directVSGI(d) ((void)(d), false)
+#define guest_support_nassgi(d) ((void)(d), false)
+static inline void vgic_v4_configure_vsgis(struct domain *d)
+{
+}
 #endif
 
 int vgic_v4_its_vm_init(struct domain *d);
@@ -421,6 +445,16 @@ void vgic_v4_free_its_vm(struct domain *d);
 int vgic_v4_its_vpe_init(struct vcpu *vcpu);
 void vgic_v4_load(struct vcpu *vcpu);
 void vgic_v4_put(struct vcpu *vcpu, bool need_db);
+void gicv4_its_init_nvpeid(void);
+int vgic_v4_configure_vcpu_sgi(struct vcpu *v);
+int its_sgi_get_pending_state(struct vcpu *v, uint32_t *ipending);
+int its_sgi_mask_irq(struct vcpu *v, unsigned int irq);
+int its_sgi_unmask_irq(struct vcpu *v, unsigned int irq);
+int its_sgi_set_pending_state(struct vcpu *v, unsigned int vsgi,
+                              bool state);
+int its_sgi_prop_update(struct vcpu *v, unsigned int irq,
+                               uint8_t priority);
+
 #endif /* !CONFIG_NEW_VGIC */
 
 /*** Common VGIC functions used by Xen arch code ****/

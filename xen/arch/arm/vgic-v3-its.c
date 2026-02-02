@@ -32,6 +32,9 @@
 #include <asm/mmio.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
+#ifdef CONFIG_GICV4
+#include <asm/gic_v4_its.h>
+#endif
 #include <asm/vgic.h>
 #include <asm/vgic-emul.h>
 #include <asm/vreg.h>
@@ -293,6 +296,7 @@ static int its_handle_int(struct virt_its *its, uint64_t *cmdptr)
     struct vcpu *vcpu;
     uint32_t vlpi;
     bool ret;
+    struct pending_irq *p;
 
     spin_lock(&its->its_lock);
     ret = read_itte(its, devid, eventid, &vcpu, &vlpi);
@@ -302,6 +306,14 @@ static int its_handle_int(struct virt_its *its, uint64_t *cmdptr)
 
     if ( vlpi == INVALID_LPI )
         return -1;
+
+    p = gicv3_its_get_event_pending_irq(its->d, its->doorbell_address,
+                                        devid, eventid);
+    if ( unlikely(!p) )
+        return -1;
+
+    if ( pirq_is_tied_to_hw(p) )
+        return its_set_vlpi_state(p, true);
 
     vgic_vcpu_inject_lpi(its->d, vlpi);
 
@@ -354,6 +366,12 @@ static int its_handle_clear(struct virt_its *its, uint64_t *cmdptr)
     /* Protect against an invalid LPI number. */
     if ( unlikely(!p) )
         goto out_unlock;
+
+    if ( pirq_is_tied_to_hw(p) )
+    {
+        ret = its_set_vlpi_state(p, false);
+        goto out_unlock;
+    }
 
     /*
      * TODO: This relies on the VCPU being correct in the ITS tables.
@@ -575,6 +593,9 @@ static int its_handle_invall(struct virt_its *its, uint64_t *cmdptr)
     read_unlock(&its->d->arch.vgic.pend_lpi_tree_lock);
     spin_unlock_irqrestore(&vcpu->arch.vgic.lock, flags);
 
+    if ( gic_is_gicv4() )
+        return gicv4_its_handle_invall(its->d, vcpu);
+
     return ret;
 }
 
@@ -795,7 +816,6 @@ static int its_handle_mapti(struct virt_its *its, uint64_t *cmdptr)
     if ( ret )
         goto out_remove_host_entry;
 
-    pirq->lpi_vcpu_id = vcpu->vcpu_id;
     /*
      * Now insert the pending_irq into the domain's LPI tree, so that
      * it becomes live.
@@ -1493,9 +1513,9 @@ static int vgic_v3_its_init_virtual(struct domain *d, paddr_t guest_addr,
     if ( !its )
         return -ENOMEM;
 
-    base_attr  = GIC_BASER_InnerShareable << GITS_BASER_SHAREABILITY_SHIFT;
+    base_attr  = gicv3_its_get_shareability() << GITS_BASER_SHAREABILITY_SHIFT;
     base_attr |= GIC_BASER_CACHE_SameAsInner << GITS_BASER_OUTER_CACHEABILITY_SHIFT;
-    base_attr |= GIC_BASER_CACHE_RaWaWb << GITS_BASER_INNER_CACHEABILITY_SHIFT;
+    base_attr |= gicv3_its_get_cacheability() << GITS_BASER_INNER_CACHEABILITY_SHIFT;
 
     its->cbaser  = base_attr;
     base_attr |= 0ULL << GITS_BASER_PAGE_SIZE_SHIFT;    /* 4K pages */

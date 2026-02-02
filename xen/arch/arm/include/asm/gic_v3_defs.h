@@ -111,6 +111,7 @@
 #define GICD_CTLR_ENABLE_G1A         (1U << 1)
 #define GICD_CTLR_ENABLE_G1          (1U << 0)
 #define GICD_IROUTER_SPI_MODE_ANY    (1UL << 31)
+#define GICD_CTLR_nASSGIreq          (1U << 8)
 
 #define GICC_CTLR_EL1_EOImode_drop   (1U << 1)
 
@@ -158,6 +159,13 @@
 #define GICR_IGRPMODR0               (0x0D00)
 #define GICR_NSACR                   (0x0E00)
 
+/* GICR for vSGI with GICV4.1 */
+#define GICR_VSGIR                   (0x0080)
+
+#define GICR_VSGIPENDR               (0x0088)
+#define GICR_VSGIPENDR_BUSY          (1U << 31)
+#define GICR_VSGIPENDR_PENDING       GENMASK(15, 0)
+
 #define GICR_CTLR_ENABLE_LPIS        (1U << 0)
 
 #define GICR_TYPER_PLPIS             (1U << 0)
@@ -166,6 +174,9 @@
 #define GICR_TYPER_DirectLPIS        (1U << 3)
 #define GICR_TYPER_LAST              (1U << 4)
 #define GICR_TYPER_RVPEID            (1U << 7)
+#define GICR_TYPER_COMMON_LPI_AFF    GENMASK_ULL(25, 24)
+#define GICR_TYPER_AFFINITY          GENMASK_ULL(63, 32)
+
 #define GICR_TYPER_PROC_NUM_SHIFT    8
 #define GICR_TYPER_PROC_NUM_MASK     (0xffff << GICR_TYPER_PROC_NUM_SHIFT)
 

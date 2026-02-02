@@ -19,6 +19,9 @@
 #include <asm/gic.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
+#ifdef CONFIG_GICV4
+#include <asm/gic_v4_its.h>
+#endif
 #include <asm/io.h>
 #include <asm/page.h>
 
@@ -60,6 +63,12 @@ static const struct its_quirk its_quirks[] = {
     {
         .desc	= "R-Car Gen4",
         .iidr	= 0x0201743b,
+        .mask	= 0xffffffff,
+        .init	= gicv3_its_enable_quirk_gen4,
+    },
+    {
+        .desc	= "R-Car Gen5",
+        .iidr	= 0x0701043b,
         .mask	= 0xffffffff,
         .init	= gicv3_its_enable_quirk_gen4,
     },
@@ -155,11 +164,9 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
     s_time_t deadline = NOW() + MILLISECS(1);
     uint64_t readp, writep;
     int ret = -EBUSY;
+    unsigned long flags;
 
-    /* No ITS commands from an interrupt handler (at the moment). */
-    ASSERT(!in_irq());
-
-    spin_lock(&hw_its->cmd_lock);
+    spin_lock_irqsave(&hw_its->cmd_lock, flags);
 
     do {
         readp = readq_relaxed(hw_its->its_base + GITS_CREADR) & BUFPTR_MASK;
@@ -175,15 +182,15 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
          * If the command queue is full, wait for a bit in the hope it drains
          * before giving up.
          */
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
         cpu_relax();
         udelay(1);
-        spin_lock(&hw_its->cmd_lock);
+        spin_lock_irqsave(&hw_its->cmd_lock, flags);
     } while ( NOW() <= deadline );
 
     if ( ret )
     {
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
         if ( printk_ratelimit() )
             printk(XENLOG_WARNING "host ITS: command queue full.\n");
         return ret;
@@ -199,7 +206,7 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
     writep = (writep + ITS_CMD_SIZE) % ITS_CMD_QUEUE_SZ;
     writeq_relaxed(writep & BUFPTR_MASK, hw_its->its_base + GITS_CWRITER);
 
-    spin_unlock(&hw_its->cmd_lock);
+    spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
 
     return 0;
 }
@@ -333,6 +340,30 @@ int its_send_cmd_discard(struct host_its *its, struct its_device *dev,
     return its_send_command(its, cmd);
 }
 
+int its_send_cmd_clear(struct host_its *its, uint32_t deviceid, uint32_t eventid)
+{
+    uint64_t cmd[4];
+
+    cmd[0] = GITS_CMD_CLEAR | ((uint64_t)deviceid << 32);
+    cmd[1] = eventid;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
+int its_send_cmd_int(struct host_its *its, uint32_t deviceid, uint32_t eventid)
+{
+    uint64_t cmd[4];
+
+    cmd[0] = GITS_CMD_INT | ((uint64_t)deviceid << 32);
+    cmd[1] = eventid;
+    cmd[2] = 0x00;
+    cmd[3] = 0x00;
+
+    return its_send_command(its, cmd);
+}
+
 int its_send_cmd_movi(struct host_its *its, uint32_t deviceid, uint32_t eventid,
                       uint16_t icid)
 {
@@ -460,6 +491,47 @@ struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type)
     return NULL;
 }
 
+static bool its_parse_indirect_baser(void __iomem *basereg,
+                                     unsigned int pagesz,
+                                     unsigned int *entry_size,
+                                     unsigned int *nr_items)
+{
+    bool indirect = false;
+    unsigned int idx = ilog2(*nr_items);
+    unsigned int table_size;
+
+    table_size = ROUNDUP(*nr_items * *entry_size,
+                         BIT(BASER_PAGE_BITS(pagesz), UL));
+
+    /* No need to enable Indirection if memory requirement <= (pagesz*2) bytes */
+    if ( table_size > (2 * BIT(BASER_PAGE_BITS(pagesz), UL)) )
+    {
+        /*
+         * Find out whether hw supports a single or two-level table by
+         * reading bit at offset '62' after writing '1' to it.
+         * This field is RAZ/WI for GIC implementations that only support
+         * flat tables.
+         */
+        writeq_relaxed(GITS_BASER_INDIRECT, basereg);
+        indirect = (readq_relaxed(basereg)) & GITS_BASER_INDIRECT;
+
+        if ( indirect )
+        {
+            /*
+             * For computing lvl1 table size, subtract ID bits that
+             * represents sparse lvl2 table from 'ids', which is
+             * reported by ITS hardware, times lvl1 table entry size.
+             */
+            idx -= ilog2(BIT(BASER_PAGE_BITS(pagesz), UL) / *entry_size);
+            *entry_size = GITS_LVL1_ENTRY_SIZE;
+        }
+
+        *nr_items = BIT(idx, UL);
+    }
+
+    return indirect;
+}
+
 bool its_alloc_table_entry(struct its_baser *baser, uint32_t id)
 {
     uint64_t reg = baser->val;
@@ -518,7 +590,9 @@ static int its_map_baser(void __iomem *basereg, uint64_t regc,
     unsigned int table_size;
     unsigned int order;
     void *buffer;
+    bool indirect;
     uint32_t type;
+    
 
     type = GITS_BASER_TYPE(regc);
     attr  = gicv3_its_get_shareability() << GITS_BASER_SHAREABILITY_SHIFT;
@@ -531,6 +605,8 @@ static int its_map_baser(void __iomem *basereg, uint64_t regc,
      * attributes), retrying if necessary.
      */
 retry:
+    indirect = its_parse_indirect_baser(basereg, pagesz, &entry_size, &nr_items);
+
     table_size = ROUNDUP(nr_items * entry_size,
                          BIT(BASER_PAGE_BITS(pagesz), UL));
     /* The BASE registers support at most 256 pages. */
@@ -556,6 +632,7 @@ retry:
     reg |= GITS_VALID_BIT;
     reg |= encode_baser_phys_addr(virt_to_maddr(buffer),
                                   BASER_PAGE_BITS(pagesz));
+    reg |= indirect ? GITS_BASER_INDIRECT : 0x0;
 
     writeq_relaxed(reg, basereg);
     regc = readq_relaxed(basereg);
@@ -663,6 +740,71 @@ static int __init its_compute_its_list_map(struct host_its *hw_its)
     return its_number;
 }
 
+uint32_t compute_common_aff(uint64_t val)
+{
+    uint32_t aff, clpiaff;
+
+    aff = FIELD_GET(GICR_TYPER_AFFINITY, val);
+    clpiaff = FIELD_GET(GICR_TYPER_COMMON_LPI_AFF, val);
+
+    return aff & ~(GENMASK(31, 0) >> (clpiaff * 8));
+}
+
+uint32_t compute_its_aff(struct host_its *hw_its)
+{
+    uint64_t val, typer;
+    uint32_t svpet;
+
+    typer = readq_relaxed(hw_its->its_base + GITS_TYPER);
+
+    /*
+     * Reencode the ITS SVPET and MPIDR as a GICR_TYPER, and compute
+     * the resulting affinity. We then use that to see if this match
+     * our own affinity.
+     */
+    svpet = FIELD_GET(GITS_TYPER_SVPET, typer);
+    val  = FIELD_PREP(GICR_TYPER_COMMON_LPI_AFF, svpet);
+    val |= FIELD_PREP(GICR_TYPER_AFFINITY, hw_its->mpidr);
+    return compute_common_aff(val);
+}
+
+static struct host_its *find_sibling_its(struct host_its *cur_its)
+{
+    uint64_t cur_typer;
+    struct host_its *its;
+    uint32_t aff;
+
+    cur_typer = readq_relaxed(cur_its->its_base + GITS_TYPER);
+    if ( !FIELD_GET(GITS_TYPER_SVPET, cur_typer) )
+        return NULL;
+
+    aff = compute_its_aff(cur_its);
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        uint64_t typer, baser;
+
+        if ( !its->is_v4_1 || its == cur_its )
+            continue;
+
+        typer = readq_relaxed(its->its_base + GITS_TYPER);
+        if ( !FIELD_GET(GITS_TYPER_SVPET, typer) )
+            continue;
+
+        if ( aff != compute_its_aff(its) )
+            continue;
+
+        /* GICv4.1 guarantees that the vPE table is GITS_BASER2 */
+        baser = its->tables[2].val;
+        if ( !(baser & GITS_BASER_VALID) )
+            continue;
+
+        return its;
+    }
+
+    return NULL;
+}
+
 static int gicv3_its_init_single_its(struct host_its *hw_its)
 {
     uint64_t reg;
@@ -701,6 +843,21 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
             dprintk(XENLOG_INFO,
                     "ITS@%lx: Single VMOVP capable\n", hw_its->addr);
     }
+    hw_its->is_v4_1 = reg & GITS_TYPER_VMAPP;
+    if ( hw_its->is_v4_1 )
+    {
+        uint32_t svpet = FIELD_GET(GITS_TYPER_SVPET, reg);
+
+        hw_its->sgir_base = ioremap_nocache(hw_its->addr + SZ_128K, SZ_64K);
+        if ( !hw_its->sgir_base )
+            return -ENOMEM;
+
+        hw_its->mpidr = readl_relaxed(hw_its->its_base + GITS_MPIDR);
+
+        printk("ITS@%"PRIpaddr": Using GICv4.1 mode %08x %08x\n",
+               hw_its->addr, hw_its->mpidr, svpet);
+    }
+
     spin_lock_init(&hw_its->cmd_lock);
 
     for ( i = 0; i < GITS_BASER_NR_REGS; i++ )
@@ -725,8 +882,25 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
             if ( ret )
                 return ret;
             break;
-        /* In case this is a GICv4, provide a (dummy) vPE table as well. */
         case GITS_BASER_TYPE_VCPU:
+            /*
+             * vPE configuration table could be shared among ITSes in the
+             * same aff group.
+             */
+            if ( hw_its->is_v4_1 )
+            {
+                struct host_its *sib_its;
+
+                sib_its = find_sibling_its(hw_its);
+                if ( sib_its )
+                {
+                    *baser = sib_its->tables[2];
+                    writeq_relaxed(baser->val, basereg);
+                    baser->val = readq_relaxed(basereg);
+                    continue;
+                }
+            }
+
             ret = its_map_baser(basereg, reg, 32, baser);
             if ( ret )
                 return ret;
@@ -818,7 +992,15 @@ int its_inv_lpi(struct host_its *its, struct its_device *dev,
     int ret;
 
     if ( event_is_forwarded_to_vcpu(dev, eventid) )
-        return its_send_cmd_vinv(its, dev, eventid);
+    {
+        if ( gic_has_v4_1_extension() )
+        {
+            direct_lpi_inv(dev, eventid, 0, cpu);
+            return 0;
+        }
+        else
+            return its_send_cmd_vinv(its, dev, eventid);
+    }
 
     ret = its_send_cmd_inv(its, dev->host_devid, eventid);
     if ( ret )
@@ -837,7 +1019,7 @@ int its_inv_lpi(struct host_its *its, struct its_device *dev,
  * increasing both @eventid and @lpi to cover the number of requested LPIs.
  */
 static int gicv3_its_map_host_events(struct host_its *its,
-                                     uint32_t devid, uint32_t eventid,
+                                     struct its_device *dev, uint32_t eventid,
                                      uint32_t lpi, uint32_t nr_events)
 {
     uint32_t i;
@@ -846,11 +1028,12 @@ static int gicv3_its_map_host_events(struct host_its *its,
     for ( i = 0; i < nr_events; i++ )
     {
         /* For now we map every host LPI to host CPU 0 */
-        ret = its_send_cmd_mapti(its, devid, eventid + i, lpi + i, 0);
+        ret = its_send_cmd_mapti(its, dev->host_devid, eventid + i, lpi + i, 0);
         if ( ret )
             return ret;
 
-        ret = its_send_cmd_inv(its, devid, eventid + i);
+        /* TODO: Consider using INVALL here. Didn't work on the model, though. */
+        ret = its_inv_lpi(its, dev, eventid + i, 0);
         if ( ret )
             return ret;
     }
@@ -1050,7 +1233,7 @@ int gicv3_its_map_guest_device(struct domain *d,
         if ( ret < 0 )
             break;
 
-        ret = gicv3_its_map_host_events(hw_its, host_devid, i * LPI_BLOCK,
+        ret = gicv3_its_map_host_events(hw_its, dev, i * LPI_BLOCK,
                                         dev->host_lpi_blocks[i], LPI_BLOCK);
         if ( ret < 0 )
             break;
@@ -1389,6 +1572,9 @@ int gicv3_its_init(void)
         gicv3_its_dt_init(dt_interrupt_controller);
     else
         gicv3_its_acpi_init();
+
+    if ( gic_has_v4_1_extension() )
+        gicv4_its_init_nvpeid();
 
     list_for_each_entry(hw_its, &host_its_list, entry)
     {

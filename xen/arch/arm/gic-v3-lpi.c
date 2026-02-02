@@ -16,6 +16,7 @@
 #include <xen/warning.h>
 #include <asm/atomic.h>
 #include <asm/domain.h>
+#include <asm/event.h>
 #include <asm/gic.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
@@ -370,24 +371,15 @@ static int gicv3_lpi_set_proptable(void __iomem * rdist_base)
      */
     if ( !lpi_data.lpi_property )
     {
-        /* The property table holds one byte per LPI. */
-        void *table;
+        struct page_info *table = lpi_allocate_pendtable();
 
         order = get_order_from_bytes(max(lpi_data.max_host_lpi_ids, (unsigned long)SZ_4K));
-        table = alloc_xenheap_pages(order, gicv3_its_get_memflags());
 
-        if ( !table )
-            return -ENOMEM;
-
-        /* Make sure the physical address can be encoded in the register. */
-        if ( (virt_to_maddr(table) & ~GENMASK(51, 12)) )
-        {
-            free_xenheap_pages(table, order);
-            return -ERANGE;
+        if ( !table ) {
+            return -EINVAL;
         }
-        memset(table, GIC_PRI_IRQ | LPI_PROP_RES1, MAX_NR_HOST_LPIS);
-        clean_and_invalidate_dcache_va_range(table, MAX_NR_HOST_LPIS);
-        lpi_data.lpi_property = table;
+
+        lpi_data.lpi_property = page_to_virt(table);
     }
 
     /* Encode the number of bits needed, minus one */
@@ -429,7 +421,7 @@ int gicv3_lpi_init_rdist(void __iomem * rdist_base)
     /* Make sure LPIs are disabled before setting up the tables. */
     reg = readl_relaxed(rdist_base + GICR_CTLR);
     if ( reg & GICR_CTLR_ENABLE_LPIS )
-        return -EBUSY;
+        writel(reg & ~GICR_CTLR_ENABLE_LPIS, rdist_base + GICR_CTLR);
 
     ret = gicv3_lpi_set_pendtable(rdist_base);
     if ( ret )
