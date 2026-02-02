@@ -937,6 +937,9 @@ static int its_handle_movi(struct virt_its *its, uint64_t *cmdptr)
     struct vcpu *ovcpu, *nvcpu;
     uint32_t vlpi;
     int ret = -1;
+#ifdef CONFIG_GICV4
+    bool vlpi_moved = false;
+#endif
 
     spin_lock(&its->its_lock);
     /* Check for a mapped LPI and get the LPI number. */
@@ -959,11 +962,53 @@ static int its_handle_movi(struct virt_its *its, uint64_t *cmdptr)
 #ifdef CONFIG_GICV4
     if ( pirq_is_tied_to_hw(p) )
     {
+        unsigned int old_vpe_idx;
+
+        if ( !p->vlpi_map )
+        {
+            ret = -EINVAL;
+            goto out_unlock;
+        }
+
+        old_vpe_idx = p->vlpi_map->vpe_idx;
         ret = gicv4_its_vlpi_move(p, nvcpu);
         if ( ret )
+        {
+            if ( p->vlpi_map->vpe_idx != old_vpe_idx )
+            {
+                int rollback_ret = gicv4_its_vlpi_move(p, ovcpu);
+
+                if ( rollback_ret )
+                    ret = rollback_ret;
+            }
+
             goto out_unlock;
+        }
+
+        vlpi_moved = true;
     }
 #endif
+
+    /* Now store the new collection in the translation table. */
+    if ( !write_itte(its, devid, eventid, collid, vlpi) )
+    {
+#ifdef CONFIG_GICV4
+        ret = -1;
+
+        /*
+         * Keep the hardware VLPI state aligned with the guest ITTE.
+         * If the ITTE update fails, move the interrupt back to the old VPE.
+         */
+        if ( vlpi_moved )
+        {
+            int rollback_ret = gicv4_its_vlpi_move(p, ovcpu);
+
+            if ( rollback_ret )
+                ret = rollback_ret;
+        }
+#endif
+        goto out_unlock;
+    }
 
     /*
      * TODO: This relies on the VCPU being correct in the ITS tables.
@@ -986,10 +1031,6 @@ static int its_handle_movi(struct virt_its *its, uint64_t *cmdptr)
      * Migrating those LPIs is not easy to do at the moment anyway, but should
      * become easier with the introduction of a per-IRQ lock.
      */
-
-    /* Now store the new collection in the translation table. */
-    if ( !write_itte(its, devid, eventid, collid, vlpi) )
-        goto out_unlock;
 
     ret = 0;
 
