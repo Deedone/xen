@@ -64,6 +64,7 @@
 #define GITS_TYPER_ITT_SIZE(r)          ((((r) & GITS_TYPER_ITT_SIZE_MASK) >> \
                                                  GITS_TYPER_ITT_SIZE_SHIFT) + 1)
 #define GITS_TYPER_PHYSICAL             (1U << 0)
+#define GITS_TYPER_VLPIS                (1UL << 1)
 
 #define GITS_BASER_INDIRECT             BIT(62, UL)
 #define GITS_BASER_INNER_CACHEABILITY_SHIFT        59
@@ -83,6 +84,7 @@
 #define GITS_BASER_ENTRY_SIZE_SHIFT     48
 #define GITS_BASER_ENTRY_SIZE(reg)                                       \
                         ((((reg) >> GITS_BASER_ENTRY_SIZE_SHIFT) & 0x1f) + 1)
+#define GITS_LVL1_ENTRY_SIZE            8UL
 #define GITS_BASER_SHAREABILITY_SHIFT   10
 #define GITS_BASER_PAGE_SIZE_SHIFT      8
 #define GITS_BASER_SIZE_MASK            0xff
@@ -123,9 +125,19 @@
 /* We allocate LPIs on the hosts in chunks of 32 to reduce handling overhead. */
 #define LPI_BLOCK                       32U
 
+extern unsigned int nvpeid;
+/* The maximum number of VPEID bits supported by VLPI commands */
+#define ITS_MAX_VPEID_BITS      nvpeid
+#define MAX_VPEID               (1UL << ITS_MAX_VPEID_BITS)
+
 #ifdef CONFIG_GICV4
 #include <asm/gic_v4_its.h>
 #endif
+
+extern uint32_t lpi_id_bits;
+#define HOST_LPIS_NRBITS   lpi_id_bits
+#define MAX_HOST_LPIS      BIT(lpi_id_bits, UL)
+
 /*
  * Describes a device which is using the ITS and is used by a guest.
  * Since device IDs are per ITS (in contrast to vLPIs, which are per
@@ -184,6 +196,7 @@ struct host_its {
 #endif
 
     struct its_baser tables[GITS_BASER_NR_REGS];
+    bool has_vlpis;
 };
 
 /* Map a collection for this host CPU to each host ITS. */
@@ -202,6 +215,7 @@ unsigned long gicv3_its_make_hwdom_madt(const struct domain *d,
 int gicv3_its_deny_access(struct domain *d);
 
 bool gicv3_its_host_has_its(void);
+bool its_host_supports_vlpis(void);
 
 unsigned int vgic_v3_its_count(const struct domain *d);
 
@@ -280,6 +294,11 @@ int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
 int its_send_command(struct host_its *hw_its, const void *its_cmd);
 
 struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type);
+int its_alloc_table_entry(struct its_baser *baser, uint32_t id);
+struct page_info *lpi_allocate_pendtable(void);
+void *lpi_allocate_vproptable(void);
+void lpi_free_vproptable(void *vproptable);
+uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu, uint64_t reg);
 
 int gicv3_its_wait_commands(struct host_its *hw_its);
 int its_inv_lpi(struct host_its *its, struct its_device *dev, uint32_t eventid,
@@ -340,6 +359,11 @@ static inline int gicv3_its_deny_access(struct domain *d)
 }
 
 static inline bool gicv3_its_host_has_its(void)
+{
+    return false;
+}
+
+static inline bool its_host_supports_vlpis(void)
 {
     return false;
 }

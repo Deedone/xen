@@ -62,6 +62,11 @@ bool gic_support_directLPI(void)
     return gicv4.has_direct_lpi;
 }
 
+bool gic_support_vlpis(void)
+{
+    return gicv4.has_vlpis;
+}
+
 bool gic_support_vptValidDirty(void)
 {
     return gicv4.has_vpend_valid_dirty;
@@ -2446,6 +2451,18 @@ static void gicv3_resume(void)
 
 #endif /* CONFIG_SYSTEM_SUSPEND */
 
+#ifdef CONFIG_GICV4
+static void __init gicv4_init(void)
+{
+    gicv4_its_vpeid_allocator_init();
+}
+#else
+static void __init gicv4_init(void)
+{
+    ASSERT_UNREACHABLE();
+}
+#endif
+
 /* Set up the GIC */
 static int __init gicv3_init(void)
 {
@@ -2537,6 +2554,8 @@ static int __init gicv3_init(void)
     gicv3_alloc_context();
 #endif
 
+    if ( gic_support_vlpis() )
+        gicv4_init();
 out:
     spin_unlock(&gicv3.lock);
 

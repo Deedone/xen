@@ -861,7 +861,7 @@ static int its_handle_mapti(struct virt_its *its, uint64_t *cmdptr)
     pirq->lpi_vcpu_id = vcpu->vcpu_id;
 
 #ifdef CONFIG_GICV4
-    if ( gic_support_vlpis() && its_host_supports_vlpis() )
+    if ( gicv4_supports_vlpis() )
     {
         /*
          * If on GICv4, we could let the VLPI being directly injected

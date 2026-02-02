@@ -371,11 +371,19 @@ extern void vgic_check_inflight_irqs_pending(struct vcpu *v,
 
 /* GICV4 functions */
 #ifdef CONFIG_GICV4
+bool gic_support_vlpis(void);
 bool gic_support_vptValidDirty(void);
+bool gicv4_supports_vlpis(void);
 #else
+#define gic_support_vlpis() (false)
 #define gic_support_vptValidDirty() (false)
+#define gicv4_supports_vlpis() (false)
 #endif
 
+int vgic_v4_its_vm_init(struct domain *d);
+void vgic_v4_free_its_vm(struct domain *d);
+int vgic_v4_its_vpe_init(struct vcpu *vcpu);
+void vgic_v4_its_vpe_free(struct vcpu *vcpu);
 #endif /* !CONFIG_NEW_VGIC */
 
 /*** Common VGIC functions used by Xen arch code ****/

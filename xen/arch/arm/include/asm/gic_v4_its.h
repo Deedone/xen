@@ -41,7 +41,6 @@ struct its_vpe {
     uint32_t vpe_db_lpi;
     struct its_vm *its_vm;
     unsigned int col_idx;
-    bool resident;
     /* Pending VLPIs on schedule out? */
     bool            pending_last;
     struct {
@@ -76,6 +75,7 @@ struct event_vlpi_map {
     unsigned int            nr_vlpis;
 };
 
+void gicv4_its_vpeid_allocator_init(void);
 #endif
 
 /*

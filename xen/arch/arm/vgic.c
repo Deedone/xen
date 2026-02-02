@@ -22,6 +22,7 @@
 
 #include <asm/mmio.h>
 #include <asm/gic.h>
+#include <asm/gic_v3_its.h>
 #include <asm/vgic.h>
 
 
@@ -31,6 +32,18 @@ static inline unsigned int idx_to_virq(struct domain *d, unsigned int idx)
         return espi_idx_to_intid(idx - vgic_num_irqs(d));
 
     return idx;
+}
+
+#ifdef CONFIG_GICV4
+bool gicv4_supports_vlpis(void)
+{
+    return gic_support_vlpis() && its_host_supports_vlpis();
+}
+#endif
+
+static bool vgic_supports_vlpis(const struct domain *d)
+{
+    return d->arch.vgic.version == GIC_V3 && gicv4_supports_vlpis();
 }
 
 bool vgic_is_valid_line(struct domain *d, unsigned int virq)
@@ -329,6 +342,15 @@ int domain_vgic_init(struct domain *d, unsigned int nr_spis)
     for ( i = 0; i < NR_GIC_SGI; i++ )
         set_bit(i, d->arch.vgic.allocated_irqs);
 
+    if ( vgic_supports_vlpis(d) )
+    {
+        ret = vgic_v4_its_vm_init(d);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "GICv4 its vm allocation failed\n");
+            return ret;
+        }
+    }
     return 0;
 }
 
@@ -366,6 +388,9 @@ void domain_vgic_free(struct domain *d)
 #endif
     xfree(d->arch.vgic.pending_irqs);
     xfree(d->arch.vgic.allocated_irqs);
+
+    if ( vgic_supports_vlpis(d) )
+        vgic_v4_free_its_vm(d);
 }
 
 int domain_vgic_late_init(struct domain *d)
@@ -406,8 +431,20 @@ int vcpu_vgic_init(struct vcpu *v)
     INIT_LIST_HEAD(&v->arch.vgic.lr_pending);
     spin_lock_init(&v->arch.vgic.lock);
 
+    if ( vgic_supports_vlpis(v->domain) )
+    {
+        ret = vgic_v4_its_vpe_init(v);
+        if ( ret )
+        {
+            printk(XENLOG_ERR "GICv4 its vpe allocation failed\n");
+            goto free_pending_irqs;
+        }
+    }
+
     return 0;
 
+ free_pending_irqs:
+    XFREE(v->arch.vgic.pending_irqs);
  free_private_irqs:
     XFREE(v->arch.vgic.private_irqs);
 
@@ -416,6 +453,9 @@ int vcpu_vgic_init(struct vcpu *v)
 
 void vcpu_vgic_free(struct vcpu *v)
 {
+    if ( vgic_supports_vlpis(v->domain) )
+        vgic_v4_its_vpe_free(v);
+
     XFREE(v->arch.vgic.pending_irqs);
     XFREE(v->arch.vgic.private_irqs);
 }

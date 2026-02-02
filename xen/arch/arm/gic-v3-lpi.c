@@ -8,6 +8,7 @@
  */
 
 #include <xen/cpu.h>
+#include <xen/err.h>
 #include <xen/lib.h>
 #include <xen/mm.h>
 #include <xen/param.h>
@@ -80,6 +81,7 @@ static DEFINE_PER_CPU(struct lpi_redist_data, lpi_redist);
 
 #define MAX_NR_HOST_LPIS   (lpi_data.max_host_lpi_ids - LPI_OFFSET)
 #define HOST_LPIS_PER_PAGE      (PAGE_SIZE / sizeof(union host_lpi))
+uint32_t lpi_id_bits;
 
 #define GICR_PROPBASER_XEN_MASK  GENMASK_ULL(51, 12)
 /*
@@ -231,13 +233,10 @@ void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
     write_u64_atomic(&hlpip->data, hlpi.data);
 }
 
-static int gicv3_lpi_allocate_pendtable(unsigned int cpu)
+struct page_info *lpi_allocate_pendtable(void)
 {
     void *pendtable;
     unsigned int order;
-
-    if ( per_cpu(lpi_redist, cpu).pending_table )
-        return -EBUSY;
 
     /*
      * The pending table holds one bit per LPI and even covers bits for
@@ -248,19 +247,33 @@ static int gicv3_lpi_allocate_pendtable(unsigned int cpu)
     order = get_order_from_bytes(max(lpi_data.max_host_lpi_ids / 8, (unsigned long)SZ_64K));
     pendtable = alloc_xenheap_pages(order, gicv3_its_get_memflags());
     if ( !pendtable )
-        return -ENOMEM;
+        return ERR_PTR(-ENOMEM);
 
     memset(pendtable, 0, PAGE_SIZE << order);
     /* Make sure the physical address can be encoded in the register. */
     if ( virt_to_maddr(pendtable) & ~GENMASK(51, 16) )
     {
         free_xenheap_pages(pendtable, order);
-        return -ERANGE;
+        return ERR_PTR(-ERANGE);
     }
     clean_and_invalidate_dcache_va_range(pendtable,
                                          lpi_data.max_host_lpi_ids / 8);
 
-    per_cpu(lpi_redist, cpu).pending_table = pendtable;
+    return virt_to_page(pendtable);
+}
+
+static int gicv3_lpi_allocate_pendtable(unsigned int cpu)
+{
+    struct page_info *pendtable;
+
+    if ( per_cpu(lpi_redist, cpu).pending_table )
+        return -EBUSY;
+
+    pendtable = lpi_allocate_pendtable();
+    if ( IS_ERR(pendtable) )
+        return PTR_ERR(pendtable);
+
+    per_cpu(lpi_redist, cpu).pending_table = page_to_virt(pendtable);
 
     return 0;
 }
@@ -357,6 +370,38 @@ static int gicv3_lpi_disable_lpis(void __iomem *rdist_base)
     return 0;
 }
 
+void *lpi_allocate_vproptable(void)
+{
+    unsigned long alloc_size;
+    void *table;
+    unsigned int order;
+
+    /* The virtual property table holds one byte per host LPI. */
+    order = get_order_from_bytes(MAX_NR_HOST_LPIS);
+    alloc_size = PAGE_SIZE << order;
+
+    table = alloc_xenheap_pages(order, gicv3_its_get_memflags());
+    if ( !table )
+        return NULL;
+
+    /* Make sure the physical address can be encoded in the register. */
+    if ( (virt_to_maddr(table) & ~GENMASK(51, 12)) )
+    {
+        free_xenheap_pages(table, order);
+        return NULL;
+    }
+
+    memset(table, GIC_PRI_IRQ | LPI_PROP_RES1, alloc_size);
+    clean_and_invalidate_dcache_va_range(table, alloc_size);
+
+    return table;
+}
+
+void lpi_free_vproptable(void *vproptable)
+{
+    free_xenheap_pages(vproptable, get_order_from_bytes(MAX_NR_HOST_LPIS));
+}
+
 /*
  * Tell a redistributor about the (shared) property table, allocating one
  * if not already done.
@@ -397,7 +442,8 @@ static int gicv3_lpi_set_proptable(void __iomem * rdist_base)
     }
 
     /* Encode the number of bits needed, minus one */
-    reg |= fls(lpi_data.max_host_lpi_ids - 1) - 1;
+    lpi_id_bits = fls(lpi_data.max_host_lpi_ids - 1);
+    reg |= lpi_id_bits - 1;
 
     reg |= virt_to_maddr(lpi_data.lpi_property);
 
