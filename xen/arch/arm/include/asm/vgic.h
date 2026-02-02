@@ -127,6 +127,11 @@ struct vgic_irq_rank {
     uint8_t vcpu[32];
 };
 
+#ifdef CONFIG_GICV4
+struct its_vm;
+struct its_vpe;
+#endif
+
 struct vgic_dist {
     /* Version of the vGIC */
     enum gic_version version;
@@ -193,6 +198,9 @@ struct vgic_dist {
      */
     bool rdists_enabled;                /* Is any redistributor enabled? */
     bool has_its;
+#ifdef CONFIG_GICV4
+    struct its_vm *its_vm;
+#endif
 #endif
 };
 
@@ -227,6 +235,9 @@ struct vgic_cpu {
 #define VGIC_V3_RDIST_LAST      (1 << 0)        /* last vCPU of the rdist */
 #define VGIC_V3_LPIS_ENABLED    (1 << 1)
     uint8_t flags;
+#ifdef CONFIG_GICV4
+    struct its_vpe *its_vpe;
+#endif
 };
 
 struct sgi_target {
