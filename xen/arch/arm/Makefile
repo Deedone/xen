@@ -27,6 +27,7 @@ obj-y += gic.o
 obj-$(CONFIG_GICV2) += gic-v2.o
 obj-$(CONFIG_GICV3) += gic-v3.o
 obj-$(CONFIG_HAS_ITS) += gic-v3-its.o
+obj-$(CONFIG_GICV4) += gic-v4-its.o
 obj-$(CONFIG_HAS_ITS) += gic-v3-lpi.o
 obj-y += guestcopy.o
 obj-y += guest_atomics.o
