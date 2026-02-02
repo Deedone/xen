@@ -17,6 +17,7 @@
 #include <xen/warning.h>
 #include <asm/atomic.h>
 #include <asm/domain.h>
+#include <asm/event.h>
 #include <asm/gic.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
@@ -40,7 +41,7 @@ union host_lpi {
     struct {
         uint32_t virt_lpi;
         uint16_t dom_id;
-        uint16_t pad;
+        uint16_t db_vcpu_id;
     };
 };
 
@@ -191,24 +192,48 @@ void gicv3_do_LPI(unsigned int lpi)
      * ignore them, as they have no further state and no-one can expect
      * to see them if they have not been mapped.
      */
-    if ( hlpi.virt_lpi == INVALID_LPI )
+    if ( hlpi.virt_lpi == INVALID_LPI && hlpi.db_vcpu_id == INVALID_VCPU_ID )
         goto out;
 
     d = rcu_lock_domain_by_id(hlpi.dom_id);
     if ( !d )
         goto out;
 
-    /*
-     * TODO: Investigate what to do here for potential interrupt storms.
-     * As we keep all host LPIs enabled, for disabling LPIs we would need
-     * to queue a ITS host command, which we avoid so far during a guest's
-     * runtime. Also re-enabling would trigger a host command upon the
-     * guest sending a command, which could be an attack vector for
-     * hogging the host command queue.
-     * See the thread around here for some background:
-     * https://lists.xen.org/archives/html/xen-devel/2016-12/msg00003.html
-     */
-    vgic_vcpu_inject_lpi(d, hlpi.virt_lpi);
+    /* It is a doorbell interrupt. */
+    if ( hlpi.db_vcpu_id != INVALID_VCPU_ID )
+    {
+#ifdef CONFIG_GICV4
+        struct vcpu *v = d->vcpu[hlpi.db_vcpu_id];
+
+        /* We got the message, no need to fire again */
+        its_vpe_mask_db(v->arch.vgic.its_vpe);
+
+        /*
+         * Update the pending_last flag that indicates that VLPIs are pending.
+         * And the corresponding vcpu is also kicked into action.
+         */
+        write_atomic(&v->arch.vgic.its_vpe->pending_last, true);
+
+        vcpu_kick(v);
+#else
+        printk(XENLOG_WARNING
+               "Doorbell LPI is only supported on GICv4\n");
+#endif
+    }
+    else
+    {
+        /*
+         * TODO: Investigate what to do here for potential interrupt storms.
+         * As we keep all host LPIs enabled, for disabling LPIs we would need
+         * to queue a ITS host command, which we avoid so far during a guest's
+         * runtime. Also re-enabling would trigger a host command upon the
+         * guest sending a command, which could be an attack vector for
+         * hogging the host command queue.
+         * See the thread around here for some background:
+         * https://lists.xen.org/archives/html/xen-devel/2016-12/msg00003.html
+         */
+        vgic_vcpu_inject_lpi(d, hlpi.virt_lpi);
+    }
 
     rcu_unlock_domain(d);
 
@@ -217,7 +242,8 @@ out:
 }
 
 void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
-                                 uint32_t virt_lpi)
+                                 uint32_t virt_lpi, bool is_db,
+                                 uint16_t db_vcpu_id)
 {
     union host_lpi *hlpip, hlpi;
 
@@ -227,8 +253,16 @@ void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
 
     hlpip = &lpi_data.host_lpis[host_lpi / HOST_LPIS_PER_PAGE][host_lpi % HOST_LPIS_PER_PAGE];
 
-    hlpi.virt_lpi = virt_lpi;
-    hlpi.dom_id = domain_id;
+    if ( !is_db )
+    {
+        hlpi.virt_lpi = virt_lpi;
+        hlpi.dom_id = domain_id;
+    }
+    else
+    {
+        hlpi.dom_id = domain_id;
+        hlpi.db_vcpu_id = db_vcpu_id;
+    }
 
     write_u64_atomic(&hlpip->data, hlpi.data);
 }
@@ -711,6 +745,7 @@ int gicv3_allocate_host_lpi_block(struct domain *d, uint32_t *first_lpi)
          */
         hlpi.virt_lpi = INVALID_LPI;
         hlpi.dom_id = d->domain_id;
+        hlpi.db_vcpu_id = INVALID_VCPU_ID;
         write_u64_atomic(&lpi_data.host_lpis[chunk][lpi_idx + i].data,
                          hlpi.data);
 
@@ -718,7 +753,8 @@ int gicv3_allocate_host_lpi_block(struct domain *d, uint32_t *first_lpi)
          * Enable this host LPI, so we don't have to do this during the
          * guest's runtime.
          */
-        lpi_data.lpi_property[lpi + i] |= LPI_PROP_ENABLED;
+        lpi_write_config(lpi_data.lpi_property, lpi + i + LPI_OFFSET, 0xff,
+                         LPI_PROP_ENABLED);
     }
 
     lpi_data.next_free_lpi = lpi + LPI_BLOCK;

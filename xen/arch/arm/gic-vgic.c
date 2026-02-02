@@ -377,7 +377,7 @@ int vgic_vcpu_pending_irq(struct vcpu *v)
 
 #ifdef CONFIG_GICV4
     if ( v->arch.vgic.its_vpe &&
-         v->arch.vgic.its_vpe->pending_last )
+         read_atomic(&v->arch.vgic.its_vpe->pending_last) )
         rc = 1;
 #endif
 

@@ -281,7 +281,8 @@ struct pending_irq *gicv3_assign_guest_event(struct domain *d,
                                              uint32_t vdevid, uint32_t eventid,
                                              uint32_t virt_lpi);
 void gicv3_lpi_update_host_entry(uint32_t host_lpi, int domain_id,
-                                 uint32_t virt_lpi);
+                                 uint32_t virt_lpi, bool is_db,
+                                 uint16_t db_vcpu_id);
 
 /* ITS quirks handling. */
 uint64_t gicv3_its_get_cacheability(void);
@@ -331,6 +332,8 @@ int gicv4_assign_guest_event(struct domain *d, paddr_t vdoorbell_address,
 
 int gicv4_its_vlpi_move(struct pending_irq *pirq, struct vcpu *vcpu);
 int gicv4_its_vlpi_unmap(struct pending_irq *pirq);
+int its_vlpi_prop_update(struct pending_irq *pirq, uint8_t property,
+                         bool needs_inv);
 
 bool event_is_forwarded_to_vcpu(struct its_device *dev, uint32_t eventid);
 void its_vpe_mask_db(struct its_vpe *vpe);
@@ -344,6 +347,12 @@ static inline int gicv4_assign_guest_event(struct domain *d,
 }
 
 static inline int gicv4_its_vlpi_unmap(struct pending_irq *pirq)
+{
+    return -ENOSYS;
+}
+
+static inline int its_vlpi_prop_update(struct pending_irq *pirq,
+                                       uint8_t property, bool needs_inv)
 {
     return -ENOSYS;
 }

@@ -84,8 +84,9 @@ static void gicv4_update_lpi_properties(void __iomem *ptr)
      * GICR_CTLR.IR also mandates the invalidate/sync registers.
      * RVPEID identifies the GICv4.1 vPE model, which implies the same
      * registers even when GICR_TYPER.DirectLPIS is clear.
+     *
+     * If any redistributor lacks a feature, disable it system-wide.
      */
-    /* If any redistributor lacks a feature, disable it system-wide. */
     gicv4.has_vlpis &= !!(typer & GICR_TYPER_VLPIS);
     gicv4.has_rvpeid &= !!(typer & GICR_TYPER_RVPEID);
     gicv4.has_direct_lpi &= !!(typer & GICR_TYPER_DirectLPIS) ||

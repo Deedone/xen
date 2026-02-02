@@ -47,7 +47,7 @@ struct its_vpe {
     struct its_vm *its_vm;
     unsigned int col_idx;
     bool resident;
-    /* Pending VLPIs on schedule out? */
+    /* Pending VLPIs hint shared between IRQ and schedule paths. */
     bool            pending_last;
     struct {
         /* Implementation Defined Area Invalid */

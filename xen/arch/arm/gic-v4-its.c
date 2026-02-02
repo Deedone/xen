@@ -373,6 +373,105 @@ static int its_send_cmd_vmovp(struct its_vpe *vpe)
     return 0;
 }
 
+/* GICR_SYNCR.Busy == 1 until the invalidation completes. */
+static int wait_for_syncr(void __iomem *rdbase, const char *what)
+{
+    unsigned int timeout = GICR_SYNCR_POLL_TIMEOUT_US;
+
+    while ( readl_relaxed(rdbase + GICR_SYNCR) & 1 )
+    {
+        if ( !timeout-- )
+        {
+            printk(XENLOG_WARNING
+                   "GICv4: timeout waiting for GICR_SYNCR.Busy to clear during %s\n",
+                   what);
+            return -ETIMEDOUT;
+        }
+
+        cpu_relax();
+        udelay(1);
+    }
+
+    return 0;
+}
+
+static void direct_lpi_inv(uint32_t db_lpi, unsigned int cpu)
+{
+    void __iomem *rdbase;
+    uint64_t val;
+    int ret;
+
+    /* Register-based LPI invalidation for DB on GICv4.0 */
+    val = MASK_INSR(db_lpi, GICR_INVLPIR_INTID);
+
+    rdbase = per_cpu(rbase, cpu);
+
+    ret = wait_for_syncr(rdbase, "INVLPIR pre-check");
+    if ( ret )
+        return;
+
+    writeq_relaxed(val, rdbase + GICR_INVLPIR);
+
+    (void)wait_for_syncr(rdbase, "INVLPIR");
+}
+
+static void its_vpe_inv_db(struct its_vpe *vpe)
+{
+    if ( gic_support_directLPI() )
+    {
+        unsigned long flags;
+        unsigned int cpu;
+
+        /*
+         * Serialize register-based invalidation against VPE moves. The
+         * architecture makes overlapping INVLPIR and ITS commands that retarget
+         * the same doorbell CONSTRAINED UNPREDICTABLE, and vpe->col_idx is also
+         * updated under this lock.
+         */
+        cpu = vpe_to_cpuid_lock(vpe, &flags);
+
+        /* Target the redistributor this VPE is currently known on */
+        direct_lpi_inv(vpe->vpe_db_lpi, cpu);
+        vpe_to_cpuid_unlock(vpe, &flags);
+    }
+    else
+    {
+        struct its_device *dev = vpe_proxy.dev;
+        unsigned long flags;
+        int ret;
+
+        spin_lock_irqsave(&vpe_proxy.lock, flags);
+        ret = gicv4_vpe_db_proxy_map_locked(vpe);
+        if ( !ret )
+            ret = its_send_cmd_inv(dev->hw_its, dev->host_devid,
+                                   vpe->vpe_proxy_event);
+        spin_unlock_irqrestore(&vpe_proxy.lock, flags);
+
+        if ( ret )
+            printk(XENLOG_WARNING
+                   "ITS: failed to invalidate GICv4 VPE doorbell mapping: %d\n",
+                   ret);
+    }
+}
+
+static void its_vpe_set_db_enabled(struct its_vpe *vpe, bool enable)
+{
+    lpi_write_config(lpi_host_proptable(), vpe->vpe_db_lpi,
+                     enable ? 0 : LPI_PROP_ENABLED,
+                     enable ? LPI_PROP_ENABLED : 0);
+    its_vpe_inv_db(vpe);
+}
+
+void its_vpe_mask_db(struct its_vpe *vpe)
+{
+    its_vpe_set_db_enabled(vpe, false);
+}
+
+static void its_vpe_unmask_db(struct its_vpe *vpe)
+{
+    its_vpe_set_db_enabled(vpe, true);
+}
+
 static void its_vpe_teardown(struct its_vpe *vpe)
 {
     struct host_its *hw_its;
@@ -396,6 +495,8 @@ static void its_vpe_teardown(struct its_vpe *vpe)
 int vgic_v4_its_vm_init(struct domain *d)
 {
     unsigned int nr_vcpus = d->max_vcpus;
+    unsigned int nr_db_lpis, nr_chunks, i = 0;
+    uint32_t *db_lpi_bases;
     int ret = -ENOMEM;
 
     if ( !gicv4_supports_vlpis() )
@@ -413,6 +514,22 @@ int vgic_v4_its_vm_init(struct domain *d)
     d->arch.vgic.its_vm->vproptable = lpi_allocate_vproptable();
     if ( !d->arch.vgic.its_vm->vproptable )
         goto fail_vprop;
+    /* Allocate a doorbell interrupt for each VPE. */
+    nr_db_lpis = d->arch.vgic.its_vm->nr_vpes;
+    nr_chunks = DIV_ROUND_UP(nr_db_lpis, LPI_BLOCK);
+    db_lpi_bases = xzalloc_array(uint32_t, nr_chunks);
+    if ( !db_lpi_bases )
+        goto fail_db_bases;
+
+    do {
+        /* Allocate doorbell interrupts in chunks of LPI_BLOCK (=32). */
+        ret = gicv3_allocate_host_lpi_block(d, &db_lpi_bases[i]);
+        if ( ret )
+            goto fail_db;
+    } while ( ++i < nr_chunks );
+
+    d->arch.vgic.its_vm->db_lpi_bases = db_lpi_bases;
+    d->arch.vgic.its_vm->nr_db_lpis = nr_db_lpis;
 
     /* Xen assumes all host ITS instances agree on these attributes. */
     d->arch.vgic.its_vm->vpropbaser =
@@ -429,6 +546,12 @@ int vgic_v4_its_vm_init(struct domain *d)
 
     return 0;
 
+ fail_db:
+    while ( i != 0 )
+        gicv3_free_host_lpi_block(db_lpi_bases[--i]);
+    xfree(db_lpi_bases);
+ fail_db_bases:
+    lpi_free_vproptable(d->arch.vgic.its_vm->vproptable);
  fail_vprop:
     xfree(d->arch.vgic.its_vm->vpes);
  fail_vpes:
@@ -440,12 +563,19 @@ int vgic_v4_its_vm_init(struct domain *d)
 void vgic_v4_free_its_vm(struct domain *d)
 {
     struct its_vm *its_vm = d->arch.vgic.its_vm;
-
     if ( !its_vm )
         return;
 
+    if ( its_vm->db_lpi_bases )
+    {
+        int nr_chunks = DIV_ROUND_UP(its_vm->nr_db_lpis, LPI_BLOCK);
+
+        while ( --nr_chunks >= 0 )
+            gicv3_free_host_lpi_block(its_vm->db_lpi_bases[nr_chunks]);
+        xfree(its_vm->db_lpi_bases);
+    }
+
     xfree(its_vm->vpes);
-    xfree(its_vm->db_lpi_bases);
     if ( its_vm->vproptable )
         lpi_free_vproptable(its_vm->vproptable);
     XFREE(d->arch.vgic.its_vm);
@@ -478,6 +608,8 @@ int vgic_v4_its_vpe_init(struct vcpu *vcpu)
         return -ENOMEM;
 
     vpe->its_vm = its_vm;
+    vpe->vpe_db_lpi = its_vm->db_lpi_bases[vcpuid / LPI_BLOCK] +
+                      (vcpuid % LPI_BLOCK);
 
     ret = its_vpe_init(vpe);
     if ( ret )
@@ -488,6 +620,14 @@ int vgic_v4_its_vpe_init(struct vcpu *vcpu)
 
     vcpu->arch.vgic.its_vpe = vpe;
     its_vm->vpes[vcpuid] = vpe;
+
+    /*
+     * Sometimes a VLPI gets mapped before the associated VPE becomes
+     * resident, so enable the doorbell as soon as initialization succeeds.
+     */
+    gicv3_lpi_update_host_entry(vpe->vpe_db_lpi, vcpu->domain->domain_id,
+                                INVALID_LPI, true, vcpu->vcpu_id);
+    its_vpe_unmask_db(vpe);
 
     return 0;
 }
@@ -968,7 +1108,7 @@ static bool its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
         return false;
 
     vpe->idai = val & GICR_VPENDBASER_IDAI;
-    vpe->pending_last = val & GICR_VPENDBASER_PendingLast;
+    write_atomic(&vpe->pending_last, val & GICR_VPENDBASER_PendingLast);
 
     return true;
 }
@@ -1041,6 +1181,7 @@ void vgic_v4_load(struct vcpu *vcpu)
      * corresponding to our current CPU expects us here
      */
     WARN_ON(gicv4_vpe_set_affinity(vcpu));
+    its_vpe_mask_db(vpe);
     its_make_vpe_resident(vpe, vcpu->processor);
     vpe->resident = true;
 }
@@ -1058,5 +1199,62 @@ void vgic_v4_put(struct vcpu *vcpu, bool need_db)
     if ( !its_make_vpe_non_resident(vpe, vcpu->processor) )
         return;
 
+    if ( need_db )
+        /* Enable the doorbell, as the guest is going to block */
+        its_vpe_unmask_db(vpe);
     vpe->resident = false;
+}
+
+static int its_vlpi_set_doorbell(struct its_vlpi_map *map, bool enable)
+{
+    struct its_vlpi_map new_map;
+    int ret;
+
+    if ( map->db_enabled == enable )
+        return 0;
+
+    new_map = *map;
+    new_map.db_enabled = enable;
+
+    /*
+     * Ideally, we'd issue a VMAPTI to set the doorbell to its LPI
+     * value or to 1023, depending on the enable bit. But that
+     * would be issuing a mapping for an /existing/ DevID+EventID
+     * pair, which is UNPREDICTABLE. Instead, let's issue a VMOVI
+     * to the /same/ vPE, using this opportunity to adjust the doorbell.
+     */
+    ret = its_send_cmd_vmovi(map->dev->hw_its, &new_map);
+    if ( ret )
+        return ret;
+
+    map->db_enabled = enable;
+
+    return 0;
+}
+
+int its_vlpi_prop_update(struct pending_irq *pirq, uint8_t property,
+                         bool needs_inv)
+{
+    struct its_vlpi_map *map;
+    int ret;
+
+    if ( !pirq->vlpi_map )
+        return -EINVAL;
+
+    map = pirq->vlpi_map;
+
+    /* Update the vproptable. */
+    ret = lpi_write_config(map->vm->vproptable, pirq->irq, 0xff, property);
+    if ( ret )
+        return ret;
+
+    if ( needs_inv )
+    {
+        /* The CPU argument is unused for forwarded LPIs. */
+        ret = its_inv_lpi(map->dev->hw_its, map->dev, map->eventid, 0);
+        if ( ret )
+            return ret;
+    }
+
+    return its_vlpi_set_doorbell(map, property & LPI_PROP_ENABLED);
 }
