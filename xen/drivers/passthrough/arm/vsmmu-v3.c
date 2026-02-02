@@ -82,6 +82,8 @@
 #define smmu_get_ste_s1ctxptr(x)    FIELD_PREP(STRTAB_STE_0_S1CTXPTR_MASK, \
                                     FIELD_GET(STRTAB_STE_0_S1CTXPTR_MASK, x))
 
+#define MAX_VSID   (1 << SMMU_IDR1_SIDSIZE)
+
 /* event queue entry */
 struct arm_smmu_evtq_ent {
     /* Common fields */
@@ -129,6 +131,13 @@ struct arm_vsmmu_queue {
     uint8_t     max_n_shift;
 };
 
+/* vSID->pSID mapping entry */
+struct vsid_entry {
+    bool        valid;
+    uint32_t    vsid;
+    uint32_t    psid;
+};
+
 struct virt_smmu {
     struct      domain *d;
     struct      list_head viommu_list;
@@ -153,6 +162,7 @@ struct virt_smmu {
     spinlock_t  cr2_lock;
     spinlock_t  strtab_cfg_lock;
     spinlock_t  irq_cfg_lock;
+    struct vsid_entry *vsids;
 };
 
 /* Helper functions */
@@ -532,6 +542,29 @@ static int arm_vsmmu_handle_cfgi_ste(struct virt_smmu *smmu, uint64_t *cmdptr)
     struct arm_vsmmu_s1_trans_cfg s1_cfg = {0};
     uint32_t sid = smmu_cmd_get_sid(cmdptr[0]);
     struct iommu_guest_config guest_cfg = {0};
+    uint32_t psid;
+    struct arm_smmu_evtq_ent ent = {
+        .opcode = EVT_ID_BAD_STE,
+        .sid = sid,
+        .c_bad_ste_streamid = {
+            .ssid = 0,
+            .ssv = false,
+        },
+    };
+
+    /* SIDs identity mapped for HW domain */
+    if ( is_hardware_domain(d) )
+        psid = sid;
+    else {
+        /* vSID out of range or not mapped to pSID */
+        if ( sid >= MAX_VSID || !smmu->vsids[sid].valid )
+        {
+            arm_vsmmu_send_event(smmu, &ent);
+            return -EINVAL;
+        }
+
+        psid = smmu->vsids[sid].psid;
+    }
 
     ret = arm_vsmmu_find_ste(smmu, sid, ste);
     if ( ret )
@@ -552,7 +585,7 @@ static int arm_vsmmu_handle_cfgi_ste(struct virt_smmu *smmu, uint64_t *cmdptr)
     else
         guest_cfg.config = ARM_SMMU_DOMAIN_NESTED;
 
-    ret = hd->platform_ops->attach_guest_config(d, sid, &guest_cfg);
+    ret = hd->platform_ops->attach_guest_config(d, psid, &guest_cfg);
     if ( ret )
         return ret;
 
@@ -1124,6 +1157,9 @@ static int vsmmuv3_init_single(struct domain *d, paddr_t addr,
     smmu->addr = addr;
     smmu->cmdq.ent_size = CMDQ_ENT_DWORDS * DWORDS_BYTES;
     smmu->evtq.ent_size = EVTQ_ENT_DWORDS * DWORDS_BYTES;
+    smmu->vsids = xzalloc_array(struct vsid_entry, MAX_VSID);
+    if ( !smmu->vsids )
+        return -ENOMEM;
 
     smmu->features = features;
 
@@ -1190,8 +1226,9 @@ int vsmmuv3_relinquish_resources(struct domain *d)
     if ( list_head_is_null(&d->arch.viommu_list) )
         return 0;
 
-    list_for_each_entry_safe(pos, temp, &d->arch.viommu_list, viommu_list )
+    list_for_each_entry_safe(pos, temp, &d->arch.viommu_list, viommu_list)
     {
+        xfree(pos->vsids);
         list_del(&pos->viommu_list);
         xfree(pos);
     }
@@ -1199,8 +1236,36 @@ int vsmmuv3_relinquish_resources(struct domain *d)
     return 0;
 }
 
+int vsmmuv3_allocate_free_vid(struct domain *d, uint32_t id, uint32_t *vid) {
+    uint32_t i = 0;
+    struct virt_smmu *smmu;
+
+    if ( list_head_is_null(&d->arch.viommu_list) )
+        return -ENODEV;
+
+    smmu = list_first_entry(&d->arch.viommu_list, struct virt_smmu, viommu_list);
+
+    /* Get first free vSID index */
+    while ( i < MAX_VSID && smmu->vsids[i].valid )
+        i++;
+
+    /* Max number of vSIDs already allocated? */
+    if ( i == MAX_VSID) {
+        return -ENOMEM;
+    }
+
+    /* Establish vSID->pSID mapping */
+    smmu->vsids[i].valid = true;
+    smmu->vsids[i].vsid = i;
+    smmu->vsids[i].psid = id;
+    *vid = smmu->vsids[i].vsid;
+
+    return 0;
+}
+
 static const struct viommu_ops vsmmuv3_ops = {
     .domain_init = domain_vsmmuv3_init,
+    .allocate_free_vid = vsmmuv3_allocate_free_vid,
     .relinquish_resources = vsmmuv3_relinquish_resources,
 };
 

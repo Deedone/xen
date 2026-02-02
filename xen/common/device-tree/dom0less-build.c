@@ -32,6 +32,8 @@
 #include <xen/static-memory.h>
 #include <xen/static-shmem.h>
 
+#include <asm/viommu.h>
+
 #define XENSTORE_PFN_LATE_ALLOC UINT64_MAX
 
 static domid_t __initdata xs_domid = DOMID_INVALID;
@@ -452,8 +454,9 @@ static void __init modify_pfdt_node(void *pfdt, int nodeoff, struct domain *d)
     int proplen, i, rc;
     const fdt32_t *prop;
     fdt32_t *prop_c;
+    uint32_t vsid;
 
-    prop = fdt_getprop(pfdt, nodeoff, "iommus", &proplen);
+    prop = fdt_getprop(pfdt, nodeoff, "iommus", &proplen); 
     if ( !prop )
         return;
 
@@ -461,10 +464,19 @@ static void __init modify_pfdt_node(void *pfdt, int nodeoff, struct domain *d)
     if ( !prop_c )
         return;
 
+    /* 
+     * Assign <vIOMMU vSID> pairs to iommus property and establish
+     * vSID->pSID mappings
+    */
     for ( i = 0; i < proplen / 8; ++i )
     {
         prop_c[i * 2] = cpu_to_fdt32(GUEST_PHANDLE_VSMMUV3);
-        prop_c[i * 2 + 1] = prop[i * 2 + 1];
+        rc = viommu_allocate_free_vid(d, fdt32_to_cpu(prop[i * 2 + 1]), &vsid);
+        if ( rc ) {
+            dprintk(XENLOG_ERR, "Failed to allocate new vSID for iommu device");
+            return;
+        }
+        prop_c[i * 2 + 1] = cpu_to_fdt32(vsid);
     }
 
     rc = fdt_setprop(pfdt, nodeoff, "iommus", prop_c, proplen);
@@ -484,7 +496,7 @@ static void __init modify_pfdt_node(void *pfdt, int nodeoff, struct domain *d)
 static int __init scan_pfdt_node(struct kernel_info *kinfo, void *pfdt,
                                  int nodeoff,
                                  uint32_t address_cells, uint32_t size_cells,
-                                 bool scan_passthrough_prop)
+                                 bool scan_passthrough_prop, struct domain *d)
 {
     int rc = 0;
     void *fdt = kinfo->fdt;
@@ -507,9 +519,9 @@ static int __init scan_pfdt_node(struct kernel_info *kinfo, void *pfdt,
     node_next = fdt_first_subnode(pfdt, nodeoff);
     while ( node_next > 0 )
     {
-        modify_pfdt_node(pfdt, node_next);
+        modify_pfdt_node(pfdt, node_next, d);
         rc = scan_pfdt_node(kinfo, pfdt, node_next, address_cells, size_cells,
-                            scan_passthrough_prop);
+                            scan_passthrough_prop, d);
         if ( rc )
             return rc;
 
@@ -596,7 +608,7 @@ static int __init domain_handle_dtb_boot_module(struct domain *d,
             res = scan_pfdt_node(kinfo, pfdt, node_next,
                                  DT_ROOT_NODE_ADDR_CELLS_DEFAULT,
                                  DT_ROOT_NODE_SIZE_CELLS_DEFAULT,
-                                 false);
+                                 false, d);
             if ( res )
                 goto out;
             continue;
@@ -610,7 +622,7 @@ static int __init domain_handle_dtb_boot_module(struct domain *d,
             res = scan_pfdt_node(kinfo, pfdt, node_next,
                                  DT_ROOT_NODE_ADDR_CELLS_DEFAULT,
                                  DT_ROOT_NODE_SIZE_CELLS_DEFAULT,
-                                 true);
+                                 true, d);
             if ( res )
                 goto out;
             continue;

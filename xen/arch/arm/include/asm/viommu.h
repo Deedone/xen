@@ -33,6 +33,15 @@ struct viommu_ops {
      * Called during domain destruction to free resources used by vIOMMU.
      */
     int (*relinquish_resources)(struct domain *d);
+
+    /*
+     * Allocate free vSID/vRID for the guest device and establish vID->pID mapping
+     * Called during domain device assignment.
+     * Returns 0 on success and sets vid argument to newly allocated vSID/vRID
+     * mapped to physical ID (id argument).
+     * Negative error code returned if allocation fails.
+     */
+    int (*allocate_free_vid)(struct domain *d, uint32_t id, uint32_t *vid);
 };
 
 struct viommu_desc {
@@ -49,6 +58,7 @@ struct viommu_desc {
 int domain_viommu_init(struct domain *d, uint8_t viommu_type);
 int viommu_relinquish_resources(struct domain *d);
 uint8_t viommu_get_type(void);
+int viommu_allocate_free_vid(struct domain *d, uint32_t id, uint32_t *vid);
 void add_to_host_iommu_list(paddr_t addr, paddr_t size,
                             const struct dt_device_node *node,
                             uint32_t features);

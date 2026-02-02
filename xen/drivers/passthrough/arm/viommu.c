@@ -65,6 +65,13 @@ int viommu_relinquish_resources(struct domain *d)
     return cur_viommu->ops->relinquish_resources(d);
 }
 
+int viommu_allocate_free_vid(struct domain *d, uint32_t id, uint32_t *vid) {
+    if ( !cur_viommu )
+        return -ENODEV;
+
+    return cur_viommu->ops->allocate_free_vid(d, id, vid);
+}
+
 uint8_t viommu_get_type(void)
 {
     if ( !cur_viommu )
