@@ -111,10 +111,9 @@ static void gicv4_update_lpi_properties(void __iomem *ptr)
 #endif
 
 /* per-cpu re-distributor base */
-static DEFINE_PER_CPU(void __iomem*, rbase);
+DEFINE_PER_CPU(void __iomem*, rbase);
 
 #define GICD                   (gicv3.map_dbase)
-#define GICD_RDIST_BASE        (this_cpu(rbase))
 #define GICD_RDIST_SGI_BASE    (GICD_RDIST_BASE + SZ_64K)
 
 /*
@@ -462,13 +461,16 @@ static void gicv3_save_state(struct vcpu *v)
      * are now visible to the system register interface
      */
     dsb(sy);
+#ifdef CONFIG_GICV4
+    vgic_v4_put(v, false);
+#endif
     gicv3_save_lrs(v);
     save_aprn_regs(&v->arch.gic);
     v->arch.gic.v3.vmcr = READ_SYSREG(ICH_VMCR_EL2);
     v->arch.gic.v3.sre_el1 = READ_SYSREG(ICC_SRE_EL1);
 }
 
-static void gicv3_restore_state(const struct vcpu *v)
+static void gicv3_restore_state(struct vcpu *v)
 {
     register_t val;
 
@@ -496,6 +498,10 @@ static void gicv3_restore_state(const struct vcpu *v)
     WRITE_SYSREG(v->arch.gic.v3.vmcr, ICH_VMCR_EL2);
     restore_aprn_regs(&v->arch.gic);
     gicv3_restore_lrs(v);
+
+#ifdef CONFIG_GICV4
+    vgic_v4_load(v);
+#endif
 
     /*
      * Make sure all stores are visible the GIC

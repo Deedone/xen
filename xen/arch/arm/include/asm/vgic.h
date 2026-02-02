@@ -384,6 +384,8 @@ int vgic_v4_its_vm_init(struct domain *d);
 void vgic_v4_free_its_vm(struct domain *d);
 int vgic_v4_its_vpe_init(struct vcpu *vcpu);
 void vgic_v4_its_vpe_free(struct vcpu *vcpu);
+void vgic_v4_load(struct vcpu *vcpu);
+void vgic_v4_put(struct vcpu *vcpu, bool need_db);
 #endif /* !CONFIG_NEW_VGIC */
 
 /*** Common VGIC functions used by Xen arch code ****/

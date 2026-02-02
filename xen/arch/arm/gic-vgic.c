@@ -14,6 +14,7 @@
 #include <xen/sched.h>
 #include <asm/domain.h>
 #include <asm/gic.h>
+#include <asm/gic_v4_its.h>
 #include <asm/vgic.h>
 
 #define lr_all_full()                                           \
@@ -373,6 +374,12 @@ int vgic_vcpu_pending_irq(struct vcpu *v)
             goto out;
         }
     }
+
+#ifdef CONFIG_GICV4
+    if ( v->arch.vgic.its_vpe &&
+         v->arch.vgic.its_vpe->pending_last )
+        rc = 1;
+#endif
 
 out:
     spin_unlock_irqrestore(&v->arch.vgic.lock, flags);

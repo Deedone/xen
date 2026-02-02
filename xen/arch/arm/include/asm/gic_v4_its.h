@@ -35,6 +35,7 @@ struct its_vm {
     unsigned int nr_db_lpis;
     /* Property table per VM. */
     void *vproptable;
+    uint64_t vpropbaser;
 };
 
 struct its_vpe {
@@ -45,6 +46,7 @@ struct its_vpe {
     uint32_t vpe_db_lpi;
     struct its_vm *its_vm;
     unsigned int col_idx;
+    bool resident;
     /* Pending VLPIs on schedule out? */
     bool            pending_last;
     struct {
@@ -83,6 +85,15 @@ void gicv4_its_vpeid_allocator_init(void);
 
 #define GICR_VPROPBASER                              0x0070
 #define GICR_VPENDBASER                              0x0078
+
+#define GICR_VPROPBASER_OUTER_CACHEABILITY_SHIFT         56
+#define GICR_VPROPBASER_SHAREABILITY_SHIFT               10
+#define GICR_VPROPBASER_SHAREABILITY_MASK                \
+        (3UL << GICR_VPROPBASER_SHAREABILITY_SHIFT)
+#define GICR_VPROPBASER_INNER_CACHEABILITY_SHIFT          7
+#define GICR_VPROPBASER_INNER_CACHEABILITY_MASK           \
+        (7UL << GICR_VPROPBASER_INNER_CACHEABILITY_SHIFT)
+#define GICR_VPROPBASER_IDBITS_MASK                    0x1f
 
 #define GICR_VPENDBASER_Dirty                   (1UL << 60)
 #define GICR_VPENDBASER_PendingLast             (1UL << 61)
