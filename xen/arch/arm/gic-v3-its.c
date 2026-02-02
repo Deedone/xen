@@ -437,12 +437,27 @@ static void *its_map_cbaser(struct host_its *its)
 
 /* The ITS BASE registers work with page sizes of 4K, 16K or 64K. */
 #define BASER_PAGE_BITS(sz) ((sz) * 2 + 12)
+#define GITS_VPE_TABLE_PREALLOC_ENTRIES 32
+
+struct its_baser *its_get_baser(struct host_its *hw_its, uint32_t type)
+{
+    unsigned int i;
+
+    for ( i = 0; i < GITS_BASER_NR_REGS; i++ )
+    {
+        if ( GITS_BASER_TYPE(hw_its->tables[i].val) == type )
+            return &hw_its->tables[i];
+    }
+
+    return NULL;
+}
 
 static int its_map_baser(void __iomem *basereg, uint64_t regc,
-                         unsigned int nr_items)
+                         unsigned int nr_items, struct its_baser *baser)
 {
     uint64_t attr, reg;
     unsigned int entry_size = GITS_BASER_ENTRY_SIZE(regc);
+    unsigned int page_size[4] = {SZ_4K, SZ_16K, SZ_64K, SZ_64K};
     unsigned int pagesz = 2;    /* try 64K pages first, then go down. */
     unsigned int table_size;
     unsigned int order;
@@ -504,7 +519,14 @@ retry:
 
     /* If the host accepted our page size, we are done. */
     if ( ((regc >> GITS_BASER_PAGE_SIZE_SHIFT) & 0x3UL) == pagesz )
+    {
+        baser->val = regc;
+        baser->base = buffer;
+        baser->table_size = table_size;
+        baser->pagesz = page_size[pagesz];
+
         return 0;
+    }
 
     free_xenheap_pages(buffer, order);
 
@@ -577,26 +599,29 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
     {
         void __iomem *basereg = hw_its->its_base + GITS_BASER0 + i * 8;
         unsigned int type;
+        struct its_baser *baser = hw_its->tables + i;
 
         reg = readq_relaxed(basereg);
-        type = (reg & GITS_BASER_TYPE_MASK) >> GITS_BASER_TYPE_SHIFT;
+        type = GITS_BASER_TYPE(reg);
         switch ( type )
         {
         case GITS_BASER_TYPE_NONE:
             continue;
         case GITS_BASER_TYPE_DEVICE:
-            ret = its_map_baser(basereg, reg, BIT(hw_its->devid_bits, UL));
+            ret = its_map_baser(basereg, reg,
+                                BIT(hw_its->devid_bits, UL), baser);
             if ( ret )
                 return ret;
             break;
         case GITS_BASER_TYPE_COLLECTION:
-            ret = its_map_baser(basereg, reg, num_possible_cpus());
+            ret = its_map_baser(basereg, reg, num_possible_cpus(), baser);
             if ( ret )
                 return ret;
             break;
         /* In case this is a GICv4, provide a (dummy) vPE table as well. */
         case GITS_BASER_TYPE_VCPU:
-            ret = its_map_baser(basereg, reg, 1);
+            ret = its_map_baser(basereg, reg,
+                                GITS_VPE_TABLE_PREALLOC_ENTRIES, baser);
             if ( ret )
                 return ret;
             break;
