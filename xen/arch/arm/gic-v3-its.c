@@ -31,26 +31,6 @@
  */
 LIST_HEAD(host_its_list);
 
-/*
- * Describes a device which is using the ITS and is used by a guest.
- * Since device IDs are per ITS (in contrast to vLPIs, which are per
- * guest), we have to differentiate between different virtual ITSes.
- * We use the doorbell address here, since this is a nice architectural
- * property of MSIs in general and we can easily get to the base address
- * of the ITS and look that up.
- */
-struct its_device {
-    struct rb_node rbnode;
-    struct host_its *hw_its;
-    void *itt_addr;
-    unsigned int itt_order;
-    paddr_t guest_doorbell;             /* Identifies the virtual ITS */
-    uint32_t host_devid;
-    uint32_t guest_devid;
-    uint32_t eventids;                  /* Number of event IDs (MSIs) */
-    uint32_t *host_lpi_blocks;          /* Which LPIs are used on the host */
-    struct pending_irq *pend_irqs;      /* One struct per event */
-};
 
 /*
  * It is unlikely that a platform implements ITSes with different quirks,
@@ -156,7 +136,7 @@ bool gicv3_its_host_has_its(void)
 }
 
 #define BUFPTR_MASK                     GENMASK(19, 5)
-static int its_send_command(struct host_its *hw_its, const void *its_cmd)
+int its_send_command(struct host_its *hw_its, const void *its_cmd)
 {
     /*
      * The command queue should actually never become full, if it does anyway
@@ -259,7 +239,7 @@ static uint64_t encode_rdbase(struct host_its *hw_its, unsigned int cpu,
     return reg;
 }
 
-static int its_send_cmd_sync(struct host_its *its, unsigned int cpu)
+int its_send_cmd_sync(struct host_its *its, unsigned int cpu)
 {
     uint64_t cmd[4];
 
@@ -271,9 +251,8 @@ static int its_send_cmd_sync(struct host_its *its, unsigned int cpu)
     return its_send_command(its, cmd);
 }
 
-static int its_send_cmd_mapti(struct host_its *its,
-                              uint32_t deviceid, uint32_t eventid,
-                              uint32_t pintid, uint16_t icid)
+int its_send_cmd_mapti(struct host_its *its, uint32_t deviceid,
+                       uint32_t eventid, uint32_t pintid, uint16_t icid)
 {
     uint64_t cmd[4];
 
@@ -323,8 +302,7 @@ static int its_send_cmd_mapd(struct host_its *its, uint32_t deviceid,
     return its_send_command(its, cmd);
 }
 
-static int its_send_cmd_inv(struct host_its *its,
-                            uint32_t deviceid, uint32_t eventid)
+int its_send_cmd_inv(struct host_its *its, uint32_t deviceid, uint32_t eventid)
 {
     uint64_t cmd[4];
 
@@ -935,8 +913,8 @@ out:
 }
 
 /* Must be called with the its_device_lock held. */
-static struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
-                                         uint32_t vdevid)
+struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
+                                  uint32_t vdevid)
 {
     struct rb_node *node = d->arch.vgic.its_devices.rb_node;
     struct its_device *dev;
