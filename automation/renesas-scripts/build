@@ -17,7 +17,7 @@ mkdir -p binaries
 if [[ "${TOOLS_ONLY}" == "y" ]]; then
     ./configure --enable-tools --disable-docs --disable-stubdom --disable-xen \
         --with-system-qemu=/bin/false
-    make -j$(nproc) CONFIG_TESTS=n dist-tools
+    make -j$(nproc) CONFIG_TESTS=n debug=n dist-tools
 
     (cd dist/install; find | cpio -R 0:0 -o -H newc | gzip) \
         > binaries/xen-tools.cpio.gz
