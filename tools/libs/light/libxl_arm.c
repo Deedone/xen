@@ -1416,11 +1416,94 @@ static int copy_partial_fdt(libxl__gc *gc, void *fdt, void *pfdt,
     return 0;
 }
 
-static int modify_partial_fdt(libxl__gc *gc, void *pfdt)
+/*
+ * Store virtualized 'iommus' properties for every node attached to IOMMU
+ * and passthroughed to guest.
+ * Used as a lookup table for mapping <phandle pSID> -> <vhandle vSID>
+ */
+struct viommu_stream {
+    XEN_LIST_ENTRY(struct viommu_stream) entry;
+    char path[128];          /* DT path, stable across resizes */
+    fdt32_t *iommus;         /* fully virtualized iommus property */
+};
+
+static XEN_LIST_HEAD(, struct viommu_stream) viommu_stream_list;
+
+/*
+ * Helper function which creates mapping of dt node to
+ * to virtualized 'iommus' property
+ * Mappings stored in a global 'viommu_stream_list' to
+ * make it reusable for every fdt resize
+ */
+static int viommu_get_stream(libxl__gc *gc,
+                             uint32_t domid,
+                             const fdt32_t *prop,
+                             int proplen,
+                             const char* path, fdt32_t **iommus)
 {
-    int nodeoff, proplen, i, r;
+    int i, r;
+    uint32_t vsid, psid;
+    struct viommu_stream *viommu_stream;
+
+    /* Lookup if stream for target device is already allocated */
+    XEN_LIST_FOREACH(viommu_stream, &viommu_stream_list, entry)
+    {
+        if (!strcmp(viommu_stream->path, path)) {
+            *iommus = viommu_stream->iommus;
+            return 0;
+        }
+    }
+
+    /* Allocate new viommu stream */
+    viommu_stream = malloc(sizeof(struct viommu_stream));
+    if (!viommu_stream)
+        return ERROR_NOMEM;
+    memset(viommu_stream, 0, sizeof(struct viommu_stream));
+    viommu_stream->iommus = malloc(proplen);
+    if (!viommu_stream->iommus) {
+        free(viommu_stream);
+        return ERROR_NOMEM;
+    }
+    memset(viommu_stream->iommus, 0, proplen);
+
+    LOG(DEBUG, "Creating vIOMMU stream for device %s",
+        path);
+
+    /*
+     * Virtualize device "iommus" property
+     * (replace pIOMMU with vIOMMU phandle and pSIDs with mapped vSIDs)
+     */
+    for (i = 0; i < proplen / 8; ++i) {
+        viommu_stream->iommus[i * 2] = cpu_to_fdt32(GUEST_PHANDLE_VSMMUV3);
+        /* Allocate new vSID mapped to pSID */
+        psid = fdt32_to_cpu(prop[i * 2 + 1]);
+        r = xc_domain_viommu_allocate_vsid_range(CTX->xch, domid, 1, psid, &vsid);
+        if (r) {
+            LOG(ERROR, "Can't allocate new vSID/vRID for guest IOMMU device");
+            return r;
+        }
+        viommu_stream->iommus[i * 2 + 1] = cpu_to_fdt32(vsid);
+        LOG(DEBUG, "Mapped vSID: %u to pSID: %u", vsid, psid);
+    }
+
+    strcpy(viommu_stream->path, path);
+    *iommus = viommu_stream->iommus;
+
+    XEN_LIST_INSERT_HEAD(&viommu_stream_list, viommu_stream, entry);
+
+    return 0;
+}
+
+/*
+ * Used to update partial fdt when vIOMMU is enabled
+ * Maps dt properties of IOMMU devices to virtual IOMMU
+ */
+static int viommu_modify_partial_fdt(libxl__gc *gc, void *pfdt, uint32_t domid)
+{
+    int nodeoff, proplen, r;
     const fdt32_t *prop;
     fdt32_t *prop_c;
+    char path[128];
 
     nodeoff = fdt_path_offset(pfdt, "/passthrough");
     if (nodeoff < 0)
@@ -1434,11 +1517,16 @@ static int modify_partial_fdt(libxl__gc *gc, void *pfdt)
         if (!prop)
             continue;
 
-        prop_c = libxl__zalloc(gc, proplen);
+        r = fdt_get_path(pfdt, nodeoff, path, sizeof(path));
+        if ( r < 0 ) {
+            LOG(ERROR, "Can't get passthrough node path");
+            return r;
+        }
 
-        for (i = 0; i < proplen / 8; ++i) {
-            prop_c[i * 2] = cpu_to_fdt32(GUEST_PHANDLE_VSMMUV3);
-            prop_c[i * 2 + 1] = prop[i * 2 + 1];
+        r = viommu_get_stream(gc, domid, prop, proplen, path, &prop_c);
+        if (r) {
+            LOG(ERROR, "Can't get viommu stream");
+            return r;
         }
 
         r = fdt_setprop(pfdt, nodeoff, "iommus", prop_c, proplen);
@@ -1450,7 +1538,6 @@ static int modify_partial_fdt(libxl__gc *gc, void *pfdt)
 
     return 0;
 }
-
 #else
 
 static int check_partial_fdt(libxl__gc *gc, void *fdt, size_t size)
@@ -1470,7 +1557,7 @@ static int copy_partial_fdt(libxl__gc *gc, void *fdt, void *pfdt,
     return -FDT_ERR_INTERNAL;
 }
 
-static int modify_partial_fdt(libxl__gc *gc, void *pfdt)
+static int viommu_modify_partial_fdt(libxl__gc *gc, void *pfdt, uint32_t domid)
 {
     LOG(ERROR, "partial device tree not supported");
 
@@ -1602,7 +1689,7 @@ next_resize:
         if (info->arch_arm.viommu_type == LIBXL_VIOMMU_TYPE_SMMUV3) {
             FDT( make_vsmmuv3_node(gc, fdt, ainfo, dom) );
             if (pfdt)
-                FDT( modify_partial_fdt(gc, pfdt) );
+                FDT( viommu_modify_partial_fdt(gc, pfdt, dom->guest_domid) );
         }
 
         for (i = 0; i < d_config->num_disks; i++) {

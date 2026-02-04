@@ -2222,6 +2222,29 @@ out:
 
     return ret;
 }
+
+int xc_domain_viommu_allocate_vsid_range(xc_interface *xch,
+                                         uint32_t domid,
+                                         uint16_t nr_sids,
+                                         uint32_t first_psid,
+                                         uint32_t *first_vsid)
+{
+    int err;
+    struct xen_domctl domctl = {};
+
+    domctl.cmd = XEN_DOMCTL_viommu_alloc_vsid_range;
+    domctl.domain = domid;
+    domctl.u.viommu_alloc_vsid_range.first_psid = first_psid;
+    domctl.u.viommu_alloc_vsid_range.nr_sids = nr_sids;
+
+    if ( (err = do_domctl(xch, &domctl)) != 0 )
+        return err;
+
+    *first_vsid = domctl.u.viommu_alloc_vsid_range.first_vsid;
+
+    return 0;
+}
+
 /*
  * Local variables:
  * mode: C

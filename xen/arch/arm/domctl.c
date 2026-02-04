@@ -16,6 +16,7 @@
 #include <xen/types.h>
 #include <xsm/xsm.h>
 #include <public/domctl.h>
+#include <asm/viommu.h>
 
 void arch_get_domain_info(const struct domain *d,
                           struct xen_domctl_getdomaininfo *info)
@@ -184,6 +185,41 @@ long arch_do_domctl(struct xen_domctl *domctl, struct domain *d,
     }
     case XEN_DOMCTL_dt_overlay:
         return dt_overlay_domctl(d, &domctl->u.dt_overlay);
+
+#ifdef CONFIG_ARM_VIRTUAL_IOMMU
+    case XEN_DOMCTL_viommu_alloc_vsid_range:
+    {
+        int rc = 0;
+        uint16_t i;
+        uint32_t vsid;
+        struct xen_domctl_viommu_alloc_vsid_range *viommu_alloc_vsid_range =
+            &domctl->u.viommu_alloc_vsid_range;
+
+        if ( viommu_alloc_vsid_range->pad )
+            return -EINVAL;
+
+        for ( i = 0; i < viommu_alloc_vsid_range->nr_sids; i++ )
+        {
+            rc = viommu_allocate_free_vid(d, viommu_alloc_vsid_range->first_psid
+                                            + i, &vsid);
+            if( rc )
+                return rc;
+        }
+
+        if ( !rc )
+        {
+            /* Calculate first vSID from allocated range */
+            viommu_alloc_vsid_range->first_vsid = vsid -
+                viommu_alloc_vsid_range->nr_sids + 1;
+            rc = copy_to_guest(u_domctl, domctl, 1);
+            if ( rc )
+                rc = -EFAULT;
+        }
+
+        return rc;
+    }
+#endif
+
     default:
         return subarch_do_domctl(domctl, d, u_domctl);
     }

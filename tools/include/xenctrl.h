@@ -2659,6 +2659,18 @@ int xc_domain_set_llc_colors(xc_interface *xch, uint32_t domid,
                              const uint32_t *llc_colors,
                              uint32_t num_llc_colors);
 
+/*
+ * Allocate guest IOMMU vSID and establish its mapping to pSID.
+ * It can only be used on domain DT creation.
+ * Currently used for ARM only, possibly for RISC-V in the
+ * future. Function has no effect for x86.
+ */
+int xc_domain_viommu_allocate_vsid_range(xc_interface *xch,
+                                         uint32_t domid,
+                                         uint16_t nr_sids,
+                                         uint32_t first_psid,
+                                         uint32_t *first_vsid);
+
 #if defined(__arm__) || defined(__aarch64__)
 int xc_dt_overlay(xc_interface *xch, void *overlay_fdt,
                   uint32_t overlay_fdt_size, uint8_t overlay_op);
