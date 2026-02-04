@@ -15,7 +15,15 @@ $cc --version
 mkdir -p binaries
 
 if [[ "${TOOLS_ONLY}" == "y" ]]; then
-    ./configure --enable-tools --disable-docs --disable-stubdom --disable-xen \
+    ./configure \
+        --enable-tools \
+        --disable-docs \
+        --disable-stubdom \
+        --disable-seabios \
+        --disable-xen \
+        --disable-pvshim \
+        --disable-monitors \
+        --disable-pygrub \
         --with-system-qemu=/bin/false
     make -j$(nproc) CONFIG_TESTS=n debug=n dist-tools
 
