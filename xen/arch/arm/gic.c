@@ -431,12 +431,12 @@ unsigned long gic_get_hwdom_madt_size(const struct domain *d)
 
     return madt_size;
 }
-#endif
 
 int gic_iomem_deny_access(struct domain *d)
 {
     return gic_hw_ops->iomem_deny_access(d);
 }
+#endif
 
 #ifdef CONFIG_SYSTEM_SUSPEND
 
