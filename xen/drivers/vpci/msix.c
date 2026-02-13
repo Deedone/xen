@@ -542,78 +542,6 @@ bool cf_check vpci_msix_write(struct vpci_msix *msix, unsigned long addr,
     return true;
 }
 
-static const struct hvm_mmio_ops vpci_msix_table_ops = {
-    .check = msix_accept,
-    .read = msix_read,
-    .write = msix_write,
-};
-
-int vpci_make_msix_hole(const struct pci_dev *pdev)
-{
-    struct domain *d = pdev->domain;
-    unsigned int i;
-
-    if ( !pdev->vpci->msix )
-        return 0;
-
-    /* Make sure there's a hole for the MSIX table/PBA in the p2m. */
-    for ( i = 0; i < ARRAY_SIZE(pdev->vpci->msix->tables); i++ )
-    {
-        unsigned long start = PFN_DOWN(vmsix_table_addr(pdev->vpci, i));
-        unsigned long end = PFN_DOWN(vmsix_table_addr(pdev->vpci, i) +
-                                     vmsix_table_size(pdev->vpci, i) - 1);
-
-        for ( ; start <= end; start++ )
-        {
-            p2m_type_t t;
-            mfn_t mfn = get_gfn_query(d, start, &t);
-
-            switch ( t )
-            {
-            case p2m_mmio_dm:
-            case p2m_invalid:
-                break;
-            case p2m_mmio_direct:
-                if ( mfn_x(mfn) == start )
-                {
-                    p2m_remove_identity_entry(d, start);
-                    break;
-                }
-                /* fallthrough. */
-            default:
-                put_gfn(d, start);
-                gprintk(XENLOG_WARNING,
-                        "%pp: existing mapping (mfn: %" PRI_mfn " type: %d) at %#lx clobbers MSIX MMIO area\n",
-                        &pdev->sbdf, mfn_x(mfn), t, start);
-                return -EEXIST;
-            }
-            put_gfn(d, start);
-        }
-    }
-
-    if ( is_hardware_domain(d) )
-    {
-        /*
-         * For dom0 only: remove any hypervisor mappings of the MSIX or PBA
-         * related areas, as dom0 is capable of moving the position of the BARs
-         * in the host address space.
-         *
-         * We rely on being called with the vPCI lock held once the domain is
-         * running, so the maps are not in use.
-         */
-        for ( i = 0; i < ARRAY_SIZE(pdev->vpci->msix->table); i++ )
-            if ( pdev->vpci->msix->table[i] )
-            {
-                /* If there are any maps, the domain must be running. */
-                ASSERT(spin_is_locked(&pdev->vpci->lock));
-                iounmap(pdev->vpci->msix->table[i]);
-                pdev->vpci->msix->table[i] = NULL;
-            }
-    }
-
-    return 0;
-}
-
 static int cf_check cleanup_msix(const struct pci_dev *pdev, bool hide)
 {
     int rc;
@@ -783,12 +711,12 @@ static int cf_check init_msix(struct pci_dev *pdev)
     return vpci_make_msix_hole(pdev);
 
  out_table:
-    if ( !vpci_remove_register(pdev->vpci,
+    if ( !vpci_remove_registers(pdev->vpci,
                                msix_table_offset_reg(msix_offset), 4) )
         printk("%pd: %pp remove msix_table_offset failed\n", d, &pdev->sbdf);
 
  out_control:
-    if ( !vpci_remove_register(pdev->vpci,
+    if ( !vpci_remove_registers(pdev->vpci,
                                msix_control_reg(msix_offset), 2) )
         printk("%pd: %pp remove msix_control failed\n", d, &pdev->sbdf);
 
