@@ -713,12 +713,12 @@ static int cf_check init_msix(struct pci_dev *pdev)
     return vpci_make_msix_hole(pdev);
 
  out_table:
-    if ( !vpci_remove_register(pdev->vpci,
+    if ( !vpci_remove_registers(pdev->vpci,
                                msix_table_offset_reg(msix_offset), 4) )
         printk("%pd: %pp remove msix_table_offset failed\n", d, &pdev->sbdf);
 
  out_control:
-    if ( !vpci_remove_register(pdev->vpci,
+    if ( !vpci_remove_registers(pdev->vpci,
                                msix_control_reg(msix_offset), 2) )
         printk("%pd: %pp remove msix_control failed\n", d, &pdev->sbdf);
 
