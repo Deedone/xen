@@ -175,76 +175,92 @@ static void modify_decoding(const struct pci_dev *pdev, uint16_t cmd,
 
 bool vpci_process_pending(struct vcpu *v)
 {
-    const struct pci_dev *pdev = v->vpci.pdev;
-    struct vpci_header *header = NULL;
-    unsigned int i;
-
-    if ( !pdev )
-        return false;
-
-    read_lock(&v->domain->pci_lock);
-
-    if ( !pdev->vpci || (v->domain != pdev->domain) )
+    switch ( v->vpci.task )
     {
-        v->vpci.pdev = NULL;
+    case MODIFY_MEMORY:
+    {
+        const struct pci_dev *pdev = v->vpci.memory.pdev;
+        struct vpci_header *header = NULL;
+        unsigned int i;
+
+        if ( !pdev )
+            break;
+
+        read_lock(&v->domain->pci_lock);
+
+        if ( !pdev->vpci || (v->domain != pdev->domain) )
+        {
+            v->vpci.memory.pdev = NULL;
+            read_unlock(&v->domain->pci_lock);
+            break;
+        }
+
+        header = &pdev->vpci->header;
+        for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
+        {
+            struct vpci_bar *bar = &header->bars[i];
+            struct rangeset *mem = v->vpci.bar_mem[i];
+            struct map_data data = {
+                .d = v->domain,
+                .map = v->vpci.memory.cmd & PCI_COMMAND_MEMORY,
+                .bar = bar,
+            };
+            int rc;
+
+            if ( rangeset_is_empty(mem) )
+                continue;
+
+            rc = rangeset_consume_ranges(mem, map_range, &data);
+
+            if ( rc == -ERESTART )
+            {
+                read_unlock(&v->domain->pci_lock);
+                return true;
+            }
+
+            if ( rc )
+            {
+                spin_lock(&pdev->vpci->lock);
+                /* Disable memory decoding unconditionally on failure. */
+                modify_decoding(pdev, v->vpci.memory.cmd & ~PCI_COMMAND_MEMORY,
+                                false);
+                spin_unlock(&pdev->vpci->lock);
+
+                /* Clean all the rangesets */
+                for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
+                    if ( !rangeset_is_empty(v->vpci.bar_mem[i]) )
+                        rangeset_purge(v->vpci.bar_mem[i]);
+
+                v->vpci.memory.pdev = NULL;
+
+                read_unlock(&v->domain->pci_lock);
+
+                if ( !is_hardware_domain(v->domain) )
+                    domain_crash(v->domain);
+
+                break;
+            }
+        }
+        v->vpci.memory.pdev = NULL;
+
+        spin_lock(&pdev->vpci->lock);
+        modify_decoding(pdev, v->vpci.memory.cmd, v->vpci.memory.rom_only);
+        spin_unlock(&pdev->vpci->lock);
+
         read_unlock(&v->domain->pci_lock);
+
+        break;
+    }
+    case WAIT:
+        if ( NOW() < v->vpci.wait.end )
+            return true;
+        v->vpci.wait.callback(v->vpci.wait.data);
+        break;
+    case NONE:
         return false;
     }
 
-    header = &pdev->vpci->header;
-    for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
-    {
-        struct vpci_bar *bar = &header->bars[i];
-        struct rangeset *mem = v->vpci.bar_mem[i];
-        struct map_data data = {
-            .d = v->domain,
-            .map = v->vpci.cmd & PCI_COMMAND_MEMORY,
-            .bar = bar,
-        };
-        int rc;
-
-        if ( rangeset_is_empty(mem) )
-            continue;
-
-        rc = rangeset_consume_ranges(mem, map_range, &data);
-
-        if ( rc == -ERESTART )
-        {
-            read_unlock(&v->domain->pci_lock);
-            return true;
-        }
-
-        if ( rc )
-        {
-            spin_lock(&pdev->vpci->lock);
-            /* Disable memory decoding unconditionally on failure. */
-            modify_decoding(pdev, v->vpci.cmd & ~PCI_COMMAND_MEMORY,
-                            false);
-            spin_unlock(&pdev->vpci->lock);
-
-            /* Clean all the rangesets */
-            for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
-                if ( !rangeset_is_empty(v->vpci.bar_mem[i]) )
-                     rangeset_purge(v->vpci.bar_mem[i]);
-
-            v->vpci.pdev = NULL;
-
-            read_unlock(&v->domain->pci_lock);
-
-            if ( !is_hardware_domain(v->domain) )
-                domain_crash(v->domain);
-
-            return false;
-        }
-    }
-    v->vpci.pdev = NULL;
-
-    spin_lock(&pdev->vpci->lock);
-    modify_decoding(pdev, v->vpci.cmd, v->vpci.rom_only);
-    spin_unlock(&pdev->vpci->lock);
-
-    read_unlock(&v->domain->pci_lock);
-
+    v->vpci.task = NONE;
     return false;
 }
 
@@ -295,9 +311,10 @@ static void defer_map(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
      * is mapped. This can lead to parallel mapping operations being
      * started for the same device if the domain is not well-behaved.
      */
-    curr->vpci.pdev = pdev;
-    curr->vpci.cmd = cmd;
-    curr->vpci.rom_only = rom_only;
+    curr->vpci.memory.pdev = pdev;
+    curr->vpci.memory.cmd = cmd;
+    curr->vpci.memory.rom_only = rom_only;
+    curr->vpci.task = MODIFY_MEMORY;
     /*
      * Raise a scheduler softirq in order to prevent the guest from resuming
      * execution with pending mapping operations, to trigger the invocation
