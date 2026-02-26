@@ -1545,6 +1545,12 @@ static int iommu_remove_device(struct pci_dev *pdev)
     if ( !is_iommu_enabled(pdev->domain) )
         return 0;
 
+    if ( !hd->platform_ops->remove_device )
+    {
+        printk(XENLOG_ERR "IOMMU: remove_device not supported by platform\n");
+        return -EOPNOTSUPP;
+    }
+
     for ( devfn = pdev->devfn ; pdev->phantom_stride; )
     {
         int rc;
