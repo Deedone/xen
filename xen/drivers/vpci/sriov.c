@@ -185,7 +185,7 @@ static void cf_check control_write_cb(void *data)
                     .physfn.bus = pdev->sbdf.bus,
                     .physfn.devfn = pdev->sbdf.devfn,
                 };
-                rc = pci_add_device(vf_sbdf.seg, vf_sbdf.bus, vf_sbdf.devfn,
+                rc = pci_add_device(current->domain, vf_sbdf.seg, vf_sbdf.bus, vf_sbdf.devfn,
                                     &info, pdev->node);
             }
             if ( cb->disable )
