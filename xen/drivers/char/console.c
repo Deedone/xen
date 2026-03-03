@@ -547,11 +547,12 @@ static unsigned int __read_mostly console_rx = 0;
 struct domain *console_get_domain(void)
 {
     struct domain *d;
+    unsigned int rx = ACCESS_ONCE(console_rx);
 
-    if ( console_rx == 0 )
-            return NULL;
+    if ( rx == 0 )
+        return NULL;
 
-    d = rcu_lock_domain_by_id(console_rx - 1);
+    d = rcu_lock_domain_by_id(rx - 1);
     if ( !d )
         return NULL;
 
@@ -571,7 +572,7 @@ void console_put_domain(struct domain *d)
 
 static void console_switch_input(void)
 {
-    unsigned int next_rx = console_rx;
+    unsigned int next_rx = ACCESS_ONCE(console_rx);
 
     /*
      * Rotate among Xen, dom0 and boot-time created domUs while skipping
@@ -584,7 +585,7 @@ static void console_switch_input(void)
 
         if ( next_rx++ >= max_console_rx )
         {
-            console_rx = 0;
+            ACCESS_ONCE(console_rx) = 0;
             printk("*** Serial input to Xen");
             break;
         }
@@ -604,7 +605,7 @@ static void console_switch_input(void)
 
             rcu_unlock_domain(d);
 
-            console_rx = next_rx;
+            ACCESS_ONCE(console_rx) = next_rx;
             printk("*** Serial input to DOM%u", domid);
             break;
         }
@@ -621,7 +622,7 @@ static void __serial_rx(char c)
     struct domain *d;
     int rc = 0;
 
-    if ( console_rx == 0 )
+    if ( ACCESS_ONCE(console_rx) == 0 )
         return handle_keypress(c, false);
 
     d = console_get_domain();
@@ -1193,7 +1194,7 @@ void __init console_endboot(void)
      * a useful 'how to switch' message.
      */
     if ( opt_conswitch[1] == 'x' )
-        console_rx = max_console_rx;
+        ACCESS_ONCE(console_rx) = max_console_rx;
 
     register_keyhandler('w', conring_dump_keyhandler,
                         "synchronously dump console ring buffer (dmesg)", 0);
