@@ -951,16 +951,6 @@ int vpci_init_header(struct pci_dev *pdev)
         return -EOPNOTSUPP;
     }
 
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_VENDOR_ID,
-                           2, NULL);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_DEVICE_ID,
-                           2, NULL);
-    if ( rc )
-        return rc;
-
     /*
      * Setup a handler for the command register.
      *
@@ -989,76 +979,6 @@ int vpci_init_header(struct pci_dev *pdev)
     if ( rc )
         return rc;
 
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read32, NULL, PCI_CLASS_REVISION,
-                           4, NULL);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_CACHE_LINE_SIZE,
-                           1, NULL);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, vpci_hw_write8,
-                           PCI_LATENCY_TIMER, 1, NULL);
-    if ( rc )
-        return rc;
-
-    /* domU: hardcode multi-function device bit to 0 */
-    rc = vpci_add_register_mask(pdev->vpci, vpci_hw_read8, NULL,
-                                PCI_HEADER_TYPE, 1, NULL, 0x7f, 0, 0,
-                                is_hwdom ? 0 : 0x80);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, is_hwdom ? vpci_hw_read8 : vpci_read_val,
-                           is_hwdom ? vpci_hw_write8 : NULL, PCI_BIST, 1, NULL);
-    if ( rc )
-        return rc;
-
-    if ( type == PCI_HEADER_TYPE_NORMAL )
-    {
-        rc = vpci_add_register(pdev->vpci,
-                               is_hwdom ? vpci_hw_read32 : vpci_read_val, NULL,
-                               PCI_CARDBUS_CIS, 4, NULL);
-        if ( rc )
-            return rc;
-
-        rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL,
-                               PCI_SUBSYSTEM_VENDOR_ID, 2, NULL);
-        if ( rc )
-            return rc;
-
-        rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL,
-                               PCI_SUBSYSTEM_ID, 2, NULL);
-        if ( rc )
-            return rc;
-    }
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read8,
-                           is_hwdom ? vpci_hw_write8 : NULL, PCI_INTERRUPT_LINE,
-                           1, NULL);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_INTERRUPT_PIN,
-                           1, NULL);
-    if ( rc )
-        return rc;
-
-    if ( type == PCI_HEADER_TYPE_NORMAL )
-    {
-        rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_MIN_GNT,
-                               1, NULL);
-        if ( rc )
-            return rc;
-
-        rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_MAX_LAT,
-                               1, NULL);
-        if ( rc )
-            return rc;
-    }
-
     if ( pdev->ignore_bars )
         return 0;
 
@@ -1080,6 +1000,85 @@ int vpci_init_header(struct pci_dev *pdev)
     if ( pdev->info.is_virtfn )
         return vf_init_header(pdev);
 
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_VENDOR_ID,
+                           2, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_DEVICE_ID,
+                           2, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read32, NULL, PCI_CLASS_REVISION,
+                            4, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_CACHE_LINE_SIZE,
+                            1, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, vpci_hw_write8,
+                            PCI_LATENCY_TIMER, 1, NULL);
+    if ( rc )
+        return rc;
+
+    /* domU: hardcode multi-function device bit to 0 */
+    rc = vpci_add_register_mask(pdev->vpci, vpci_hw_read8, NULL,
+                                PCI_HEADER_TYPE, 1, NULL, 0x7f, 0, 0,
+                                is_hwdom ? 0 : 0x80);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, is_hwdom ? vpci_hw_read8 : vpci_read_val,
+                            is_hwdom ? vpci_hw_write8 : NULL, PCI_BIST, 1, NULL);
+    if ( rc )
+        return rc;
+
+    if ( type == PCI_HEADER_TYPE_NORMAL )
+    {
+        rc = vpci_add_register(pdev->vpci,
+                                is_hwdom ? vpci_hw_read32 : vpci_read_val, NULL,
+                                PCI_CARDBUS_CIS, 4, NULL);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL,
+                                PCI_SUBSYSTEM_VENDOR_ID, 2, NULL);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL,
+                                PCI_SUBSYSTEM_ID, 2, NULL);
+        if ( rc )
+            return rc;
+    }
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8,
+                            is_hwdom ? vpci_hw_write8 : NULL, PCI_INTERRUPT_LINE,
+                            1, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_INTERRUPT_PIN,
+                            1, NULL);
+    if ( rc )
+        return rc;
+
+    if ( type == PCI_HEADER_TYPE_NORMAL )
+    {
+        rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_MIN_GNT,
+                                1, NULL);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(pdev->vpci, vpci_hw_read8, NULL, PCI_MAX_LAT,
+                                1, NULL);
+        if ( rc )
+            return rc;
+    }
     /* Disable memory decoding before sizing. */
     if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
         pci_conf_write16(pdev->sbdf, PCI_COMMAND, cmd & ~PCI_COMMAND_MEMORY);
