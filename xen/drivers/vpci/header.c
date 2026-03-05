@@ -868,16 +868,6 @@ int vpci_init_header(struct pci_dev *pdev)
         return -EOPNOTSUPP;
     }
 
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_VENDOR_ID,
-                           2, NULL);
-    if ( rc )
-        return rc;
-
-    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_DEVICE_ID,
-                           2, NULL);
-    if ( rc )
-        return rc;
-
     /*
      * Setup a handler for the command register.
      *
@@ -896,6 +886,37 @@ int vpci_init_header(struct pci_dev *pdev)
                                            PCI_COMMAND_SERR |
                                            PCI_COMMAND_FAST_BACK,
                                 0);
+    if ( rc )
+        return rc;
+
+    if ( pdev->ignore_bars )
+        return 0;
+
+    cmd = pci_conf_read16(pdev->sbdf, PCI_COMMAND);
+
+    /*
+     * For DomUs, clear PCI_COMMAND_{MASTER,MEMORY,IO} and other
+     * DomU-controllable bits in PCI_COMMAND. Devices assigned to DomUs will
+     * start with memory decoding disabled, and vpci_modify_bars() will not be
+     * called at the end of this function.
+     */
+    if ( !is_hwdom )
+        cmd &= ~(PCI_COMMAND_VGA_PALETTE | PCI_COMMAND_INVALIDATE |
+                 PCI_COMMAND_SPECIAL | PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY |
+                 PCI_COMMAND_IO);
+
+    header->guest_cmd = cmd;
+
+    if ( pdev->info.is_virtfn )
+        return vpci_vf_init_header(pdev);
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_VENDOR_ID,
+                           2, NULL);
+    if ( rc )
+        return rc;
+
+    rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL, PCI_DEVICE_ID,
+                           2, NULL);
     if ( rc )
         return rc;
 
