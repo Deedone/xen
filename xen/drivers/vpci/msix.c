@@ -21,9 +21,9 @@
 
 #include <xen/io.h>
 #include <xen/lib.h>
+#include <xen/msi.h>
 #include <xen/sched.h>
 
-#include <asm/msi.h>
 #include <asm/p2m.h>
 #include <asm/x86_emulate.h>
 
