@@ -21,9 +21,9 @@
 
 #include <xen/io.h>
 #include <xen/lib.h>
+#include <xen/msi.h>
 #include <xen/sched.h>
 
-#include <asm/msi.h>
 #include <asm/p2m.h>
 
 #define VMSIX_ADDR_IN_RANGE(addr, vpci, nr)                               \
