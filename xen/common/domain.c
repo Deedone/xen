@@ -452,6 +452,8 @@ static int vcpu_teardown(struct vcpu *v)
  */
 static void vcpu_destroy(struct vcpu *v)
 {
+    vpci_vcpu_destroy(v);
+
     free_vcpu_struct(v);
 }
 
@@ -507,6 +509,9 @@ struct vcpu *vcpu_create(struct domain *d, unsigned int vcpu_id)
         goto fail_wq;
 
     if ( arch_vcpu_create(v) != 0 )
+        goto fail_sched;
+
+    if ( vpci_vcpu_init(v) )
         goto fail_sched;
 
     d->vcpu[vcpu_id] = v;
