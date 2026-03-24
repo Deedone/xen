@@ -24,6 +24,35 @@
 
 #ifdef __XEN__
 
+void vpci_vcpu_destroy(struct vcpu *v)
+{
+    if ( !has_vpci(v->domain) && !is_idle_domain(v->domain) )
+        return;
+
+    for ( unsigned int i = 0; i < ARRAY_SIZE(v->vpci.mem); i++ )
+        RANGESET_DESTROY(v->vpci.mem[i]);
+}
+
+int vpci_vcpu_init(struct vcpu *v)
+{
+    unsigned int i;
+
+    if ( !has_vpci(v->domain) && !is_idle_domain(v->domain) )
+        return 0;
+
+    for ( i = 0; i < ARRAY_SIZE(v->vpci.mem); i++ )
+    {
+        char str[32];
+
+        snprintf(str, sizeof(str), "%pv:BAR%u", v, i);
+        v->vpci.mem[i] = rangeset_new(v->domain, str, RANGESETF_no_print);
+        if ( !v->vpci.mem[i] )
+            return -ENOMEM;
+    }
+
+    return 0;
+}
+
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
 static int assign_virtual_sbdf(struct pci_dev *pdev)
 {
@@ -89,8 +118,6 @@ struct vpci_register *vpci_get_register(const struct vpci *vpci,
 
 void vpci_deassign_device(struct pci_dev *pdev)
 {
-    unsigned int i;
-
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
 
     if ( !has_vpci(pdev->domain) || !pdev->vpci )
@@ -115,9 +142,6 @@ void vpci_deassign_device(struct pci_dev *pdev)
         xfree(r);
     }
     spin_unlock(&pdev->vpci->lock);
-
-    for ( i = 0; i < ARRAY_SIZE(pdev->vpci->header.bars); i++ )
-        rangeset_destroy(pdev->vpci->header.bars[i].mem);
 
     xfree(pdev->vpci);
     pdev->vpci = NULL;
