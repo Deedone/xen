@@ -662,6 +662,13 @@ config SYSCTL
 	  This option shall only be disabled on some dom0less systems, or
 	  PV shim on x86, to reduce Xen footprint.
 
+config MULTICALL_HYPERCALLS
+	bool "Multicall support"
+	default y
+	help
+	  Enables support for the multicall hypercall, which allows batching
+	  of hypercalls to reduce overhead.
+
 endmenu
 
 config PM_OP
