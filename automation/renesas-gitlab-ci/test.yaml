@@ -220,3 +220,22 @@ qemu-smoke-dom0less-arm64-rtds_sched_cmdline:
   needs:
     - *arm64-test-needs
     - alpine-3.18-gcc-debug-arm64
+
+qemu-gdb-sched-init-panic:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-gdb.sh sched-core-sched-init-fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+  rules:
+    - when: manual
+
+qemu-gdb-sched-init-success:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-gdb.sh sched-core-scheduler_init.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+  rules:
+    - when: manual
+

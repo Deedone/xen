@@ -47,7 +47,7 @@ collect_xen_artefacts()
 {
     local f
 
-    for f in xen/xen xen/xen.efi; do
+    for f in xen/xen xen/xen.efi xen/xen-syms; do
         if [[ -f $f ]]; then
             cp $f binaries/
         fi
