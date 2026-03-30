@@ -475,6 +475,40 @@ long do_sysctl(XEN_GUEST_HANDLE_PARAM(xen_sysctl_t) u_sysctl)
             copyback = 1;
         break;
 
+    case XEN_SYSCTL_cpu_hotplug:
+    {
+        unsigned int hp_op = op->u.cpu_hotplug.op;
+        long (*fn)(void *data);
+        void *hcpu = _p(op->u.cpu_hotplug.cpu);
+
+        ret = -EOPNOTSUPP;
+        if ( !IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) )
+            break;
+
+        switch ( hp_op )
+        {
+        case XEN_SYSCTL_CPU_HOTPLUG_ONLINE:
+            fn = cpu_up_helper;
+            break;
+
+        case XEN_SYSCTL_CPU_HOTPLUG_OFFLINE:
+            fn = cpu_down_helper;
+            break;
+
+        default:
+            fn = NULL;
+            break;
+        }
+
+        if ( fn )
+        {
+            ret = continue_hypercall_on_cpu(0, fn, hcpu);
+            break;
+        }
+    }
+
+        /* Use the arch handler for cases not handled here */
+        fallthrough;
     default:
         ret = arch_do_sysctl(op, u_sysctl);
         copyback = 0;

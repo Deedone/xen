@@ -957,7 +957,7 @@ static int cf_check flask_sysctl(const struct xen_sysctl *op)
     case XEN_SYSCTL_getdomaininfolist:
         return flask_getdomaininfo(dom_xen);
 
-#ifdef CONFIG_X86
+#ifdef CONFIG_CPU_ONLINE_OFFLINE
     case XEN_SYSCTL_cpu_hotplug:
         switch ( op->u.cpu_hotplug.op )
         {
