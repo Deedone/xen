@@ -735,6 +735,16 @@ ret_t do_platform_op(
     {
         int cpu = op->u.cpu_ol.cpuid;
 
+        if ( !IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) )
+        {
+            ret = -EOPNOTSUPP;
+            break;
+        }
+
+        ret = xsm_resource_plug_core(XSM_HOOK);
+        if ( ret )
+            break;
+
         if ( cpu >= nr_cpu_ids || !cpu_present(cpu) ||
              clocksource_is_tsc() )
         {
@@ -756,6 +766,16 @@ ret_t do_platform_op(
     case XENPF_cpu_offline:
     {
         int cpu = op->u.cpu_ol.cpuid;
+
+        if ( !IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) )
+        {
+            ret = -EOPNOTSUPP;
+            break;
+        }
+
+        ret = xsm_resource_unplug_core(XSM_HOOK);
+        if ( ret )
+            break;
 
         if ( cpu == 0 )
         {

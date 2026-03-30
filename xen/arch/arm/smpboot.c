@@ -429,7 +429,7 @@ void __cpu_disable(void)
      * Now that the interrupts are cleared and the CPU marked as offline,
      * move interrupts out of it
      */
-    if ( IS_ENABLED(CONFIG_CPU_HOTPLUG) )
+    if ( IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) )
         rebalance_irqs(cpu, false);
 
     /* Return to caller; eventually the IPI mechanism will unwind and the 
