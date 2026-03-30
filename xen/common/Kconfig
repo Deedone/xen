@@ -648,8 +648,8 @@ config SYSTEM_SUSPEND
 
 config CPU_ONLINE_OFFLINE
 	bool "CPU online/offline support" if EXPERT
-	depends on X86
-	default y
+	depends on !ARM || (!HAS_ITS && !TEE)
+	default X86
 	help
 	  Enable support for bringing CPUs online and offline at runtime. On
 	  X86 this is required for disabling SMT.
