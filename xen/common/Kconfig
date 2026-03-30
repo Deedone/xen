@@ -636,6 +636,14 @@ config SYSTEM_SUSPEND
 
 	  If unsure, say N.
 
+config CPU_ONLINE_OFFLINE
+	bool "CPU online/offline support"
+	depends on X86
+	default y
+	help
+	  Enable support for bringing CPUs online and offline at runtime. On
+	  X86 this is required for disabling SMT.
+
 menu "Supported hypercall interfaces"
 	visible if EXPERT
 

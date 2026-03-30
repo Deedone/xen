@@ -158,7 +158,7 @@ static int init_local_irq_data(unsigned int cpu)
     return 0;
 }
 
-#ifdef CONFIG_CPU_HOTPLUG
+#ifdef CONFIG_CPU_ONLINE_OFFLINE
 static int cpu_next;
 
 static void balance_irq(int irq, unsigned int from, bool up)
@@ -211,7 +211,7 @@ void rebalance_irqs(unsigned int from, bool up)
         balance_irq(irq, from, up);
 #endif
 }
-#endif /* CONFIG_CPU_HOTPLUG */
+#endif /* CONFIG_CPU_ONLINE_OFFLINE */
 
 static int cpu_callback(struct notifier_block *nfb, unsigned long action,
                         void *hcpu)
@@ -228,7 +228,7 @@ static int cpu_callback(struct notifier_block *nfb, unsigned long action,
                    cpu);
         break;
     case CPU_ONLINE:
-        if ( IS_ENABLED(CONFIG_CPU_HOTPLUG) &&
+        if ( IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) &&
              system_state >= SYS_STATE_active )
             rebalance_irqs(cpu, true);
         break;

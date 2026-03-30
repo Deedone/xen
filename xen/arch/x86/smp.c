@@ -418,6 +418,7 @@ void cf_check call_function_interrupt(void)
     smp_call_function_interrupt();
 }
 
+#ifdef CONFIG_CPU_HOTPLUG
 long cf_check cpu_up_helper(void *data)
 {
     unsigned int cpu = (unsigned long)data;
@@ -445,8 +446,10 @@ long cf_check cpu_down_helper(void *data)
 {
     int cpu = (unsigned long)data;
     int ret = cpu_down(cpu);
+
     /* Have one more go on EBUSY. */
     if ( ret == -EBUSY )
         ret = cpu_down(cpu);
     return ret;
 }
+#endif

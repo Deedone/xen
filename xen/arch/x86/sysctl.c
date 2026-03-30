@@ -53,6 +53,12 @@ static long cf_check smt_up_down_helper(void *data)
     unsigned int cpu, sibling_mask = boot_cpu_data.x86_num_siblings - 1;
     int ret = 0;
 
+    if ( !IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) )
+    {
+        ASSERT_UNREACHABLE();
+        return -EOPNOTSUPP;
+    }
+
     opt_smt = up;
 
     for_each_present_cpu ( cpu )
@@ -120,6 +126,12 @@ long arch_do_sysctl(
         bool plug;
         long (*fn)(void *data);
         void *hcpu;
+
+        if ( !IS_ENABLED(CONFIG_CPU_ONLINE_OFFLINE) )
+        {
+            ret = -EOPNOTSUPP;
+            break;
+        }
 
         switch ( op )
         {
