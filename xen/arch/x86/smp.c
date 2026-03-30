@@ -418,38 +418,8 @@ void cf_check call_function_interrupt(void)
     smp_call_function_interrupt();
 }
 
-#ifdef CONFIG_CPU_HOTPLUG
-long cf_check cpu_up_helper(void *data)
+bool arch_cpu_can_stay_online(unsigned int cpu)
 {
-    unsigned int cpu = (unsigned long)data;
-    int ret = cpu_up(cpu);
-
-    /* Have one more go on EBUSY. */
-    if ( ret == -EBUSY )
-        ret = cpu_up(cpu);
-
-    if ( !ret && !opt_smt &&
-         cpu_data[cpu].compute_unit_id == INVALID_CUID &&
-         cpumask_weight(per_cpu(cpu_sibling_mask, cpu)) > 1 )
-    {
-        ret = cpu_down_helper(data);
-        if ( ret )
-            printk("Could not re-offline CPU%u (%d)\n", cpu, ret);
-        else
-            ret = -EPERM;
-    }
-
-    return ret;
+    return opt_smt || cpu_data[cpu].compute_unit_id != INVALID_CUID ||
+           cpumask_weight(per_cpu(cpu_sibling_mask, cpu)) <= 1;
 }
-
-long cf_check cpu_down_helper(void *data)
-{
-    int cpu = (unsigned long)data;
-    int ret = cpu_down(cpu);
-
-    /* Have one more go on EBUSY. */
-    if ( ret == -EBUSY )
-        ret = cpu_down(cpu);
-    return ret;
-}
-#endif

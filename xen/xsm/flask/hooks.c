@@ -890,7 +890,6 @@ static int cf_check flask_sysctl(const struct xen_sysctl *op)
                               XEN__READCONSOLE |
                               (op->u.readconsole.clear ? XEN__CLEARCONSOLE
                                                        : 0));
-
     case XEN_SYSCTL_tbuf_op:
         return domain_has_xen(current->domain, XEN__TBUFCONTROL);
 
@@ -951,7 +950,6 @@ static int cf_check flask_sysctl(const struct xen_sysctl *op)
     case XEN_SYSCTL_getdomaininfolist:
         return flask_getdomaininfo(dom_xen);
 
-#ifdef CONFIG_X86
     case XEN_SYSCTL_cpu_hotplug:
         switch ( op->u.cpu_hotplug.op )
         {
@@ -966,7 +964,6 @@ static int cf_check flask_sysctl(const struct xen_sysctl *op)
         default:
             return avc_unknown_permission("cpu_hotplug", op->u.cpu_hotplug.op);
         }
-#endif
 
     case XEN_SYSCTL_psr_cmt_op:
         return avc_current_has_perm(SECINITSID_XEN, SECCLASS_XEN2,

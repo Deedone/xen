@@ -741,10 +741,6 @@ ret_t do_platform_op(
             break;
         }
 
-        ret = xsm_resource_plug_core(XSM_HOOK);
-        if ( ret )
-            break;
-
         if ( cpu >= nr_cpu_ids || !cpu_present(cpu) ||
              clocksource_is_tsc() )
         {
