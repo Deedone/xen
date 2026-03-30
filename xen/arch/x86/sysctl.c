@@ -120,7 +120,6 @@ long arch_do_sysctl(
 
     case XEN_SYSCTL_cpu_hotplug:
     {
-        unsigned int cpu = sysctl->u.cpu_hotplug.cpu;
         unsigned int op  = sysctl->u.cpu_hotplug.op;
         bool plug;
         long (*fn)(void *data);
@@ -128,6 +127,7 @@ long arch_do_sysctl(
 
         if ( !IS_ENABLED(CONFIG_CPU_HOTPLUG) )
         {
+            ASSERT_UNREACHABLE();
             ret = -EOPNOTSUPP;
             break;
         }
@@ -135,15 +135,10 @@ long arch_do_sysctl(
         switch ( op )
         {
         case XEN_SYSCTL_CPU_HOTPLUG_ONLINE:
-            plug = true;
-            fn = cpu_up_helper;
-            hcpu = _p(cpu);
-            break;
-
         case XEN_SYSCTL_CPU_HOTPLUG_OFFLINE:
-            plug = false;
-            fn = cpu_down_helper;
-            hcpu = _p(cpu);
+            /* Handled by common code */
+            ASSERT_UNREACHABLE();
+            ret = -EOPNOTSUPP;
             break;
 
         case XEN_SYSCTL_CPU_HOTPLUG_SMT_ENABLE:
