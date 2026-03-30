@@ -835,9 +835,7 @@ static int cf_check flask_sysctl(int cmd)
     case XEN_SYSCTL_getdomaininfolist:
     case XEN_SYSCTL_page_offline_op:
     case XEN_SYSCTL_scheduler_op:
-#ifdef CONFIG_X86
     case XEN_SYSCTL_cpu_hotplug:
-#endif
         return 0;
 
     case XEN_SYSCTL_tbuf_op:
