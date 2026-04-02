@@ -110,6 +110,8 @@ void dump_pt_walk(paddr_t ttbr, paddr_t addr,
 extern void switch_ttbr(uint64_t ttbr);
 extern void relocate_and_switch_ttbr(uint64_t ttbr);
 
+void set_init_ttbr(lpae_t *root);
+
 #endif /* __ARM_MMU_MM_H__ */
 
 /*

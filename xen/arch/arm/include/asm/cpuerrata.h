@@ -5,6 +5,7 @@
 #include <asm/alternative.h>
 
 void check_local_cpu_errata(void);
+int enable_local_cpu_errata_workarounds(void);
 void enable_errata_workarounds(void);
 
 #define CHECK_WORKAROUND_HELPER(erratum, feature, arch)         \

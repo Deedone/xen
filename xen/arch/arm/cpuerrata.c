@@ -782,6 +782,11 @@ void check_local_cpu_errata(void)
     update_cpu_capabilities(arm_errata, "enabled workaround for");
 }
 
+int enable_local_cpu_errata_workarounds(void)
+{
+    return enable_nonboot_cpu_caps(arm_errata);
+}
+
 void __init enable_errata_workarounds(void)
 {
     enable_cpu_capabilities(arm_errata);
@@ -818,7 +823,7 @@ static int cpu_errata_callback(struct notifier_block *nfb,
          * fixed to expect an error at CPU_STARTING phase.
          */
         ASSERT(system_state != SYS_STATE_boot);
-        rc = enable_nonboot_cpu_caps(arm_errata);
+        rc = enable_local_cpu_errata_workarounds();
         break;
     default:
         break;
