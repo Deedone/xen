@@ -16,6 +16,11 @@
 #define ICC_SRE_EL1               S3_0_C12_C12_5
 #define ICC_IGRPEN1_EL1           S3_0_C12_C12_7
 
+#define ICC_AP1R0_EL1             S3_0_C12_C9_0
+#define ICC_AP1R1_EL1             S3_0_C12_C9_1
+#define ICC_AP1R2_EL1             S3_0_C12_C9_2
+#define ICC_AP1R3_EL1             S3_0_C12_C9_3
+
 #define ICH_VSEIR_EL2             S3_4_C12_C9_4
 #define ICC_SRE_EL2               S3_4_C12_C9_5
 #define ICH_HCR_EL2               S3_4_C12_C11_0
