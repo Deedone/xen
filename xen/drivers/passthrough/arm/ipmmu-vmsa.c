@@ -1647,7 +1647,7 @@ static int ipmmu_add_device(u8 devfn, struct device *dev)
 
     /* Let Xen know that the master device is protected by an IOMMU. */
     if ( !dev_is_pci(dev) )
-        dt_device_set_protected(dev_to_dt(dev));
+        dt_device_set_protected(dev_to_dt(dev), true);
 
 #ifdef CONFIG_HAS_PCI
     if ( dev_is_pci(dev) )
