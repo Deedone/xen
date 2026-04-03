@@ -19,6 +19,7 @@
 
 #include <asm/gic_v3_its.h>
 #include <asm/io.h>
+#include "private.h"
 
 #define upper_32_bits(n) ((uint32_t)(((n) >> 16) >> 16))
 #define lower_32_bits(n) ((uint32_t)((n) & 0xffffffffU))
