@@ -1,0 +1,40 @@
+.eclair-analysis:
+  stage: analyze
+  tags:
+    - eclair-analysis
+  variables:
+    ECLAIR_OUTPUT_DIR: "ECLAIR_out"
+    ANALYSIS_KIND: "normal"
+  script:
+    - ./automation/renesas-scripts/eclair 2>&1 | tee "${LOGFILE}"
+  artifacts:
+    when: always
+    paths:
+      - "${ECLAIR_OUTPUT_DIR}/*.log"
+      - "${ECLAIR_OUTPUT_DIR}/*.txt"
+      - "${ECLAIR_OUTPUT_DIR}/html/*"
+      - "*.log"
+      - "*.json"
+    reports:
+      codequality: code-quality-report.json
+  rules:
+    - when: manual
+  needs: []
+
+eclair-monitored:
+  extends: .eclair-analysis
+  allow_failure: true
+  variables:
+    VARIANT: "ARM64"
+    RULESET: "monitored"
+    LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+
+eclair-accepted:
+  extends: .eclair-analysis
+  allow_failure: true
+  variables:
+    VARIANT: "ARM64"
+    RULESET: "accepted"
+    LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
+    KBUILD_DEFCONFIG: rel_arm64_defconfig

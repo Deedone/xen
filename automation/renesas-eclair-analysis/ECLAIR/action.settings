@@ -1,0 +1,126 @@
+variantSubDir=
+variantHeadline=
+if [ -n "${VARIANT:-}" ]; then
+    variantSubDir="/${VARIANT}"
+    variantHeadline=" [${VARIANT}]"
+fi
+
+# Gitlab only!
+
+# AUTO PR Feature
+# If the following variables are defined, then all pipelines
+# of other branches will be considered pull-requests to
+# autoPRBranch.
+# Customized
+autoPRRepository="${AUTO_PR_REPOSITORY:-}"
+# Customized
+autoPRBranch="${AUTO_PR_BRANCH:-}"
+
+# Customized
+repository="${CI_PROJECT_PATH}"
+jobId="${CI_JOB_ID}"
+
+gitlabApiUrl="${CI_SERVER_PROTOCOL}://${CI_SERVER_HOST}:${CI_SERVER_PORT}/api/v4"
+autoPRRemoteUrl="${CI_SERVER_PROTOCOL}://${CI_SERVER_HOST}:${CI_SERVER_PORT}/${autoPRRepository:-}.git"
+
+# Customized
+gitlabBotToken="${ECLAIR_BOT_TOKEN:-}"
+
+case "${CI_PIPELINE_SOURCE}" in
+merge_request_event)
+    event=pull_request
+    pullRequestId="${CI_MERGE_REQUEST_IID}"
+    pullRequestHeadRef="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}"
+    pullRequestHeadRepo="${CI_MERGE_REQUEST_SOURCE_PROJECT_PATH}"
+    pullRequestBaseRef="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
+    pullRequestUser="${GITLAB_USER_LOGIN}"
+    headCommitId="${CI_COMMIT_SHA}"
+    baseCommitId="${CI_MERGE_REQUEST_DIFF_BASE_SHA}"
+    ;;
+push | pipeline | web | schedule)
+    event=push
+    if [ -n "${CI_COMMIT_BRANCH:-}" ]; then
+        ref_kind=branch
+        ref="${CI_COMMIT_BRANCH}"
+    else
+        ref_kind=tag
+        ref="${CI_COMMIT_TAG}"
+    fi
+    headCommitId="${CI_COMMIT_SHA}"
+    pushUser="${GITLAB_USER_NAME}"
+    ;;
+*)
+    echo "Unexpected event ${CI_PIPELINE_SOURCE}" >&2
+    exit 1
+    ;;
+esac
+
+if [ "${event}" = "push" ] && [ -n "${autoPRBranch:-}" ]; then
+    # AUTO PR Feature enabled
+    if ! [ "${ref}" = "${autoPRBranch}" ] ||
+        ! [ "${repository}" = "${autoPRRepository}" ]; then
+        event=auto_pull_request
+    fi
+fi
+
+case "${event}" in
+pull_request)
+    subDir="${pullRequestHeadRepo}.ecdf/${pullRequestBaseRef}"
+    jobHeadline="ECLAIR ${ANALYSIS_KIND} on repository ${repository}: ${pullRequestUser} wants to merge ${pullRequestHeadRepo}:${pullRequestHeadRef} (${headCommitId}) into ${pullRequestBaseRef} (${baseCommitId})"
+    ;;
+push)
+    subDir="${ref}"
+    jobHeadline="ECLAIR ${ANALYSIS_KIND} on repository ${repository}: ${ref_kind} ${ref} (${headCommitId})"
+    badgeLabel="ECLAIR ${ANALYSIS_KIND} ${ref}${variantHeadline} #${jobId}"
+    ;;
+auto_pull_request)
+    git remote remove autoPRRemote 2>/dev/null || true
+    git remote add autoPRRemote "${autoPRRemoteUrl}"
+    git fetch -q autoPRRemote
+    subDir="${ref}"
+    if ! baseCommitId=$(git merge-base "autoPRRemote/${autoPRBranch}" HEAD); then
+        baseCommitId=no_merge_point
+    fi
+    jobHeadline="ECLAIR ${ANALYSIS_KIND} on repository ${repository}: ${pushUser} wants to merge ${repository}:${ref} (${headCommitId}) into ${autoPRRepository}/${autoPRBranch} (${baseCommitId})"
+    ;;
+*)
+    echo "Unexpected event ${event}" >&2
+    exit 1
+    ;;
+esac
+
+keepOldAnalyses=10
+
+ECLAIR_BIN_DIR=/opt/bugseng/eclair/bin/
+
+# Artifacts URL served by the eclair_report server
+if [ -z "${ECLAIR_ECDF_DIR}" ]
+then
+  echo "WARNING: No ecdf dir supplied, using default"
+fi
+artifactsEcdfDir="${ECLAIR_ECDF_DIR:-/var/local/eclair/xen-project.ecdf}"
+artifactsDir="${artifactsEcdfDir}/${repository}/ECLAIR_${ANALYSIS_KIND}"
+subDir="${subDir}${variantSubDir}"
+jobHeadline="${jobHeadline}${variantHeadline}"
+
+# Remote eclair_report hosting server
+if [ -z "${ECLAIR_REPORT_HOST}" ]
+then
+  echo "WARNING: No eclair_report host supplied, using default"
+fi
+
+# URL to browse eclair reports
+if [ -z "${ECLAIR_ANALYSIS_RESULTS}" ]
+then
+  echo "WARNING: No URL to browse analysis results is set, using default"
+fi
+
+eclairReportHost="${ECLAIR_REPORT_HOST:-saas.eclairit.com:3787}"
+eclairReportUrlPrefix="https://${eclairReportHost}"
+eclairResultsUrl="${ECLAIR_ANALYSIS_RESULTS:-${eclairReportUrlPrefix}}"
+
+jobDir="${artifactsDir}/${subDir}/${jobId}"
+updateLog="${analysisOutputDir}/update.log"
+commentLog="${analysisOutputDir}/comment.json"
+indexHtmlUrl="${eclairResultsUrl}/fs${jobDir}/index.html"
+summaryTxt="${analysisOutputDir}/summary.txt"

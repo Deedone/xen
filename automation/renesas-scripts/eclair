@@ -1,0 +1,35 @@
+#!/bin/sh -eu
+
+ECLAIR_ANALYSIS_DIR=automation/renesas-eclair-analysis
+ECLAIR_DIR="${ECLAIR_ANALYSIS_DIR}/ECLAIR"
+ECLAIR_OUTPUT_DIR=$(realpath "${ECLAIR_OUTPUT_DIR}")
+# All paths mentioned in ECLAIR reports that are below this directory
+# will be presented as relative to ECLAIR_PROJECT_ROOT.
+export ECLAIR_PROJECT_ROOT="${PWD}"
+
+"${ECLAIR_ANALYSIS_DIR}/prepare.sh" "${VARIANT}"
+
+ex=0
+
+"${ECLAIR_DIR}/analyze.sh" "${VARIANT}" "${RULESET}" || ex=$?
+
+"${ECLAIR_DIR}/action_log.sh" ANALYSIS_LOG \
+                             "ECLAIR analysis log" \
+                             "${ECLAIR_OUTPUT_DIR}/ANALYSIS.log" \
+                             "${ex}"
+
+"${ECLAIR_DIR}/action_log.sh" REPORT_LOG \
+                             "ECLAIR report log" \
+                             "${ECLAIR_OUTPUT_DIR}/REPORT.log" \
+                             "${ex}"
+
+"${ECLAIR_DIR}/produce_html.sh" HTML_LOG \
+                             "ECLAIR html log" \
+                             "${ECLAIR_OUTPUT_DIR}/HTML.log" \
+                             "${ex}"
+
+[ "${ex}" = 0 ] || exit "${ex}"
+
+# Fail in case of new reports for clean guidelines
+"${ECLAIR_DIR}/action_check_clean_regressions.sh" "${ECLAIR_OUTPUT_DIR}" || ex=$?
+

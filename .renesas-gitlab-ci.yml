@@ -11,9 +11,11 @@ stages:
   - build
   - test
   - trace
+  - analyze
 
 include:
   - local: 'automation/renesas-gitlab-ci/artifacts.yaml'
   - local: 'automation/renesas-gitlab-ci/build.yaml'
   - local: 'automation/renesas-gitlab-ci/test.yaml'
   - local: 'automation/renesas-gitlab-ci/trace.yaml'
+  - local: 'automation/renesas-gitlab-ci/analyze.yaml'
