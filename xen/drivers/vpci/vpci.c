@@ -24,33 +24,9 @@
 
 #ifdef __XEN__
 
-void vpci_vcpu_destroy(struct vcpu *v)
+void vpci_vcpu_init(struct vcpu *v)
 {
-    if ( !has_vpci(v->domain) && !is_idle_domain(v->domain) )
-        return;
-
-    for ( unsigned int i = 0; i < ARRAY_SIZE(v->vpci.mem); i++ )
-        RANGESET_DESTROY(v->vpci.mem[i]);
-}
-
-int vpci_vcpu_init(struct vcpu *v)
-{
-    unsigned int i;
-
-    if ( !has_vpci(v->domain) && !is_idle_domain(v->domain) )
-        return 0;
-
-    for ( i = 0; i < ARRAY_SIZE(v->vpci.mem); i++ )
-    {
-        char str[32];
-
-        snprintf(str, sizeof(str), "%pv:BAR%u", v, i);
-        v->vpci.mem[i] = rangeset_new(v->domain, str, RANGESETF_no_print);
-        if ( !v->vpci.mem[i] )
-            return -ENOMEM;
-    }
-
-    return 0;
+    INIT_LIST_HEAD(&v->vpci.task_queue);
 }
 
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
