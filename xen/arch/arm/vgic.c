@@ -122,6 +122,8 @@ void vgic_init_pending_irq(struct pending_irq *p, unsigned int virq)
     INIT_LIST_HEAD(&p->lr_queue);
     p->irq = virq;
     p->lpi_vcpu_id = INVALID_VCPU_ID;
+    /* Whether virtual irq is tied to a HW one. */
+    p->hw = false;
 }
 
 static void vgic_rank_init(struct vgic_irq_rank *rank, uint8_t index,

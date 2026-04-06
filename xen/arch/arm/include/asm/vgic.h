@@ -70,6 +70,7 @@ struct pending_irq
      * LPI with the same number in an LR must be from an older LPI, which
      * has been unmapped before.
      *
+     * GIC_IRQ_GUEST_FORWARDED: the IRQ is forwarded to a VCPU(GICv4 only)
      */
 #define GIC_IRQ_GUEST_QUEUED   0
 #define GIC_IRQ_GUEST_ACTIVE   1
@@ -77,6 +78,7 @@ struct pending_irq
 #define GIC_IRQ_GUEST_ENABLED  3
 #define GIC_IRQ_GUEST_MIGRATING   4
 #define GIC_IRQ_GUEST_PRISTINE_LPI  5
+#define GIC_IRQ_GUEST_FORWARDED     6
     unsigned long status;
     struct irq_desc *desc; /* only set if the irq corresponds to a physical irq */
     unsigned int irq;
@@ -94,10 +96,19 @@ struct pending_irq
      * TODO: when implementing irq migration, taking only the current
      * vgic lock is not going to be enough. */
     struct list_head lr_queue;
+    bool hw;                    /* Tied to HW IRQ */
+#ifdef CONFIG_GICV4
+    struct its_vlpi_map *vlpi_map;
+#endif
 };
 
 #define NR_INTERRUPT_PER_RANK   32
 #define INTERRUPT_RANK_MASK (NR_INTERRUPT_PER_RANK - 1)
+
+static inline bool pirq_is_tied_to_hw(struct pending_irq *pirq)
+{
+    return IS_ENABLED(CONFIG_GICV4) && pirq->hw;
+}
 
 /* Represents state corresponding to a block of 32 interrupts */
 struct vgic_irq_rank {

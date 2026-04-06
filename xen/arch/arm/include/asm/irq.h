@@ -42,6 +42,12 @@ struct arch_irq_desc {
 /* This is a spurious interrupt ID which never makes it into the GIC code. */
 #define INVALID_IRQ     1023
 
+/*
+ * VMAPTI/VMOVI encode "no doorbell" with pINTID 1023, per Arm IHI 0069H.b
+ * sections 5.3.20 and 5.3.21. Keep this separate from INVALID_LPI.
+ */
+#define INVALID_DBLPI   INVALID_IRQ
+
 extern const unsigned int nr_irqs;
 #ifdef CONFIG_GICV3_ESPI
 /* This will cover the eSPI range, to allow assignment of eSPIs to domains. */
