@@ -40,13 +40,6 @@ struct rangeset *rangeset_new(
 void rangeset_destroy(
     struct rangeset *r);
 
-/* Destroy a rangeset, and zero the pointer to it. */
-#define RANGESET_DESTROY(r)  \
-    ({                       \
-        rangeset_destroy(r); \
-        (r) = NULL;          \
-    })
-
 /*
  * Set a limit on the number of ranges that may exist in set @r.
  * NOTE: This must be called while @r is empty.
