@@ -18,7 +18,7 @@ static inline bool regs_mode_is_32bit(const struct cpu_user_regs *regs)
 #ifdef CONFIG_ARM_32
     return true;
 #else
-    return !!(regs->cpsr & PSR_MODE_BIT);
+    return IS_ENABLED(CONFIG_ARM64_AARCH32) && !!(regs->cpsr & PSR_MODE_BIT);
 #endif
 }
 
