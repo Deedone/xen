@@ -256,6 +256,11 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd);
 struct its_device *get_its_device(struct domain *d, paddr_t vdoorbell,
                                   uint32_t vdevid);
 
+uint8_t *lpi_host_proptable(void);
+unsigned long lpi_max_host_lpis(void);
+int lpi_write_config(uint8_t *prop_table, uint32_t lpi, uint8_t clr,
+                     uint8_t set);
+
 #else
 
 #ifdef CONFIG_ACPI
