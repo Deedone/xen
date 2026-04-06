@@ -669,6 +669,12 @@ config MULTICALL_HYPERCALLS
 	  Enables support for the multicall hypercall, which allows batching
 	  of hypercalls to reduce overhead.
 
+config SET_TIMER_HYPERCALLS
+	bool "Per-vcpu oneshot-timer (set_timer_op) support"
+	default y
+	help
+	  Enables support for the per-vcpu oneshot-timer (set_timer_op) hypercall.
+
 endmenu
 
 config PM_OP

@@ -131,7 +131,9 @@ nmi_op(unsigned int cmd, void *arg)
 
 #ifdef CONFIG_COMPAT
 prefix: compat
+#ifdef CONFIG_SET_TIMER_HYPERCALLS
 set_timer_op(uint32_t lo, uint32_t hi)
+#endif
 #ifdef CONFIG_MULTICALL_HYPERCALLS
 multicall(multicall_entry_compat_t *call_list, unsigned long nr_calls)
 #endif
@@ -166,7 +168,9 @@ sched_op_compat(int cmd, unsigned long arg)
 #endif
 
 prefix: do
+#ifdef CONFIG_SET_TIMER_HYPERCALLS
 set_timer_op(s_time_t timeout)
+#endif
 console_io(unsigned int cmd, unsigned int count, char *buffer)
 vm_assist(unsigned int cmd, unsigned int type)
 event_channel_op(int cmd, void *arg)
@@ -250,7 +254,9 @@ memory_op                          compat   do       hvm      hvm      do
 multicall                          compat:2 do:2     compat   do       do
 #endif
 update_va_mapping                  compat   do       -        -        -
+#ifdef CONFIG_SET_TIMER_HYPERCALLS
 set_timer_op                       compat   do       compat   do       -
+#endif
 event_channel_op_compat            do       do       -        -        dep
 xen_version                        do       do       do       do       do
 console_io                         do       do       do       do       do
