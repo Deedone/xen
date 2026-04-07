@@ -278,6 +278,17 @@ config PCI_PASSTHROUGH
 	help
 	  This option enables PCI device passthrough
 
+config ARM64_SPIN_TABLE
+	bool "Support for SMP spin-table CPU bringup"
+	depends on ARM_64
+	default y
+	help
+	  This option enables support for the "spin-table" enable-method used
+	  to boot secondary CPUs. Spin-table is generally only used on older
+	  AArch64 systems that lack PSCI firmware support.
+
+	  If unsure, say Y.
+
 endmenu
 
 config ALTERNATIVE

@@ -14,8 +14,10 @@ struct smp_enable_ops {
         int             (*prepare_cpu)(int cpu);
 };
 
-static paddr_t cpu_release_addr[NR_CPUS];
 static struct smp_enable_ops smp_enable_ops[NR_CPUS];
+
+#ifdef CONFIG_ARM64_SPIN_TABLE
+static paddr_t cpu_release_addr[NR_CPUS];
 
 static int __init smp_spin_table_cpu_up(int cpu)
 {
@@ -53,6 +55,9 @@ static void __init smp_spin_table_init(int cpu, struct dt_device_node *dn)
 
     smp_enable_ops[cpu].prepare_cpu = smp_spin_table_cpu_up;
 }
+#else
+static inline void smp_spin_table_init(int cpu, struct dt_device_node *dn) {}
+#endif /* CONFIG_ARM64_SPIN_TABLE */
 
 static int __init smp_psci_init(int cpu)
 {
@@ -83,7 +88,8 @@ static int __init dt_arch_cpu_init(int cpu, struct dt_device_node *dn)
         return -EINVAL;
     }
 
-    if ( !strcmp(enable_method, "spin-table") )
+    if ( IS_ENABLED(CONFIG_ARM64_SPIN_TABLE) &&
+         !strcmp(enable_method, "spin-table") )
         smp_spin_table_init(cpu, dn);
     else if ( !strcmp(enable_method, "psci") )
         return smp_psci_init(cpu);
