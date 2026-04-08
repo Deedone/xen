@@ -217,10 +217,11 @@ struct vgic_dist {
 
 struct vgic_cpu {
     /*
-     * SGIs and PPIs are per-VCPU, SPIs are domain global and in
-     * struct arch_domain.
+     * SGIs and PPIs are per-VCPU. Keep their pending state separately
+     * allocated so struct vcpu stays within a single page. SPIs are domain
+     * global and in struct arch_domain.
      */
-    struct pending_irq pending_irqs[32];
+    struct pending_irq *pending_irqs;
     struct vgic_irq_rank *private_irqs;
 
     /* This list is ordered by IRQ priority and it is used to keep
