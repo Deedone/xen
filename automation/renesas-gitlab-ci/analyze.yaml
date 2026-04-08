@@ -5,8 +5,16 @@
   variables:
     ECLAIR_OUTPUT_DIR: "ECLAIR_out"
     ANALYSIS_KIND: "normal"
+  before_script:
+    # Kill eclair_report server (if running), because DB will be updated after analysis
+    - pkill eclair_report || true
   script:
     - ./automation/renesas-scripts/eclair 2>&1 | tee "${LOGFILE}"
+  after_script:
+    # Store latest analysis result
+    - rm -fr /home/gitlab-runner/xen_latest || true
+    - mkdir -p /home/gitlab-runner/xen_latest || true
+    - cp -r ./ECLAIR_out /home/gitlab-runner/xen_latest
   artifacts:
     when: always
     paths:
@@ -38,3 +46,31 @@ eclair-accepted:
     RULESET: "accepted"
     LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
     KBUILD_DEFCONFIG: rel_arm64_defconfig
+
+eclair-server-start:
+  stage: analyze
+  tags:
+    - eclair-analysis
+  variables:
+    TERM: xterm
+  script:
+    # This job will spin until eclair_report server is killed
+    - |
+      echo 'Run command on your local machine: \
+      ssh -L 3786:localhost:3786 -N <user>@10.13.64.194 \
+      and open report at http://127.0.0.1:3786'
+    - /opt/bugseng/eclair/bin/eclair_report -verbose -db=/home/gitlab-runner/xen_latest/ECLAIR_out/PROJECT.ecd -browser -server || true
+  rules:
+    - when: manual
+  needs: []
+
+eclair-server-stop:
+  stage: analyze
+  tags:
+    - eclair-analysis
+  script:
+    - ps -aux | grep eclair_report || true
+    - pkill eclair_report || true
+  rules:
+    - when: manual
+  needs: []
