@@ -15,6 +15,7 @@ export WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
 
 export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 export LLDB_LOG="${LLDB_LOG:-${XEN_ROOT}/lldb.serial}"
+export XEN_LOG="${XEN_LOG:-${XEN_ROOT}/xen.serial}"
 
 export PASSED="${PASSED:-[SUCCESS]}"
 
@@ -22,19 +23,33 @@ export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot c
 
 rm -f ${QEMU_LOG}
 rm -f ${LLDB_LOG}
+rm -f ${XEN_LOG}
 
 # Generate base device tree from QEMU
-qemu-system-aarch64 -cpu cortex-a57 -machine virt,virtualization=true,gic-version=3 \
-    -m 2G -smp 2 -display none -machine dumpdtb=${WORKDIR}/virt-gicv3.dtb
+qemu-system-aarch64 \
+    -cpu cortex-a57 \
+    -machine virt,virtualization=true,gic-version=3 \
+    -m 2048 \
+    -smp 2 \
+    -machine dumpdtb=${WORKDIR}/virt-gicv3.dtb
 
 # Add cmdline to chosen node
 fdtput -c ${WORKDIR}/virt-gicv3.dtb /chosen 2>/dev/null || true
 fdtput -t s ${WORKDIR}/virt-gicv3.dtb /chosen xen,xen-bootargs "${XEN_CMDLINE}"
 
-qemu-system-aarch64 -s -S -cpu cortex-a57 -machine virt,virtualization=true,gic-version=3 \
-    -m 2G -smp 2 -no-reboot -nographic -monitor none -nodefaults -serial stdio -display none \
-    -kernel ${WORKDIR}/xen -dtb ${WORKDIR}/virt-gicv3.dtb \
-    > ${QEMU_LOG} 2>&1 &
+# Run QEMU in background, LLDB conflicts with "-serial stdio", so write Xen logs into file
+qemu-system-aarch64 \
+    -s -S \
+    -cpu cortex-a57 \
+    -machine virt,virtualization=true,gic-version=3 \
+    -m 2048 \
+    -smp 2 \
+    -no-reboot \
+    -nodefaults \
+    -display none \
+    -monitor none \
+    -serial file:${XEN_LOG} \
+    -kernel ${WORKDIR}/xen -dtb ${WORKDIR}/virt-gicv3.dtb > ${QEMU_LOG} 2>&1 &
 
 QEMU_PID=$!
 sleep 1
@@ -50,6 +65,7 @@ wait $QEMU_PID 2>/dev/null || true
 sleep 1
 
 #Print the captured logs to the job output
+cat ${XEN_LOG} || true
 cat ${QEMU_LOG} || true
 cat ${LLDB_LOG} || true
 

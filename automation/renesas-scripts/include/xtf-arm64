@@ -56,7 +56,6 @@ EOF
         -machine virt,virtualization=true,gic-version=3 \
         -m 2048 \
         -smp 2 \
-        -display none \
         -machine dumpdtb=${WORKDIR}/virt-gicv3.dtb
 
     # Decompile host's DTB into a readable format
@@ -71,13 +70,14 @@ EOF
     export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
         -cpu cortex-a53 \
         -machine virt,virtualization=true,gic-version=3 \
-        -no-reboot \
-        -nographic \
-        -monitor none \
-        -serial stdio \
         -m 2048 \
         -smp 2 \
-        -device virtio-net-pci,netdev=n0 \
+        -no-reboot \
+        -nodefaults \
+        -display none \
+        -monitor none \
+        -serial stdio \
+        -device virtio-net-pci,netdev=n0,id=net0 \
         -netdev user,id=n0,tftp=${WORKDIR} \
         -bios ${FW_PREFIX}u-boot.bin \
     "
