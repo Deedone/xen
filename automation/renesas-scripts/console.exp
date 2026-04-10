@@ -13,6 +13,8 @@
 #   trigger for WAKEUP_CMD (see below)
 # - WAKEUP_CMD (optional): command to execute to wakeup the system 30s after
 #   seeing SUSPEND_MSG
+# - TRIGGER_MSG (optional): console message that triggers sending TRIGGER_CMD
+# - TRIGGER_CMD (optional): raw command/keys sent when TRIGGER_MSG is seen
 # - LOG_MSG (optional): final console message to wait for
 # - PASSED: message to look for to consider test a success; if LOG_MSG is set,
 #   both LOG_MSG and PASSED must appear (in any order) for test to succeed
@@ -56,6 +58,15 @@ if {[info exists env(WAKEUP_CMD)]} {
     sleep 30
 
     system "$env(WAKEUP_CMD)"
+}
+
+if {[info exists env(TRIGGER_MSG)] &&
+    [info exists env(TRIGGER_CMD)] &&
+    $env(TRIGGER_MSG) ne "" &&
+    $env(TRIGGER_CMD) ne ""} {
+    # Keep the match in the buffer because LOG_MSG may be the same line.
+    expect -notransfer -re "$env(TRIGGER_MSG)"
+    send -- "$env(TRIGGER_CMD)"
 }
 
 if {[info exists env(LOG_MSG)]} {

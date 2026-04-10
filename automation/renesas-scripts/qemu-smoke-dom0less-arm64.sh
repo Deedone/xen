@@ -6,6 +6,7 @@ test_variant=$1
 
 # Default GIC version
 gic_version="2"
+XEN_CMDLINE_EXTRA=""
 
 if [ -z "${test_variant}" ]; then
     passed="ping test passed"
@@ -150,7 +151,7 @@ DEVICE_TREE="virt.dtb"
 XEN="xen"
 DOM0_KERNEL="Image"
 DOM0_RAMDISK="dom0-rootfs.cpio.gz"
-XEN_CMD="console=dtuart dom0_mem=512M console_timestamps=boot"
+XEN_CMD="console=dtuart dom0_mem=512M console_timestamps=boot ${XEN_CMDLINE_EXTRA}"
 
 NUM_DOMUS=1
 DOMU_KERNEL[0]="Image"
@@ -215,7 +216,8 @@ export TEST_CMD="./binaries/qemu-system-aarch64 \
 
 export UBOOT_CMD="virtio scan; dhcp; tftpb 0x40000000 boot.scr; source 0x40000000"
 export TEST_LOG="smoke.serial"
-export LOG_MSG="Welcome to Alpine Linux"
+export TRIGGER_MSG="${TRIGGER_MSG:-}"
+export TRIGGER_CMD="${TRIGGER_CMD:-}"
 export PASSED="${passed}"
 
 ./automation/renesas-scripts/console.exp |& sed 's/\r\+$//'
