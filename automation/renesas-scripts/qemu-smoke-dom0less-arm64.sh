@@ -79,6 +79,15 @@ if [[ "${test_variant}" == "gicv3" ]]; then
     domU_check="echo \"${passed}\""
 fi
 
+if [[ "${test_variant}" == "rtds_sched_cmdline" ]]; then
+    XEN_CMDLINE_EXTRA="conswitch=ax sched=rtds"
+    DOMU_MESSAGE="DOM1 online"
+    domU_check="echo \"${DOMU_MESSAGE}\""
+    TRIGGER_MSG="\\(XEN\\).*${DOMU_MESSAGE}"
+    TRIGGER_CMD="r"
+    passed="\\(XEN\\).*Scheduler: SMP RTDS Scheduler \\(rtds\\)"
+fi
+
 # XXX QEMU looks for "efi-virtio.rom" even if it is unneeded
 curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
 ./binaries/qemu-system-aarch64 \
