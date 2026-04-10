@@ -144,7 +144,8 @@ find . | cpio -R 0:0 -H newc -o | gzip >> ../binaries/dom0-rootfs.cpio.gz
 cd ..
 
 # ImageBuilder
-echo 'MEMORY_START="0x40000000"
+cat > binaries/config <<EOF
+MEMORY_START="0x40000000"
 MEMORY_END="0x50000000"
 
 DEVICE_TREE="virt.dtb"
@@ -163,7 +164,8 @@ DOMU_MEM[1]="256"
 
 LOAD_CMD="tftpb"
 UBOOT_SOURCE="boot.source"
-UBOOT_SCRIPT="boot.scr"' > binaries/config
+UBOOT_SCRIPT="boot.scr"
+EOF
 
 if [[ "${test_variant}" == "static-mem" ]]; then
     echo -e "\nDOMU_STATIC_MEM[0]=\"${domu_base} ${domu_size}\"" >> binaries/config
