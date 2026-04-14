@@ -242,13 +242,13 @@ qemu-gdb-sched-init-success:
 qemu-lldb-sched-init-panic:
   extends: .qemu-arm64
   script:
-    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_sched_init_fail_lldb.py 2>&1 | tee ${LOGFILE}
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_sched_init_fail.py 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
 
 qemu-lldb-sched-init-success:
   extends: .qemu-arm64
   script:
-    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_sched_init_success_lldb.py 2>&1 | tee ${LOGFILE}
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init.py 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
