@@ -21,6 +21,9 @@ export PASSED="${PASSED:-[SUCCESS]}"
 
 export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot console=dtuart}"
 
+# Add directory with lldb_automation library
+export PYTHONPATH="${XEN_ROOT}/automation/renesas-scripts/lldb/:$PYTHONPATH"
+
 rm -f ${QEMU_LOG}
 rm -f ${LLDB_LOG}
 rm -f ${XEN_LOG}
@@ -57,8 +60,7 @@ qemu-system-aarch64 \
 QEMU_PID=$!
 sleep 1
 
-PYTHONPATH=/usr/lib/llvm-14/lib/python3.11/dist-packages \
-    XEN_ELF="${WORKDIR}/xen-syms" XEN_PORT="1234" \
+XEN_ELF="${WORKDIR}/xen-syms" XEN_PORT="1234" \
     lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb/${LLDB_SCRIPT}" \
     > ${LLDB_LOG} 2>&1
 
