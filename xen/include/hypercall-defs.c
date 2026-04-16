@@ -159,7 +159,7 @@ kexec_op(unsigned int op, void *uarg)
 #endif
 #endif /* CONFIG_COMPAT */
 
-#if defined(CONFIG_PV) || defined(CONFIG_ARM)
+#if defined(CONFIG_PV)
 prefix: do PREFIX_dep
 event_channel_op_compat(evtchn_op_t *uop)
 physdev_op_compat(physdev_op_t *uop)
@@ -242,7 +242,7 @@ set_gdt                            compat   do       -        -        -
 stack_switch                       do:2     do:2     -        -        -
 set_callbacks                      compat   do       -        -        -
 fpu_taskswitch                     do       do       -        -        -
-sched_op_compat                    do       do       -        -        dep
+sched_op_compat                    do       do       -        -        -
 #ifndef CONFIG_PV_SHIM_EXCLUSIVE
 platform_op                        compat   do       compat   do       do
 #endif
@@ -257,10 +257,10 @@ update_va_mapping                  compat   do       -        -        -
 #ifdef CONFIG_SET_TIMER_HYPERCALLS
 set_timer_op                       compat   do       compat   do       -
 #endif
-event_channel_op_compat            do       do       -        -        dep
+event_channel_op_compat            do       do       -        -        -
 xen_version                        do       do       do       do       do
 console_io                         do       do       do       do       do
-physdev_op_compat                  compat   do       -        -        dep
+physdev_op_compat                  compat   do       -        -        -
 #if defined(CONFIG_GRANT_TABLE)
 grant_table_op                     compat   do       hvm      hvm      do
 #elif defined(CONFIG_PV_SHIM)
