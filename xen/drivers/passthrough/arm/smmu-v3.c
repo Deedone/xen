@@ -1533,6 +1533,7 @@ static int arm_smmu_insert_master(struct arm_smmu_device *smmu,
 	mutex_lock(&smmu->streams_mutex);
 	for (i = 0; i < fwspec->num_ids; i++) {
 		u32 sid = fwspec->ids[i];
+		bool insert = true;
 
 		new_stream = &master->streams[i];
 		new_stream->id = sid;
@@ -1563,19 +1564,27 @@ static int arm_smmu_insert_master(struct arm_smmu_device *smmu,
 				new_node = &((*new_node)->rb_left);
 			} else if (cur_stream->id < new_stream->id) {
 				new_node = &((*new_node)->rb_right);
-			} else {
+			} else if (cur_stream->master == master) {
+				/* Bridged PCI devices may end up with duplicated IDs */
+				insert = false;
+				break;
+			}
+			else {
 				dev_warn(master->dev,
 					 "stream %u already in tree\n",
 					 cur_stream->id);
 				ret = -EINVAL;
+				insert = false;
 				break;
 			}
 		}
 		if (ret)
 			break;
 
-		rb_link_node(&new_stream->node, parent_node, new_node);
-		rb_insert_color(&new_stream->node, &smmu->streams);
+		if(insert) {
+			rb_link_node(&new_stream->node, parent_node, new_node);
+			rb_insert_color(&new_stream->node, &smmu->streams);
+		}
 	}
 
 	if (ret) {
