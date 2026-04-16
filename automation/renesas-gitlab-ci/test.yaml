@@ -21,7 +21,7 @@
     LOGFILE: qemu-smoke-arm64.log
   artifacts:
     paths:
-      - smoke.serial
+      - '*.serial'
       - '*.log'
     when: always
   tags:
