@@ -218,6 +218,18 @@ unsigned int domain_vpci_get_num_mmio_handlers(struct domain *d)
     return 1;
 }
 
+void platform_pci_fixup_bar(const struct pci_dev *pdev,
+                                          unsigned int bar_num,
+                                          paddr_t *addr)
+{
+    struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->sbdf.seg, pdev->sbdf.bus);
+
+    if ( bridge->ops->fixup_bar )
+    {
+        bridge->ops->fixup_bar(bridge, bar_num, addr);
+    }
+}
+
 /*
  * Local variables:
  * mode: C
