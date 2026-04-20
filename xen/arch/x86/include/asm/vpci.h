@@ -16,6 +16,12 @@ struct vpci_arch_msix_entry {
     int pirq;
 };
 
+/* X86 does not require PCI BAR modifications */
+static inline void platform_pci_fixup_bar(const struct pci_dev *pdev,
+                                          unsigned int bar_num,
+                                          paddr_t *addr)
+{}
+
 #endif /* X86_VPCI_H */
 
 /*
