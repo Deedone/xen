@@ -1077,6 +1077,8 @@ int vpci_init_header(struct pci_dev *pdev)
         bars[i].size = size;
         bars[i].prefetchable = val & PCI_BASE_ADDRESS_MEM_PREFETCH;
 
+        platform_pci_fixup_bar(pdev, i, &bars[i].addr);
+
         rc = vpci_add_register(pdev->vpci,
                                is_hwdom ? vpci_hw_read32
                                         : vpci_guest_mem_bar_read,
