@@ -64,6 +64,27 @@ config NO_PLAT
 
 endchoice
 
+menu "RCar Region ID Support"
+    visible if RCAR4
+
+config RCAR_REGION_ID_SUPPORT
+	bool "Renesas Region ID support for R-Car Gen4 platforms" if EXPERT
+	depends on RCAR4
+	help
+	  Enable experimental Region ID support for R-Car Gen4 platforms
+
+config RCAR_RGID
+	int "Region ID encoded in physical address"
+	depends on RCAR_REGION_ID_SUPPORT
+	default 0
+
+config RCAR_PA_BITS
+	int "Physical address space size"
+	depends on RCAR_REGION_ID_SUPPORT
+	default 36
+
+endmenu
+
 config ALL64_PLAT
 	bool
 	default (ALL_PLAT && ARM_64)
