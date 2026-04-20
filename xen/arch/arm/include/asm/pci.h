@@ -84,6 +84,9 @@ struct pci_ops {
     void (*init_bus_range)(struct dt_device_node *dev,
                            struct pci_host_bridge *bridge,
                            struct pci_config_window *cfg);
+    void (*fixup_bar)(struct pci_host_bridge *bridge,
+                      unsigned int bar_num,
+                      paddr_t *addr);
 };
 
 /*
