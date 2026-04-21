@@ -5,7 +5,7 @@ set -ex -o pipefail
 test_variant=$1
 
 # Default GIC version
-gic_version="2"
+gic_version="3"
 XEN_CMDLINE_EXTRA=""
 
 if [ -z "${test_variant}" ]; then
