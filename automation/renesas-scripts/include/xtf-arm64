@@ -26,6 +26,8 @@ function xtf_arch_setup()
         git clone --depth 1 https://gitlab.com/xen-project/imagebuilder.git
     fi
 
+    local num_domus=${XTF_NUM_DOMUS:-1}
+
     cat > ${WORKDIR}/config <<EOF
 MEMORY_START="0x40000000"
 MEMORY_END="0xC0000000"
@@ -37,17 +39,20 @@ DEVICE_TREE="virt-gicv3.dtb"
 
 DOM0_KERNEL="xtf-test"
 
-DOMU_KERNEL="Image"
-DOMU_RAMDISK="domU-rootfs.cpio.gz"
-DOMU_MEM=128
-
-NUM_DOMUS=1
+NUM_DOMUS=${num_domus}
 
 LOAD_CMD="tftpb"
 UBOOT_SOURCE="boot.source"
 UBOOT_SCRIPT="boot.scr"
 DBG_FDT_PRINT_CHOSEN=1
 EOF
+    for i in $(seq 0 $((num_domus - 1))); do
+        cat >> ${WORKDIR}/config <<DOMUEOF
+DOMU_KERNEL[$i]="Image"
+DOMU_RAMDISK[$i]="domU-rootfs.cpio.gz"
+DOMU_MEM[$i]=128
+DOMUEOF
+    done
     cp ${XTF_BINARY} ${WORKDIR}/xtf-test
 
     # Generate virt-gicv3.dtb
