@@ -93,6 +93,7 @@ curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
 ./binaries/qemu-system-aarch64 \
    -machine virtualization=true \
    -cpu cortex-a57 -machine type=virt,gic-version=$gic_version \
+   -accel tcg,thread=multi \
    -m 2048 -smp 2 -display none \
    -machine dumpdtb=binaries/virt.dtb
 
@@ -243,6 +244,7 @@ rm -f smoke.serial
 export TEST_CMD="./binaries/qemu-system-aarch64 \
     -machine virtualization=true \
     -cpu cortex-a57 -machine type=virt,gic-version=$gic_version \
+    -accel tcg,thread=multi \
     -m 2048 -monitor none -serial stdio \
     -smp 2 \
     -no-reboot \
