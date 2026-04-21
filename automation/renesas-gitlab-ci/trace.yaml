@@ -1,0 +1,35 @@
+oft-build:
+  stage: trace
+  image: maven:3.8.3-openjdk-17
+  script:
+    - mkdir -p binaries
+    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/openfasttrace.git -b rel-safety-staging
+    - cd openfasttrace/ && ./automation/build.sh
+    - cd .. && cp ./openfasttrace/automation/trace.sh trace.sh && cp ./openfasttrace/binaries/oft.jar binaries/oft.jar
+  artifacts:
+    paths:
+      - binaries/oft.jar
+      - trace.sh
+    when: always
+  tags:
+   - arm64
+  needs: []
+  rules:
+   - when: manual
+
+oft-trace:
+  stage: trace
+  image: maven:3.8.3-openjdk-17
+  script:
+    - ./trace.sh 2>&1 | tee trace.log
+  artifacts:
+    paths:
+      - report.html
+      - trace.log
+    when: always
+  tags:
+   - arm64
+  needs:
+    - oft-build
+  rules:
+   - when: on_success

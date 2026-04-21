@@ -9,8 +9,10 @@ workflow:
 stages:
   - build
   - test
+  - trace
 
 include:
   - local: 'automation/renesas-artifacts/artifacts.yaml'
   - local: 'automation/renesas-gitlab-ci/build.yaml'
   - local: 'automation/renesas-gitlab-ci/test.yaml'
+  - local: 'automation/renesas-gitlab-ci/trace.yaml'
