@@ -70,6 +70,7 @@ function xtf_build_cmdline()
     declare -a cmdline=()
     declare -A per_test_args=(
         [argo]="argo=1 mac-permissive=1"
+        [hyp-domctl-sched-rtds-edf]="sched=rtds maxcpus=1"
     )
 
     cmdline+=("${XEN_CMDLINE}")
