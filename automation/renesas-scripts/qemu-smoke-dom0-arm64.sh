@@ -54,6 +54,37 @@ xl -vvv create -c /root/domU.cfg
 
 " > etc/local.d/xen.start
 chmod +x etc/local.d/xen.start
+
+# Fast boot: override inittab to skip OpenRC services entirely.
+# The default Alpine init runs dozens of services (udev, networking,
+# modules, sysctl, hostname …) before reaching the "local" runlevel
+# where xen.start lives.  Under QEMU software emulation this adds
+# ~10 minutes of unnecessary work.  Replace it with a minimal init
+# that only mounts the filesystems xencommons/xl need and then runs
+# the test directly.
+mkdir -p sbin
+cat > etc/inittab << 'INITTAB'
+::sysinit:/sbin/fast-init
+tty0::respawn:/bin/sh
+INITTAB
+
+cat > sbin/fast-init << 'FASTINIT'
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /dev/shm
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /dev/shm
+mount -t tmpfs tmpfs /run
+mkdir -p /tmp
+mount -t tmpfs tmpfs /tmp
+mkdir -p /var/run /var/log /var/lock
+mount -t xenfs xenfs /proc/xen 2>/dev/null || true
+bash /etc/local.d/xen.start
+FASTINIT
+chmod +x sbin/fast-init
+
 find . | cpio -R 0:0 -H newc -o | gzip >> ../dom0-rootfs.cpio.gz
 cd ../..
 
