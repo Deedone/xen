@@ -92,18 +92,19 @@ cd ../..
 curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
 ./binaries/qemu-system-aarch64 \
    -machine virtualization=true \
-   -cpu cortex-a57 -machine type=virt \
+   -cpu cortex-a57 -machine type=virt,gic-version=3 \
    -m 2048 -smp 2 -display none \
-   -machine dumpdtb=binaries/virt-gicv2.dtb
+   -nodefaults \
+   -machine dumpdtb=binaries/virt-gicv3.dtb
 
 # XXX disable pl061 to avoid Linux crash
-fdtput binaries/virt-gicv2.dtb -p -t s /pl061@9030000 status disabled
+fdtput binaries/virt-gicv3.dtb -p -t s /pl061@9030000 status disabled
 
 # ImageBuilder
 echo 'MEMORY_START="0x40000000"
 MEMORY_END="0xC0000000"
 
-DEVICE_TREE="virt-gicv2.dtb"
+DEVICE_TREE="virt-gicv3.dtb"
 XEN="xen"
 DOM0_KERNEL="Image"
 DOM0_RAMDISK="dom0-rootfs.cpio.gz"
@@ -123,7 +124,8 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 rm -f smoke.serial
 export TEST_CMD="./binaries/qemu-system-aarch64 \
     -machine virtualization=true \
-    -cpu cortex-a57 -machine type=virt \
+    -cpu cortex-a57 -machine type=virt,gic-version=3 \
+    -accel tcg,thread=multi \
     -m 2048 -monitor none -serial stdio \
     -smp 2 \
     -no-reboot \
