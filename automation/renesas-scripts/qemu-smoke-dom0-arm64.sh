@@ -91,10 +91,10 @@ cd ../..
 # XXX QEMU looks for "efi-virtio.rom" even if it is unneeded
 curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
 ./binaries/qemu-system-aarch64 \
-   -machine virtualization=true \
-   -cpu cortex-a57 -machine type=virt,gic-version=3 \
-   -m 2048 -smp 2 -display none \
-   -nodefaults \
+   -cpu cortex-a53 \
+   -machine virt,virtualization=true,gic-version=3 \
+   -m 2048 \
+   -smp 2 \
    -machine dumpdtb=binaries/virt-gicv3.dtb
 
 # XXX disable pl061 to avoid Linux crash
@@ -123,13 +123,17 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 # Run the test
 rm -f smoke.serial
 export TEST_CMD="./binaries/qemu-system-aarch64 \
-    -machine virtualization=true \
-    -cpu cortex-a57 -machine type=virt,gic-version=3 \
+    -cpu cortex-a53 \
+    -machine virt,virtualization=true,gic-version=3 \
     -accel tcg,thread=multi \
-    -m 2048 -monitor none -serial stdio \
+    -m 2048 \
     -smp 2 \
     -no-reboot \
-    -device virtio-net-pci,netdev=n0 \
+    -nodefaults \
+    -display none \
+    -monitor none \
+    -serial stdio \
+    -device virtio-net-pci,netdev=n0,id=net0 \
     -netdev user,id=n0,tftp=binaries \
     -bios /usr/lib/u-boot/qemu_arm64/u-boot.bin"
 
