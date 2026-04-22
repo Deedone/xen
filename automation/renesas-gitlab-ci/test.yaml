@@ -131,3 +131,47 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-physinfo:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-physinfo 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
+
+# [XenValTestJob~~1->XenValTestCode~arm64_domctl_cacheflush~1]
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-cacheflush:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-cacheflush 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-destroydomain:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-destroydomain 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-pausedomain:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-pausedomain 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+# [XenValTestJob~~1->XenValTestCode~arm64_domctl_set_paging_mempool_size~1]
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-set-paging-mempool-size:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-set-paging-mempool-size 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-unpausedomain:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-unpausedomain 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-getdomaininfolist:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-getdomaininfolist 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
