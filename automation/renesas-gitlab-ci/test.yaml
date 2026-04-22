@@ -108,6 +108,8 @@ qemu-smoke-dom0less-arm64-gcc-debug-earlyprintk:
     - *arm64-test-needs
     - alpine-3.18-gcc-debug-arm64-earlyprintk
 
+###XTF###
+
 # XTF is run in dom0
 
 qemu-xtf-dom0-arm64-gcc-hyp-xen-version:
@@ -140,6 +142,7 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-cacheflush:
   needs:
     - *arm64-xtf-test-needs
 
+# [XenValTestJob~~1->XenValTestCode~domctl_destroy_domain_using_domctl~1]
 qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-destroydomain:
   extends: .qemu-arm64
   script:
@@ -169,6 +172,7 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-unpausedomain:
   needs:
     - *arm64-xtf-test-needs
 
+# [XenValTestJob~~1->XenValTestCode~sysctl_get_vmlist_using_sysctl~1]
 qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-getdomaininfolist:
   extends: .qemu-arm64
   script:
@@ -200,3 +204,10 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-get-paging-mempool-size:
   needs:
     - *arm64-xtf-test-needs
 
+# [XenValTestJob~~1->XenValTestCode~domctl_max_mem~1]
+qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-max-mem:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-max-mem 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
