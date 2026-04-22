@@ -1,0 +1,42 @@
+# Build artifacts
+build/
+artifacts/
+
+# Git directories
+.git/
+**/.git/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Docker files (don't copy into container)
+Dockerfile*
+.dockerignore
+docker-compose*.yml
