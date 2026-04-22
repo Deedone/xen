@@ -140,3 +140,10 @@ alpine-3.18-gcc-debug-arm64-earlyprintk:
     EXTRA_XEN_CONFIG: |
       CONFIG_EARLY_UART_CHOICE_PL011=y
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
+
+rel-gcc-debug-arm64:
+  extends: .gcc-arm64-build-debug
+  variables:
+    CONTAINER: debian:bookworm-arm64v8
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+
