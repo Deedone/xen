@@ -90,7 +90,7 @@ cd ../..
 
 # XXX QEMU looks for "efi-virtio.rom" even if it is unneeded
 curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
-./binaries/qemu-system-aarch64 \
+qemu-system-aarch64 \
    -cpu cortex-a53 \
    -machine virt,virtualization=true,gic-version=3 \
    -m 2048 \
@@ -122,7 +122,7 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 
 # Run the test
 rm -f smoke.serial
-export TEST_CMD="./binaries/qemu-system-aarch64 \
+export TEST_CMD="qemu-system-aarch64 \
     -cpu cortex-a53 \
     -machine virt,virtualization=true,gic-version=3 \
     -accel tcg,thread=multi \
