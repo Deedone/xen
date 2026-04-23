@@ -66,16 +66,6 @@
 
 # Arm builds
 
-debian-bookworm-gcc-arm64:
-  extends: .gcc-arm64-build
-  variables:
-    CONTAINER: debian:bookworm-arm64v8
-
-debian-bookworm-gcc-debug-arm64:
-  extends: .gcc-arm64-build-debug
-  variables:
-    CONTAINER: debian:bookworm-arm64v8
-
 alpine-3.18-gcc-arm64:
   extends: .gcc-arm64-build
   variables:
