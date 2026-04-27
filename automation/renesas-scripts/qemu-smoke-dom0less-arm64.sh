@@ -88,8 +88,6 @@ if [[ "${test_variant}" == "rtds_sched_cmdline" ]]; then
     passed="\\(XEN\\).*Scheduler: SMP RTDS Scheduler \\(rtds\\)"
 fi
 
-# XXX QEMU looks for "efi-virtio.rom" even if it is unneeded
-curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
 qemu-system-aarch64 \
     -cpu cortex-a53 \
     -machine virt,virtualization=true,gic-version=$gic_version \

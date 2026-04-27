@@ -88,8 +88,6 @@ chmod +x sbin/fast-init
 find . | cpio -R 0:0 -H newc -o | gzip >> ../dom0-rootfs.cpio.gz
 cd ../..
 
-# XXX QEMU looks for "efi-virtio.rom" even if it is unneeded
-curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
 qemu-system-aarch64 \
    -cpu cortex-a53 \
    -machine virt,virtualization=true,gic-version=3 \

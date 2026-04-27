@@ -28,9 +28,6 @@ rm -f ${QEMU_LOG}
 rm -f ${LLDB_LOG}
 rm -f ${XEN_LOG}
 
-# QEMU looks for "efi-virtio.rom" even if it is unneeded
-curl -fsSLO https://github.com/qemu/qemu/raw/v5.2.0/pc-bios/efi-virtio.rom
-
 # Generate base device tree from QEMU
 qemu-system-aarch64 \
     -cpu cortex-a57 \
