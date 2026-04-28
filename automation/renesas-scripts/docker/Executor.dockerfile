@@ -17,6 +17,7 @@ RUN apt-get update && \
     libslirp-dev=4.7.0-1 \
     libxml2-dev=2.9.14+dfsg-1.3~deb12u5 \
     make=4.3-4.1 \
+    meson=1.0.1-5 \
     ninja-build=1.11.1-2~deb12u1 \
     patch=2.7.6-7 \
     pkg-config=1.8.1-1 \
@@ -152,26 +153,29 @@ RUN wget --progress=bar:force:noscroll ${QEMU_URL} \
 
 ########################################################################
 
-FROM builder AS llvm_build
+FROM builder AS atfe_build
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG LLVM_BRANCH=llvmorg-22.1.2
-ARG LLVM_GIT=https://github.com/llvm/llvm-project.git
+ARG ATfE_VERSION=22.1.0
+ARG ATfE_URL=https://github.com/arm/arm-toolchain/archive/refs/tags/release-${ATfE_VERSION}-ATfE.tar.gz
 
 WORKDIR /tmp
 
-RUN git clone -b ${LLVM_BRANCH} --single-branch --depth 1 ${LLVM_GIT} \
-    && cd llvm-project && mkdir build && cd build \
+RUN wget --progress=bar:force:noscroll ${ATfE_URL} \
+    && tar xf release-${ATfE_VERSION}-ATfE.tar.gz \
+    && cd arm-toolchain-release-${ATfE_VERSION}-ATfE \
+    && mkdir build && cd build \
     && cmake -G Ninja ../llvm \
         -DCMAKE_BUILD_TYPE=Release \
-        -DLLVM_ENABLE_PROJECTS="lldb" \
+        -DCMAKE_INSTALL_PREFIX=/opt/atfe \
+        -DLLVM_ENABLE_PROJECTS="clang;lld;lldb" \
         -DLLVM_TARGETS_TO_BUILD="AArch64" \
         -DLLVM_PARALLEL_LINK_JOBS=1 \
         -DLLDB_ENABLE_PYTHON=ON \
         -DLLVM_ENABLE_LIBXML2=ON \
-        -DCMAKE_C_FLAGS="-g0" \
-        -DCMAKE_CXX_FLAGS="-g0" \
-    && ninja -j4 && ninja install && rm -fr /tmp/*
+    && ninja -j4 \
+    && ninja install \
+    && cd /tmp && rm -fr /tmp/*
 
 ########################################################################
 
@@ -231,7 +235,7 @@ COPY --from=qemu_build /opt/qemu/bin/qemu-system-aarch64 /usr/local/bin/qemu-sys
 COPY --from=qemu_build /opt/qemu/share/qemu/efi-virtio.rom /usr/local/share/qemu/efi-virtio.rom
 COPY --from=qemu_build /opt/qemu/lib/qemu-plugins /usr/local/lib/qemu-plugins
 
-# Copy LLVM
-COPY --from=llvm_build /usr/local /usr/local
+# Copy ATfE
+COPY --from=atfe_build /opt/atfe /usr/local
 
 WORKDIR /build
