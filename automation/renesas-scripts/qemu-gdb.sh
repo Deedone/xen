@@ -64,7 +64,7 @@ gdb-multiarch -q -x ${XEN_ROOT}/automation/renesas-scripts/gdb/${GDB_SCRIPT} \
 #Stopping QEMU
 kill $QEMU_PID || true
 wait $QEMU_PID 2>/dev/null || true
-sleep 1
+sync || true
 
 #Print the captured logs to the job output
 cat ${XEN_LOG} || true
@@ -72,5 +72,6 @@ cat ${QEMU_LOG} || true
 cat ${GDB_LOG} || true
 
 # Test validation
-grep -q "${PASSED}" "${GDB_LOG}" && exit 0
+grep -qF "${PASSED}" "${GDB_LOG}" && { echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
+echo -e "\e[31m***NOT FOUND EXPECTED TEST STRING***\e[0m"
 exit 1
