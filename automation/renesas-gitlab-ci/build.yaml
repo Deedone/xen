@@ -9,6 +9,13 @@
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG_INFO=y
     UBSAN_CONFIG: ""
+    COVERAGE_CONFIG: ""
+  before_script:
+  - |
+    export EXTRA_XEN_CONFIG="${BASE_XEN_CONFIG}
+    ${UBSAN_CONFIG}
+    ${COVERAGE_CONFIG}
+    ${EXTRA_XEN_CONFIG}"
   script:
     - mkdir -p binaries
     - ./automation/renesas-scripts/build 2>&1 | tee build.log
@@ -27,6 +34,10 @@
         UBSAN_CONFIG: |
           CONFIG_UBSAN=y
           CONFIG_UBSAN_FATAL=y
+    - if: '$RUN_COVERAGE == "true"'
+      variables:
+        COVERAGE_CONFIG: |
+          CONFIG_NO_OPTIMIZE=y
     - when: always
   tags:
     - aws-arm64
@@ -83,17 +94,11 @@
 
 xen-atfe-arm64:
   extends: .atfe-arm64-build
-  variables:
-    EXTRA_XEN_CONFIG: |
-      ${BASE_XEN_CONFIG}
-      ${UBSAN_CONFIG}
 
 xen-atfe-arm64-earlyprintk:
   extends: .atfe-arm64-build
   variables:
     EXTRA_XEN_CONFIG: |
-      ${BASE_XEN_CONFIG}
-      ${UBSAN_CONFIG}
       CONFIG_EARLY_UART_CHOICE_PL011=y
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
   rules:

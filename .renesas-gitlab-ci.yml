@@ -8,6 +8,9 @@ workflow:
     - if: '$RUN_UBSAN == "true"'
       variables:
         PIPELINE_NAME_PREFIX: "UBSAN"
+    - if: '$RUN_COVERAGE == "true"'
+      variables:
+        PIPELINE_NAME_PREFIX: "COVERAGE"
     - when: always
       variables:
         PIPELINE_NAME_PREFIX: "RELEASE"

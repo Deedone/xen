@@ -118,3 +118,21 @@ cppcheck-misra:
   extends: .xen-analysis-py
   script:
     - xen/scripts/xen-analysis.py --run-cppcheck --cppcheck-misra --cppcheck-html -- -j$(nproc) 2>&1 | tee "${LOGFILE}"
+
+gen_coverage_report:
+  stage: analyze
+  tags:
+    - aws-arm64
+  image: xentroops/xen_rel
+  script:
+    - LCOV_ARGS=$(find ./ -name "*.info" -printf "-a %p "); lcov --rc lcov_branch_coverage=1 $LCOV_ARGS -o coverage.info
+    - genhtml --substitute 's|arch/arm/efi/common-stub.c|common/efi/common-stub.c|g' --branch-coverage -o coverage-report coverage.info
+    - tar -czf coverage-report.tar.gz coverage-report
+  artifacts:
+    paths:
+      - coverage.info
+      - coverage_data
+      - coverage-report.tar.gz
+  needs: [qemu-lldb-tests]
+  rules:
+    - if: '$RUN_COVERAGE == "true"'

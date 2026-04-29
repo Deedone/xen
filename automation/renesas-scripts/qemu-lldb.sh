@@ -18,12 +18,39 @@ export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 export LLDB_LOG="${LLDB_LOG:-${XEN_ROOT}/lldb.serial}"
 export XEN_LOG="${XEN_LOG:-${XEN_ROOT}/xen.serial}"
 
+export LLDB_COV_LOG="${LLDB_COV_LOG:-${XEN_ROOT}/lldb_coverage.log}"
+export QEMU_COV_TRACE="${QEMU_COV_TRACE:-${XEN_ROOT}/trace.drcov}"
+
+export COVERAGE_OUT="${COVERAGE_OUT:-${XEN_ROOT}/coverage_data}"
+
 export PASSED="${PASSED:-[SUCCESS]}"
 
 export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot console=dtuart}"
 
 # Add directory with lldb_automation library
 export PYTHONPATH="${XEN_ROOT}/automation/renesas-scripts/lldb/:$PYTHONPATH"
+
+if [ "$RUN_COVERAGE" == "true" ]; then
+	echo "Running QEMU with coverage plugin."
+
+	START_HEX=$(readelf -s "${WORKDIR}/xen-syms" | grep ' _stext$' | awk '{print $2}')
+	END_HEX=$(readelf -s "${WORKDIR}/xen-syms" | awk '$NF == "_einittext" {print $2}')
+
+	START_CODE="0x${START_HEX}"
+	END_CODE="0x${END_HEX}"
+
+	PLUGIN_ARGS="-plugin /usr/local/lib/qemu-plugins/libdrcov.so"
+	PLUGIN_ARGS+=",filename=${QEMU_COV_TRACE}"
+	PLUGIN_ARGS+=",start_code=${START_CODE}"
+	PLUGIN_ARGS+=",end_code=${END_CODE}"
+	PLUGIN_ARGS+=",bin_path=${WORKDIR}/xen-syms "
+
+	rm -f ${QEMU_COV_TRACE}
+
+	mkdir -p ${COVERAGE_OUT}
+else
+	PLUGIN_ARGS=""
+fi
 
 rm -f ${QEMU_LOG}
 rm -f ${LLDB_LOG}
@@ -53,6 +80,7 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -display none \
     -monitor none \
     -serial file:${XEN_LOG} \
+    ${PLUGIN_ARGS} \
     -kernel ${WORKDIR}/xen -dtb ${WORKDIR}/virt-gicv3.dtb > ${QEMU_LOG} 2>&1 &
 
 QEMU_PID=$!
@@ -71,6 +99,12 @@ sync || true
 cat ${XEN_LOG} || true
 cat ${QEMU_LOG} || true
 cat ${LLDB_LOG} || true
+
+if [ "$RUN_COVERAGE" == "true" ]; then
+    XEN_ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${LLDB_SCRIPT}.cov.info \
+        lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
+	> ${LLDB_COV_LOG} 2>&1
+fi
 
 # Test validation
 grep -qF "${PASSED}" "${LLDB_LOG}" && { echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
