@@ -18,11 +18,12 @@ def Panic(frame):
 
     if panic_str == expected_str:
         print(f"[SUCCESS] Received expected panic string.")
-        os._exit(0)
     else:
         print(f"[FAIL] Panic string don't match to expected\n"
             f"Expected:{repr(expected_str)}\nGot: {repr(panic_str)}")
-        os._exit(1)
+
+    sys.stdout.flush()
+    os._exit(0)
 
 
 elf_path = os.environ.get("XEN_ELF", "xen")

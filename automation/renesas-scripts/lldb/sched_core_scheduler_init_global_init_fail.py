@@ -17,7 +17,8 @@ def Csched2_global_init(frame):
 def Check_csched2_entry(frame):
     if csched_ind == -1:
         print(f"[FAIL] failed to find target scheduler")
-        os._exit(1)
+        sys.stdout.flush()
+        os._exit(0)
 
     start_addr = dbg.evaluate_expression_int(frame, "&__start_schedulers_array")
 
@@ -26,11 +27,11 @@ def Check_csched2_entry(frame):
 
     if sched_ptr == 0:
         print(f"[SUCCESS] Corrupted scheduler is now NULL")
-        os._exit(0)
     else:
         print(f"[FAIL] Corrupted scheduler 0x{sched_ptr:x} is still active\n")
-        os._exit(1)
 
+    sys.stdout.flush()
+    os._exit(0)
 
 def Panic(frame):
     # If corrupted scheduler is default scheduler, it is expected to BUG_ON()

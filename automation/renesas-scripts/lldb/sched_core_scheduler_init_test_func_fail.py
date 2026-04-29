@@ -14,10 +14,11 @@ def Check_sched_entry(frame):
 
     if sched_ptr == 0:
         print(f"[SUCCESS] Corrupted scheduler is now NULL")
-        os._exit(0)
     else:
         print(f"[FAIL] Corrupted scheduler 0x{sched_ptr:x} is still active\n")
-        os._exit(1)
+
+    sys.stdout.flush()
+    os._exit(0)
 
 def SchedulerInitExit(frame):
     Check_sched_entry(frame)

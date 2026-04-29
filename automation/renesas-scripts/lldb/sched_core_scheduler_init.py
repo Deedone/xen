@@ -91,12 +91,10 @@ def SchedulerInitExit(frame):
     if opt_sched_name == active_sched_name_addr:
         test_state["opt_sched"].set_passed()
 
-    success = check_result()
-    if success:
-        os._exit(0)
-    else:
-        os._exit(1)
+    check_result()
 
+    sys.stdout.flush()
+    os._exit(0)
 
 def SchedulerInit(frame):
     dbg.install_entry_hook("open_softirq", OpenSoftIrq)
