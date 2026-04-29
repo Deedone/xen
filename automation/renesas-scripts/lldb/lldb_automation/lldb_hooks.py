@@ -28,7 +28,10 @@ def install_entry_hook(symbol_name: str, on_entry: callable, pin_thread: bool = 
     if not session.target:
         raise RuntimeError("Failed to install hook: no debug session found")
 
-    bp = session.target.BreakpointCreateByName(symbol_name)
+    sc_list = session.target.FindFunctions(symbol_name)
+    start_addr = sc_list.GetContextAtIndex(0).GetSymbol().GetStartAddress()
+
+    bp = session.target.BreakpointCreateBySBAddress(start_addr)
     if not bp.IsValid() or bp.GetNumLocations() == 0:
         raise ValueError(f"Could not resolve symbol '{symbol_name}'")
 

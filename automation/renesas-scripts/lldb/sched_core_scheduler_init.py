@@ -64,7 +64,7 @@ def DomainCreate(frame):
 
 
 def RegisterCpuNotifier(frame):
-    nb = dbg.get_local_var_int(frame, "nb")
+    nb = dbg.get_register_value(frame, "x0")
     cpu_schedule_nfb_addr = dbg.evaluate_expression_int(frame, "&cpu_schedule_nfb")
 
     if nb == cpu_schedule_nfb_addr:
