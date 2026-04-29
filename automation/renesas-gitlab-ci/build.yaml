@@ -67,6 +67,7 @@ xen-gcc-arm64:
     KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_CMDLINE="xsm=flask flask=permissive"
+      CONFIG_DEBUG_INFO=y
 
 xen-gcc-debug-arm64:
   extends: .gcc-arm64-build-debug
