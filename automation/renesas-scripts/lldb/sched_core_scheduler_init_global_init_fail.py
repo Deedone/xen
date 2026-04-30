@@ -19,7 +19,9 @@ def Check_csched2_entry(frame):
         print(f"[FAIL] failed to find target scheduler")
         os._exit(1)
 
-    expr = f"((struct scheduler *)__start_schedulers_array)[{csched_ind}]"
+    start_addr = dbg.evaluate_expression_int(frame, "&__start_schedulers_array")
+
+    expr = f"((struct scheduler **){start_addr})[{csched_ind}]"
     sched_ptr = dbg.evaluate_expression_int(frame, expr)
 
     if sched_ptr == 0:
@@ -51,7 +53,7 @@ def SchedulerInit(frame):
     print(f"[+] Found {num_schedulers} schedulers")
 
     for i in range(num_schedulers):
-        name_addr_expr = f"((struct scheduler *)__start_schedulers_array)[{i}]->opt_name"
+        name_addr_expr = f"((struct scheduler **){start_addr})[{i}]->opt_name"
         name_addr = dbg.evaluate_expression_int(frame, name_addr_expr)
 
         name = dbg.evaluate_expression_str(frame, f"(char*){name_addr}")
