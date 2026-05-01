@@ -16,6 +16,7 @@ mkdir -p binaries
 
 if [[ "${TOOLS_ONLY}" == "y" ]]; then
     ./configure \
+        --prefix=/usr \
         --enable-tools \
         --disable-docs \
         --disable-stubdom \
