@@ -65,6 +65,8 @@ xen-gcc-arm64:
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
+    EXTRA_XEN_CONFIG: |
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
 
 xen-gcc-debug-arm64:
   extends: .gcc-arm64-build-debug
@@ -74,6 +76,7 @@ xen-gcc-debug-arm64:
     EXTRA_XEN_CONFIG: |
       CONFIG_UBSAN=y
       CONFIG_UBSAN_FATAL=y
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
 
 xen-gcc-debug-arm64-staticmem:
   extends: .gcc-arm64-build-debug
@@ -84,6 +87,7 @@ xen-gcc-debug-arm64-staticmem:
       CONFIG_EXPERT=y
       CONFIG_UNSUPPORTED=y
       CONFIG_STATIC_MEMORY=y
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
 
 xen-gcc-debug-arm64-static-shared-mem:
   extends: .gcc-arm64-build-debug
@@ -94,6 +98,7 @@ xen-gcc-debug-arm64-static-shared-mem:
       CONFIG_UNSUPPORTED=y
       CONFIG_STATIC_MEMORY=y
       CONFIG_STATIC_SHM=y
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
 
 xen-gcc-debug-arm64-boot-cpupools:
   extends: .gcc-arm64-build-debug
@@ -102,6 +107,7 @@ xen-gcc-debug-arm64-boot-cpupools:
     KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_BOOT_TIME_CPUPOOLS=y
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
 
 xen-gcc-debug-arm64-earlyprintk:
   extends: .gcc-arm64-build-debug
@@ -111,3 +117,4 @@ xen-gcc-debug-arm64-earlyprintk:
     EXTRA_XEN_CONFIG: |
       CONFIG_EARLY_UART_CHOICE_PL011=y
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
