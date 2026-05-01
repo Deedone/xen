@@ -1,6 +1,6 @@
 .test-jobs-common:
   stage: test
-  image: xentroops/${CONTAINER}
+  image: xentroops/xen_rel
   rules:
   - when: on_success
 
@@ -10,14 +10,13 @@
   - alpine-3.18-xen-tools-export
 
 .arm64-xtf-test-needs: &arm64-xtf-test-needs
-  - alpine-3.18-gcc-arm64
+  - xen-gcc-arm64
   - linux-6.6.86-image-export
   - alpine-3.18-xen-tools-export
 
 .qemu-arm64:
   extends: .test-jobs-common
   variables:
-    CONTAINER: xen_rel
     LOGFILE: qemu-smoke-arm64.log
   artifacts:
     paths:
@@ -34,7 +33,7 @@ qemu-smoke-dom0-arm64-gcc:
     - ./automation/renesas-scripts/qemu-smoke-dom0-arm64.sh 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-arm64
+    - xen-gcc-arm64
 
 qemu-smoke-dom0-arm64-gcc-debug:
   extends: .qemu-arm64
@@ -42,7 +41,7 @@ qemu-smoke-dom0-arm64-gcc-debug:
     - ./automation/renesas-scripts/qemu-smoke-dom0-arm64.sh 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64
+    - xen-gcc-debug-arm64
 
 qemu-smoke-dom0less-arm64-gcc:
   extends: .qemu-arm64
@@ -50,7 +49,7 @@ qemu-smoke-dom0less-arm64-gcc:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-arm64
+    - xen-gcc-arm64
 
 qemu-smoke-dom0less-arm64-gcc-debug:
   extends: .qemu-arm64
@@ -58,7 +57,7 @@ qemu-smoke-dom0less-arm64-gcc-debug:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64
+    - xen-gcc-debug-arm64
 
 qemu-smoke-dom0less-arm64-gcc-debug-gicv3:
   extends: .qemu-arm64
@@ -66,7 +65,7 @@ qemu-smoke-dom0less-arm64-gcc-debug-gicv3:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh gicv3 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64
+    - xen-gcc-debug-arm64
 
 qemu-smoke-dom0less-arm64-gcc-debug-staticmem:
   extends: .qemu-arm64
@@ -74,7 +73,7 @@ qemu-smoke-dom0less-arm64-gcc-debug-staticmem:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh static-mem 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64-staticmem
+    - xen-gcc-debug-arm64-staticmem
 
 qemu-smoke-dom0less-arm64-gcc-debug-staticheap:
  extends: .qemu-arm64
@@ -82,7 +81,7 @@ qemu-smoke-dom0less-arm64-gcc-debug-staticheap:
    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh static-heap 2>&1 | tee ${LOGFILE}
  needs:
    - *arm64-test-needs
-   - alpine-3.18-gcc-debug-arm64
+   - xen-gcc-debug-arm64
 
 qemu-smoke-dom0less-arm64-gcc-debug-static-shared-mem:
   extends: .qemu-arm64
@@ -90,7 +89,7 @@ qemu-smoke-dom0less-arm64-gcc-debug-static-shared-mem:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh static-shared-mem 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64-static-shared-mem
+    - xen-gcc-debug-arm64-static-shared-mem
 
 qemu-smoke-dom0less-arm64-gcc-debug-boot-cpupools:
   extends: .qemu-arm64
@@ -98,7 +97,7 @@ qemu-smoke-dom0less-arm64-gcc-debug-boot-cpupools:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh boot-cpupools 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64-boot-cpupools
+    - xen-gcc-debug-arm64-boot-cpupools
 
 qemu-smoke-dom0less-arm64-gcc-debug-earlyprintk:
   extends: .qemu-arm64
@@ -106,7 +105,7 @@ qemu-smoke-dom0less-arm64-gcc-debug-earlyprintk:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh earlyprintk 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64-earlyprintk
+    - xen-gcc-debug-arm64-earlyprintk
 
 ###XTF###
 
@@ -219,7 +218,7 @@ qemu-smoke-dom0less-arm64-rtds_sched_cmdline:
     - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh rtds_sched_cmdline 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
-    - alpine-3.18-gcc-debug-arm64
+    - xen-gcc-debug-arm64
 
 qemu-xtf-dom0-arm64-hyp-domctl-sched-rtds-edf:
   extends: .qemu-arm64
