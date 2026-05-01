@@ -7,10 +7,12 @@
 .arm64-test-needs: &arm64-test-needs
   - linux-6.6.86-image-export
   - alpine-3.18-rootfs-export
+  - alpine-3.18-xen-tools-export
 
 .arm64-xtf-test-needs: &arm64-xtf-test-needs
   - alpine-3.18-gcc-arm64
   - linux-6.6.86-image-export
+  - alpine-3.18-xen-tools-export
 
 .qemu-arm64:
   extends: .test-jobs-common

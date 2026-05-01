@@ -25,3 +25,23 @@ alpine-3.18-rootfs-export:
   tags:
     - arm64
   needs: []
+
+# Xen Tools
+alpine-3.18-xen-tools-export:
+  stage: artifacts
+  image: registry.gitlab.com/xen-project/xen/alpine:3.18-arm64v8
+  script:
+    - mkdir -p binaries
+    - ./automation/renesas-scripts/build 2>&1 | tee build.log
+  artifacts:
+    paths:
+      - binaries/xen-tools.cpio.gz
+  tags:
+    - arm64
+  needs: []
+  variables:
+    CC: gcc
+    CXX: g++
+    XEN_TARGET_ARCH: arm64
+    debug: n
+    TOOLS_ONLY: y

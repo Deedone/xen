@@ -6,7 +6,8 @@
     - ./automation/renesas-scripts/build 2>&1 | tee build.log
   artifacts:
     paths:
-      - binaries/
+      - binaries/xen
+      - binaries/xen-syms
       - xen-config
       - '*.log'
       - '*/*.log'
@@ -69,11 +70,13 @@ alpine-3.18-gcc-arm64:
   extends: .gcc-arm64-build
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
 
 alpine-3.18-gcc-debug-arm64:
   extends: .gcc-arm64-build-debug
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
     EXTRA_XEN_CONFIG: |
       CONFIG_UBSAN=y
       CONFIG_UBSAN_FATAL=y
@@ -82,12 +85,14 @@ alpine-3.18-gcc-arm64-randconfig:
   extends: .gcc-arm64-build
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
     RANDCONFIG: y
 
 alpine-3.18-gcc-debug-arm64-staticmem:
   extends: .gcc-arm64-build-debug
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
     EXTRA_XEN_CONFIG: |
       CONFIG_EXPERT=y
       CONFIG_UNSUPPORTED=y
@@ -97,6 +102,7 @@ alpine-3.18-gcc-debug-arm64-static-shared-mem:
   extends: .gcc-arm64-build-debug
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
     EXTRA_XEN_CONFIG: |
       CONFIG_UNSUPPORTED=y
       CONFIG_STATIC_MEMORY=y
@@ -106,6 +112,7 @@ alpine-3.18-gcc-debug-arm64-boot-cpupools:
   extends: .gcc-arm64-build-debug
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
     EXTRA_XEN_CONFIG: |
       CONFIG_BOOT_TIME_CPUPOOLS=y
 
@@ -113,6 +120,7 @@ alpine-3.18-gcc-debug-arm64-earlyprintk:
   extends: .gcc-arm64-build-debug
   variables:
     CONTAINER: alpine:3.18-arm64v8
+    HYPERVISOR_ONLY: y
     EXTRA_XEN_CONFIG: |
       CONFIG_EARLY_UART_CHOICE_PL011=y
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
@@ -121,5 +129,6 @@ rel-gcc-debug-arm64:
   extends: .gcc-arm64-build-debug
   variables:
     CONTAINER: debian:bookworm-arm64v8
+    HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
 
