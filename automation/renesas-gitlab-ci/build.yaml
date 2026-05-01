@@ -64,25 +64,22 @@ xen-gcc-arm64:
   extends: .gcc-arm64-build
   variables:
     HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
 
 xen-gcc-debug-arm64:
   extends: .gcc-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_UBSAN=y
       CONFIG_UBSAN_FATAL=y
-
-xen-gcc-arm64-randconfig:
-  extends: .gcc-arm64-build
-  variables:
-    HYPERVISOR_ONLY: y
-    RANDCONFIG: y
 
 xen-gcc-debug-arm64-staticmem:
   extends: .gcc-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_EXPERT=y
       CONFIG_UNSUPPORTED=y
@@ -92,6 +89,7 @@ xen-gcc-debug-arm64-static-shared-mem:
   extends: .gcc-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_UNSUPPORTED=y
       CONFIG_STATIC_MEMORY=y
@@ -101,6 +99,7 @@ xen-gcc-debug-arm64-boot-cpupools:
   extends: .gcc-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_BOOT_TIME_CPUPOOLS=y
 
@@ -108,13 +107,7 @@ xen-gcc-debug-arm64-earlyprintk:
   extends: .gcc-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_EARLY_UART_CHOICE_PL011=y
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
-
-xen-gcc-debug-rel_arm64_defconfig:
-  extends: .gcc-arm64-build-debug
-  variables:
-    HYPERVISOR_ONLY: y
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
-
