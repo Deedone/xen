@@ -138,3 +138,4 @@ gen_coverage_report:
     - qemu-xtf-tests
   rules:
     - if: '$RUN_COVERAGE == "true"'
+      when: always
