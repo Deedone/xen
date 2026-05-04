@@ -25,7 +25,10 @@
   variables: &clang
     CC: clang
     CXX: clang++
+    HOSTCC: gcc
+    HOSTCXX: g++
     clang: y
+    llvm: y
 
 .arm64-build-tmpl:
   <<: *build
@@ -54,14 +57,24 @@
   variables:
     <<: *gcc
 
+.atfe-arm64-build:
+  extends: .arm64-build
+  variables:
+    <<: *clang
+
+.atfe-arm64-build-debug:
+  extends: .arm64-build-debug
+  variables:
+    <<: *clang
+
 # Jobs below this line
 
 # Build jobs needed for tests
 
 # Arm builds
 
-xen-gcc-arm64:
-  extends: .gcc-arm64-build
+xen-atfe-arm64:
+  extends: .atfe-arm64-build
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
@@ -69,8 +82,8 @@ xen-gcc-arm64:
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG_INFO=y
 
-xen-gcc-debug-arm64:
-  extends: .gcc-arm64-build-debug
+xen-atfe-debug-arm64:
+  extends: .atfe-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
@@ -79,8 +92,8 @@ xen-gcc-debug-arm64:
       CONFIG_UBSAN_FATAL=y
       CONFIG_CMDLINE="xsm=flask flask=permissive"
 
-xen-gcc-debug-arm64-staticmem:
-  extends: .gcc-arm64-build-debug
+xen-atfe-debug-arm64-staticmem:
+  extends: .atfe-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
@@ -90,8 +103,8 @@ xen-gcc-debug-arm64-staticmem:
       CONFIG_STATIC_MEMORY=y
       CONFIG_CMDLINE="xsm=flask flask=permissive"
 
-xen-gcc-debug-arm64-static-shared-mem:
-  extends: .gcc-arm64-build-debug
+xen-atfe-debug-arm64-static-shared-mem:
+  extends: .atfe-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
@@ -101,8 +114,8 @@ xen-gcc-debug-arm64-static-shared-mem:
       CONFIG_STATIC_SHM=y
       CONFIG_CMDLINE="xsm=flask flask=permissive"
 
-xen-gcc-debug-arm64-boot-cpupools:
-  extends: .gcc-arm64-build-debug
+xen-atfe-debug-arm64-boot-cpupools:
+  extends: .atfe-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
@@ -110,8 +123,8 @@ xen-gcc-debug-arm64-boot-cpupools:
       CONFIG_BOOT_TIME_CPUPOOLS=y
       CONFIG_CMDLINE="xsm=flask flask=permissive"
 
-xen-gcc-debug-arm64-earlyprintk:
-  extends: .gcc-arm64-build-debug
+xen-atfe-debug-arm64-earlyprintk:
+  extends: .atfe-arm64-build-debug
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig

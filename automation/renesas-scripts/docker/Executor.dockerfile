@@ -198,6 +198,7 @@ RUN apt-get update && \
     file=1:5.44-3 \
     flex=2.6.4-8.2 \
     gcc=4:12.2.0-3 \
+    g++=4:12.2.0-3 \
     gdb-multiarch=13.1-3 \
     git=1:2.39.5-0+deb12u3 \
     grep=3.8-5 \
