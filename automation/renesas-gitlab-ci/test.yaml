@@ -212,10 +212,10 @@ qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-max-mem:
     - *arm64-xtf-test-needs
 
 # [XenValTestJob~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
-qemu-smoke-dom0less-arm64-rtds_sched_cmdline:
+qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-cmdline:
   extends: .qemu-arm64
   script:
-    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh rtds_sched_cmdline 2>&1 | tee ${LOGFILE}
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-cmdline 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-test-needs
     - xen-atfe-debug-arm64
