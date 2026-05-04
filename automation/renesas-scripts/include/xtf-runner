@@ -27,6 +27,12 @@ WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
 # XTF source code
 XTF_SRC_CONFIG="${XTF_SRC_CONFIG:-include/configs/xtf-${ARCH}-config}"
 
+LLDB_COV_LOG="${LLDB_COV_LOG:-${XEN_ROOT}/lldb_coverage.log}"
+QEMU_COV_TRACE="${QEMU_COV_TRACE:-${XEN_ROOT}/trace.drcov}"
+
+COVERAGE_OUT="${COVERAGE_OUT:-${XEN_ROOT}/coverage_data}"
+
+
 function die()
 {
     set +x
@@ -113,12 +119,51 @@ function xtf_build_test()
     xtf_build_cmdline ${xtf_variant} ${xtf_name}
 }
 
+function xtf_coverage_setup()
+{
+    if [ "$RUN_COVERAGE" == "true" ]; then
+        echo "Running QEMU with coverage plugin."
+
+        START_HEX=$(readelf -s "${XEN_SYMS}" | grep ' _stext$' | awk '{print $2}')
+        END_HEX=$(readelf -s "${XEN_SYMS}" | awk '$NF == "_einittext" {print $2}')
+
+        START_CODE="0x${START_HEX}"
+        END_CODE="0x${END_HEX}"
+
+        PLUGIN_ARGS=" -plugin /usr/local/lib/qemu-plugins/libdrcov.so"
+        PLUGIN_ARGS+=",filename=${QEMU_COV_TRACE}"
+        PLUGIN_ARGS+=",start_code=${START_CODE}"
+        PLUGIN_ARGS+=",end_code=${END_CODE}"
+        PLUGIN_ARGS+=",bin_path=${WORKDIR}/xen-syms "
+
+        rm -f ${QEMU_COV_TRACE}
+
+        mkdir -p ${COVERAGE_OUT}
+
+        TEST_CMD+="${PLUGIN_ARGS}"
+    fi
+}
+
+function xtf_coverage_result()
+{
+    if [ "$RUN_COVERAGE" == "true" ]; then
+        XEN_ELF="${XEN_SYMS}" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${XTF_NAME}.cov.info \
+            lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
+        > ${LLDB_COV_LOG} 2>&1
+    fi
+}
+
 # Execute an XTF test.
 function xtf_run_test()
 {
     rm -f ${TEST_LOG}
+
+    xtf_coverage_setup
+
     export BOOT_MSG PASSED TEST_CMD TEST_LOG UBOOT_CMD
     ./console.exp |& sed 's/\r\+$//'
+
+    xtf_coverage_result
 }
 
 # Setup environment and run an XTF test.

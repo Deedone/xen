@@ -133,6 +133,8 @@ gen_coverage_report:
       - coverage.info
       - coverage_data
       - coverage-report.tar.gz
-  needs: [qemu-lldb-tests]
+  needs:
+    - qemu-lldb-tests
+    - qemu-xtf-tests
   rules:
     - if: '$RUN_COVERAGE == "true"'

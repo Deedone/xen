@@ -17,6 +17,7 @@
     paths:
       - '*.serial'
       - '*.log'
+      - 'coverage_data'
     when: always
   tags:
     - aws-arm64
@@ -25,124 +26,37 @@
 
 # XTF is run in dom0
 
-qemu-xtf-dom0-arm64-gcc-hyp-xen-version:
+qemu-xtf-tests:
   extends: .qemu-arm64
+  parallel:
+    matrix:
+      - TEST:
+        - "arm64 mmu64le hyp-xen-version"
+        # [XenValTestJob~~1->XenValTestCode~arm64_sysctl_physinfo_host~1]
+        - "arm64 mmu64le hyp-sysctl-physinfo"
+        # [XenValTestJob~~1->XenValTestCode~arm64_domctl_cacheflush~1]
+        - "arm64 mmu64le hyp-domctl-cacheflush"
+        # [XenValTestJob~~1->XenValTestCode~domctl_destroy_domain_using_domctl~1]
+        - "arm64 mmu64le hyp-domctl-destroydomain"
+        - "arm64 mmu64le hyp-domctl-pausedomain"
+        # [XenValTestJob~~1->XenValTestCode~arm64_domctl_set_paging_mempool_size~1]
+        - "arm64 mmu64le hyp-domctl-set-paging-mempool-size"
+        - "arm64 mmu64le hyp-domctl-unpausedomain"
+        # [XenValTestJob~~1->XenValTestCode~sysctl_get_vmlist_using_sysctl~1]
+        - "arm64 mmu64le hyp-sysctl-getdomaininfolist"
+        # [XenValTestJob~~1->XenValTestCode~arm64_domctl_getdomaininfo_domain~1]
+        - "arm64 mmu64le hyp-domctl-getdomaininfo"
+        # [XenValTestJob~~1->XenValTestCode~arm64_domctl_createdomain~1]
+        - "arm64 mmu64le hyp-domctl-createdomain"
+        # [XenValTestJob~~1->XenValTestCode~arm64_domctl_get_paging_mempool_size~1]
+        - "arm64 mmu64le hyp-domctl-get-paging-mempool-size"
+        # [XenValTestJob~~1->XenValTestCode~domctl_max_mem~1]
+        - "arm64 mmu64le hyp-domctl-max-mem"
+        # [XenValTestJob~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
+        - "arm64 mmu64le hyp-sysctl-sched-rtds-cmdline"
+        - "arm64 mmu64le hyp-sysctl-sched-rtds-edf"
+        - "arm64 mmu64le hyp-sysctl-sched-rtds-extratime"
   script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-xen-version 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-qemu-xtf-dom0-arm64-gcc-debug-hyp-xen-version:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-xen-version 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~arm64_sysctl_physinfo_host~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-physinfo:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-physinfo 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~arm64_domctl_cacheflush~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-cacheflush:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-cacheflush 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~domctl_destroy_domain_using_domctl~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-destroydomain:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-destroydomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-pausedomain:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-pausedomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~arm64_domctl_set_paging_mempool_size~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-set-paging-mempool-size:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-set-paging-mempool-size 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-unpausedomain:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-unpausedomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~sysctl_get_vmlist_using_sysctl~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-getdomaininfolist:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-getdomaininfolist 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~arm64_domctl_getdomaininfo_domain~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-getdomaininfo:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-getdomaininfo 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~arm64_domctl_createdomain~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-createdomain:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-createdomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~arm64_domctl_get_paging_mempool_size~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-get-paging-mempool-size:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-get-paging-mempool-size 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~~1->XenValTestCode~domctl_max_mem~1]
-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-max-mem:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-max-mem 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-# [XenValTestJob~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-cmdline:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-cmdline 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-edf:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-edf 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
-
-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime:
-  extends: .qemu-arm64
-  script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-extratime 2>&1 | tee ${LOGFILE}
+    - ./automation/renesas-scripts/qemu-xtf.sh ${TEST} 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs

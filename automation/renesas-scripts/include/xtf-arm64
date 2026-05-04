@@ -9,6 +9,7 @@ function xtf_arch_prepare()
     export FW_PREFIX="${FW_PREFIX:-/usr/lib/u-boot/qemu_arm64/}"
     export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
     export XEN_BINARY="${XEN_BINARY:-${WORKDIR}/xen}"
+    export XEN_SYMS="${XEN_SYMS:-${WORKDIR}/xen-syms}"
     export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all dom0_mem=128M noreboot console_timestamps=boot console=dtuart}"
     export XTF_SRC_BRANCH="${XTF_SRC_BRANCH:-safety-staging}"
     export XTF_SRC_URI="${XTF_SRC_URI:-https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/xtf.git}"
