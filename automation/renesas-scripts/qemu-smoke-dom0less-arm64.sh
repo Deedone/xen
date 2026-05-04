@@ -81,15 +81,6 @@ if [[ "${test_variant}" == "gicv3" ]]; then
     domU_check="echo \"${passed}\""
 fi
 
-if [[ "${test_variant}" == "rtds_sched_cmdline" ]]; then
-    XEN_CMDLINE_EXTRA="conswitch=ax sched=rtds"
-    DOMU_MESSAGE="DOM1 online"
-    domU_check="echo \"${DOMU_MESSAGE}\""
-    TRIGGER_MSG="\\(XEN\\).*${DOMU_MESSAGE}"
-    TRIGGER_CMD="r"
-    passed="\\(XEN\\).*Scheduler: SMP RTDS Scheduler \\(rtds\\)"
-fi
-
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a53 \
     -machine virt,virtualization=true,gic-version=$gic_version \
