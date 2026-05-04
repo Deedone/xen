@@ -6,8 +6,10 @@ import os
 
 import lldb_automation as dbg
 
-def SchedulerInitExit(frame):
-    expr = f"&((struct scheduler *)__start_schedulers_array)[{0}]"
+def Check_sched_entry(frame):
+    start_addr = dbg.evaluate_expression_int(frame, "&__start_schedulers_array")
+
+    expr = f"((struct scheduler **){start_addr})[0]"
     sched_ptr = dbg.evaluate_expression_int(frame, expr)
 
     if sched_ptr == 0:
@@ -17,18 +19,27 @@ def SchedulerInitExit(frame):
         print(f"[FAIL] Corrupted scheduler 0x{sched_ptr:x} is still active\n")
         os._exit(1)
 
+def SchedulerInitExit(frame):
+    Check_sched_entry(frame)
+
+def Panic(frame):
+    # If corrupted scheduler is default scheduler, it is expected to BUG_ON()
+    Check_sched_entry(frame)
 
 def SchedulerInit(frame):
     dbg.install_exit_hook(frame, SchedulerInitExit)
 
-    name_addr_expr = f"((struct scheduler *)__start_schedulers_array)[0]->name"
+    start_addr = dbg.evaluate_expression_int(frame, "&__start_schedulers_array")
+
+    name_addr_expr = f"((struct scheduler **){start_addr})[0]->name"
     name_addr = dbg.evaluate_expression_int(frame, name_addr_expr)
+
     name = dbg.evaluate_expression_str(frame, f"(char*){name_addr}")
 
     print(f"[+] Scheduler '{name}' at index {0}!")
 
     # 4. Calculate the address of do_schedule
-    do_sched_expr = f"&(((struct scheduler *)__start_schedulers_array)[0]->do_schedule)"
+    do_sched_expr = f"&(((struct scheduler **){start_addr})[0]->do_schedule)"
     do_sched_ofset = dbg.evaluate_expression_int(frame, do_sched_expr)
 
     dbg.evaluate_expression(frame, f"*(uint64_t *){do_sched_ofset}=0x0")
@@ -40,6 +51,7 @@ port = int(os.environ.get("XEN_PORT", "1234"))
 try:
     dbg.connect(elf_path, port)
     dbg.install_entry_hook("scheduler_init", SchedulerInit)
+    dbg.install_entry_hook("panic", Panic)
     dbg.resume()
 
 finally:
