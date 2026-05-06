@@ -91,6 +91,7 @@
 #include <asm/io.h>
 #include <asm/iommu_fwspec.h>
 #include <asm/platform.h>
+#include <asm/suspend.h>
 
 #include "smmu-v3.h"
 
@@ -1866,6 +1867,7 @@ static void arm_smmu_write_msi_msg(struct msi_desc *desc, struct msi_msg *msg)
 
 static void arm_smmu_setup_msis(struct arm_smmu_device *smmu)
 {
+	static bool __ro_after_init host_suspend_blocked_by_msi;
 	struct msi_desc *desc;
 	int ret, nvec = ARM_SMMU_MAX_MSIS;
 	struct device *dev = smmu->dev;
@@ -1908,6 +1910,13 @@ static void arm_smmu_setup_msis(struct arm_smmu_device *smmu)
 		default:	/* Unknown */
 			continue;
 		}
+	}
+
+	if ( !host_suspend_blocked_by_msi )
+	{
+		host_suspend_blocked_by_msi = true;
+		host_system_suspend_disable(
+			"SMMUv3 MSI IRQ path is unsupported for host suspend");
 	}
 
 	/* Add callback to free MSIs on teardown */

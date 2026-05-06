@@ -137,6 +137,7 @@ const struct vuart_info* serial_vuart_info(int idx);
 /* Serial suspend/resume. */
 void serial_suspend(void);
 void serial_resume(void);
+bool serial_suspend_supported(void);
 #endif
 
 /*

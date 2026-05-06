@@ -6,6 +6,8 @@
 #if __has_include(<asm/suspend.h>)
 #include <asm/suspend.h>
 #else
+struct domain;
+
 static inline void arch_domain_resume(struct domain *d) {}
 #endif
 

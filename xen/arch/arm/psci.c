@@ -42,6 +42,13 @@ static bool __ro_after_init has_psci_system_suspend;
 
 #define PSCI_RET(res)   ((int32_t)(res).a0)
 
+#ifdef CONFIG_SYSTEM_SUSPEND
+bool psci_system_suspend_allowed(void)
+{
+    return has_psci_system_suspend;
+}
+#endif
+
 int call_psci_cpu_on(int cpu)
 {
     struct arm_smccc_res res;

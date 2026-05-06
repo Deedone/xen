@@ -39,7 +39,15 @@ extern struct resume_cpu_context resume_cpu_context;
 
 int prepare_resume_ctx(void);
 void hyp_resume(void);
-#endif /* CONFIG_SYSTEM_SUSPEND */
+bool host_system_suspend_allowed(void);
+void host_system_suspend_disable(const char *reason);
+
+#else /* !CONFIG_SYSTEM_SUSPEND */
+
+static inline bool host_system_suspend_allowed(void) { return false; }
+static inline void host_system_suspend_disable(const char *reason) {}
+
+#endif
 
 #endif /* ARM_SUSPEND_H */
 

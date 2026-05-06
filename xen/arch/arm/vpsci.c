@@ -5,6 +5,7 @@
 
 #include <asm/current.h>
 #include <asm/domain.h>
+#include <asm/suspend.h>
 #include <asm/vgic.h>
 #include <asm/vpsci.h>
 #include <asm/event.h>
@@ -219,6 +220,89 @@ static void do_psci_0_2_system_reset(void)
     domain_shutdown(d,SHUTDOWN_reboot);
 }
 
+/*
+ * Serialise SYSTEM_SUSPEND policy decisions with the domain suspend transition,
+ * so multiple control domains cannot all observe each other as still awake.
+ */
+static DEFINE_SPINLOCK(vpsci_system_suspend_lock);
+
+static bool domain_in_suspend_state(struct domain *d)
+{
+    bool suspended;
+
+    spin_lock(&d->shutdown_lock);
+    suspended = d->is_shut_down && d->shutdown_code == SHUTDOWN_suspend;
+    spin_unlock(&d->shutdown_lock);
+
+    return suspended;
+}
+
+static int32_t domain_psci_system_suspend_policy(struct domain *d)
+{
+    struct domain *other;
+    bool last_awake_control_domain = true;
+    bool awake_non_control_domain = false;
+
+    /* Only control domains participate in sequencing policy. */
+    if ( !is_control_domain(d) )
+        return 0;
+
+    rcu_read_lock(&domlist_read_lock);
+
+    for_each_domain ( other )
+    {
+        bool suspended;
+
+        if ( other == d )
+            continue;
+
+        suspended = domain_in_suspend_state(other);
+        if ( suspended )
+            continue;
+
+        if ( is_control_domain(other) )
+        {
+            last_awake_control_domain = false;
+            break;
+        }
+
+        awake_non_control_domain = true;
+    }
+
+    rcu_read_unlock(&domlist_read_lock);
+
+    /*
+     * Another control domain is still awake. This request is only the first
+     * phase of the sequencing: park this control domain and leave the host
+     * running. Host-wide suspend gates must not block this intermediate state.
+     */
+    if ( !last_awake_control_domain )
+        return 0;
+
+    /*
+     * This is the last awake control domain. It must not be parked unless the
+     * request can proceed as a host-suspend request; otherwise Xen would lose
+     * the last domain that can coordinate the system suspend.
+     */
+    if ( awake_non_control_domain )
+    {
+        printk(XENLOG_DEBUG
+               "SYSTEM_SUSPEND denied for %pd: non-control domains awake\n",
+               d);
+        return PSCI_DENIED;
+    }
+
+    /*
+     * Host-wide gates are relevant only for the last-control-domain case. They
+     * must not block parking of a non-last control domain, but they must deny
+     * the last control domain when host suspend is not currently available.
+     */
+    if ( !host_system_suspend_allowed() )
+        return PSCI_DENIED;
+
+    return 0;
+}
+
 static int32_t do_psci_1_0_system_suspend(register_t epoint, register_t cid)
 {
     int32_t rc;
@@ -231,10 +315,6 @@ static int32_t do_psci_1_0_system_suspend(register_t epoint, register_t cid)
     /* THUMB set is not allowed with 64-bit domain */
     if ( is_64bit_domain(d) && is_thumb )
         return PSCI_INVALID_ADDRESS;
-
-    /* SYSTEM_SUSPEND is not supported for the hardware domain yet */
-    if ( is_hardware_domain(d) )
-        return PSCI_NOT_SUPPORTED;
 
     /* Ensure that all CPUs other than the calling one are offline */
     domain_lock(d);
@@ -252,15 +332,28 @@ static int32_t do_psci_1_0_system_suspend(register_t epoint, register_t cid)
     if ( rc )
         return PSCI_DENIED;
 
-    rc = domain_shutdown(d, SHUTDOWN_suspend);
+    spin_lock(&vpsci_system_suspend_lock);
+
+    rc = domain_psci_system_suspend_policy(d);
+    if ( !rc )
+    {
+        rc = domain_shutdown(d, SHUTDOWN_suspend);
+        if ( rc )
+            rc = PSCI_DENIED;
+        else
+        {
+            rctx->ctxt = ctxt;
+            rctx->wake_cpu = current;
+        }
+    }
+
+    spin_unlock(&vpsci_system_suspend_lock);
+
     if ( rc )
     {
         free_vcpu_guest_context(ctxt);
-        return PSCI_DENIED;
+        return rc;
     }
-
-    rctx->ctxt = ctxt;
-    rctx->wake_cpu = current;
 
     gprintk(XENLOG_DEBUG,
             "SYSTEM_SUSPEND requested, epoint=%#"PRIregister", cid=%#"PRIregister"\n",
@@ -287,10 +380,9 @@ static int32_t do_psci_1_0_features(uint32_t psci_func_id)
     case PSCI_0_2_FN32_SYSTEM_RESET:
     case PSCI_1_0_FN32_PSCI_FEATURES:
     case ARM_SMCCC_VERSION_FID:
-        return 0;
     case PSCI_1_0_FN32_SYSTEM_SUSPEND:
     case PSCI_1_0_FN64_SYSTEM_SUSPEND:
-        return is_hardware_domain(current->domain) ? PSCI_NOT_SUPPORTED : 0;
+        return 0;
     default:
         return PSCI_NOT_SUPPORTED;
     }
