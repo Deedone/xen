@@ -1,0 +1,17 @@
+# The west manifest file for upstream Zephyr
+
+manifest:
+
+  projects:
+    - name: zephyr
+      url: https://github.com/zephyrproject-rtos/zephyr.git
+      revision: "v4.4-branch"
+      path: zephyr
+      west-commands: scripts/west-commands.yml
+    - name: zephyr-xenlib
+      url: https://github.com/xen-troops/zephyr-xenlib.git
+      revision: "main"
+      path: zephyr-xenlib
+
+  self:
+    path: manifest

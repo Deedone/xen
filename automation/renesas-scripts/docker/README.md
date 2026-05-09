@@ -41,6 +41,7 @@ Build uses a multi-stage Docker pipeline:
 DOCKER_BUILDKIT=1 docker build --target builder --platform linux/arm64 --progress=plain -t executor:builder -f Executor.dockerfile .
 DOCKER_BUILDKIT=1 docker build --target qemu_build --platform linux/arm64 --progress=plain -t executor:qemu_build -f Executor.dockerfile .
 DOCKER_BUILDKIT=1 docker build --target atfe_build --platform linux/arm64 --progress=plain -t executor:atfe_build -f Executor.dockerfile .
+DOCKER_BUILDKIT=1 docker build --target zephyr_build --platform linux/arm64 --progress=plain -t executor:zephyr_build -f Executor.dockerfile .
 DOCKER_BUILDKIT=1 docker build --target runner --platform linux/arm64 --progress=plain -t executor:runner -f Executor.dockerfile .
 ```
 

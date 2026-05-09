@@ -179,8 +179,29 @@ RUN wget --progress=bar:force:noscroll ${ATfE_URL} \
 
 ########################################################################
 
+FROM builder AS zephyr_build
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG ZEPHYR_SDK_VERSION=1.0.1
+ARG ZEPHYR_SDK_URL=https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${ZEPHYR_SDK_VERSION}/zephyr-sdk-${ZEPHYR_SDK_VERSION}_linux-aarch64_gnu.tar.xz
+
+WORKDIR /tmp
+
+RUN mkdir -p /opt && mkdir -p /opt/zephyr \
+    && wget --progress=bar:force:noscroll ${ZEPHYR_SDK_URL} \
+    && tar xf zephyr-sdk-${ZEPHYR_SDK_VERSION}_linux-aarch64_gnu.tar.xz \
+    --strip-components=1 \
+    -C /opt/zephyr \
+    --wildcards \
+    '*/gnu/aarch64-zephyr-elf/*' \
+    '*/cmake/*' \
+    '*/sdk_version' \
+    && rm -f /tmp/zephyr-sdk-${ZEPHYR_SDK_VERSION}_linux-aarch64_gnu.tar.xz
+
+########################################################################
+
 #Final image
-FROM --platform=linux/arm64/v8 debian:bookworm@sha256:d01662367b48fc3bd42f389af59f2b39e20652b8f4be4130f80d1ac223d7eb27 AS runner
+FROM --platform=linux/arm64/v8 python:3.12-bookworm@sha256:49de7aa80568e7a112035322a6a961cd55774862b35198886f7508223abf6ca1 AS runner
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
@@ -210,7 +231,6 @@ RUN apt-get update && \
     libnl-route-3-dev=3.7.0-0.2+b1 \
     libncurses-dev=6.4-4 \
     libpixman-1-dev=0.42.2-1 \
-    libpython3-dev=3.11.2-1+b1 \
     libslirp-dev=4.7.0-1 \
     libyajl-dev=2.1.0-3+deb12u2 \
     markdown=1.0.1-12 \
@@ -218,11 +238,6 @@ RUN apt-get update && \
     ninja-build=1.11.1-2~deb12u1 \
     pandoc=2.17.1.1-2~deb12u1 \
     pkg-config=1.8.1-1 \
-    python3=3.11.2-1+b1 \
-    python3-dev=3.11.2-1+b1 \
-    python3-pip=23.0.1+dfsg-1 \
-    python3-setuptools=66.1.1-1+deb12u2 \
-    python3-venv=3.11.2-1+b1 \
     u-boot-qemu=2023.01+dfsg-2+deb12u2 \
     u-boot-tools=2023.01+dfsg-2+deb12u2 \
     unzip=6.0-28 \
@@ -238,5 +253,25 @@ COPY --from=qemu_build /opt/qemu/lib/qemu-plugins /usr/local/lib/qemu-plugins
 
 # Copy ATfE
 COPY --from=atfe_build /opt/atfe /usr/local
+
+# Copy Zephyr
+COPY --from=zephyr_build /opt/zephyr /usr/local/zephyr
+ENV ZEPHYR_SDK_INSTALL_DIR=/usr/local/zephyr
+ENV ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+RUN pip3 install --break-system-packages \
+    west \
+    pyelftools \
+    PyYAML \
+    packaging \
+    pykwalify \
+    jsonschema \
+    kconfiglib \
+    junitparser
+
+WORKDIR /usr/local/zephyr
+COPY manifest /usr/local/zephyr/manifest
+RUN west init -l manifest \
+    && west update --fetch-opt=--depth=1 --fetch-opt=--no-tags \
+    && west zephyr-export
 
 WORKDIR /build
