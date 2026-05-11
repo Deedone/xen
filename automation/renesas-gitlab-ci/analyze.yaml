@@ -1,7 +1,7 @@
 .eclair-analysis:
   stage: analyze
   tags:
-    - eclair-analysis
+    - epdefrans
   variables:
     ECLAIR_OUTPUT_DIR: "ECLAIR_out"
     ANALYSIS_KIND: "normal"
@@ -50,7 +50,7 @@ eclair-accepted:
 eclair-server-start:
   stage: analyze
   tags:
-    - eclair-analysis
+    - epdefrans
   variables:
     TERM: xterm
   script:
@@ -67,7 +67,7 @@ eclair-server-start:
 eclair-server-stop:
   stage: analyze
   tags:
-    - eclair-analysis
+    - epdefrans
   script:
     - ps -aux | grep eclair_report || true
     - pkill eclair_report || true
