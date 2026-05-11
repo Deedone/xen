@@ -223,7 +223,6 @@ RUN apt-get update && \
     gdb-multiarch=13.1-3 \
     git=1:2.39.5-0+deb12u3 \
     grep=3.8-5 \
-    lcov=1.16-1 \
     libfdt-dev=1.6.1-4+b1 \
     libglib2.0-dev=2.74.6-2+deb12u8 \
     liblzma-dev=5.4.1-1 \
@@ -233,6 +232,12 @@ RUN apt-get update && \
     libpixman-1-dev=0.42.2-1 \
     libslirp-dev=4.7.0-1 \
     libyajl-dev=2.1.0-3+deb12u2 \
+    libcapture-tiny-perl=0.48-2 \
+    libdatetime-perl=2:1.59-1 \
+    libdevel-cover-perl=1.38-1+b1 \
+    libjson-perl=4.10000-1 \
+    libtimedate-perl=2.3300-2 \
+    libmodule-load-conditional-perl=0.74-2 \
     markdown=1.0.1-12 \
     make=4.3-4.1 \
     ninja-build=1.11.1-2~deb12u1 \
@@ -273,5 +278,12 @@ COPY manifest /usr/local/zephyr/manifest
 RUN west init -l manifest \
     && west update --fetch-opt=--depth=1 --fetch-opt=--no-tags \
     && west zephyr-export
+
+# Install LCOV
+ARG LCOV_BRANCH=v2.4
+ARG LCOV_GIT=https://github.com/linux-test-project/lcov.git
+WORKDIR /tmp
+RUN cd /tmp && git clone -b "${LCOV_BRANCH}" --single-branch --depth 1 "${LCOV_GIT}" \
+    && cd lcov &&  make install && cd /tmp && rm -fr /tmp/*
 
 WORKDIR /build
