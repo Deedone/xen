@@ -66,7 +66,7 @@ class Function:
 
         for call in self.calls:
             if not recursion and call in path:
-                return
+                continue
             if call.function.name in excluded_functions:
                 continue
             path.append(call)
@@ -84,7 +84,7 @@ class Function:
 
         for call in self.called_by:
             if not recursion and call in path:
-                return
+                continue
             if call.function.name in excluded_functions:
                 continue
             path.appendleft(call)
