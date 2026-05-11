@@ -22,6 +22,7 @@ param_pattern = re.compile(r"(?P<param>\w+)(=| )(?P<value>\S+)")
 trace_pattern = re.compile(rf"{xen_info} Xen call trace:")
 call_pattern = re.compile(rf"{xen_info}\s+\[.+\] (. )?(?P<function>[\w\-\/#\.]+)\+.+")
 header_pattern = re.compile(r"^(?P<function>\w+)\(\)\s*$")
+body_line_pattern = re.compile(r"^[\w\-\/#\.]+$")
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -332,7 +333,7 @@ def parse_comments(comments_path: Path):
     with open(comments_path, "r") as file:
         path = None
         comment = ""
-        for line in file:
+        for lineno, line in enumerate(file, 1):
             line = line.strip()
             if line.startswith("//"):
                 if path:
@@ -347,6 +348,11 @@ def parse_comments(comments_path: Path):
                     path = None
                 path = CallPath(match.group("function"), "", "")
             elif path and line != "N/A":
+                if not body_line_pattern.match(line):
+                    raise ValueError(
+                        f"{comments_path}:{lineno}: unexpected line inside "
+                        f"entry for {path.function}(): {line!r}"
+                    )
                 path.appendleft(line)
     if path:
         comments[path] = comment
