@@ -2,6 +2,8 @@
 
 set -ex -o pipefail
 
+export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
+
 test_variant=$1
 
 # Default GIC version
@@ -88,7 +90,7 @@ if [[ "${test_variant}" == "rtds_sched_cmdline" ]]; then
     passed="\\(XEN\\).*Scheduler: SMP RTDS Scheduler \\(rtds\\)"
 fi
 
-qemu-system-aarch64 \
+${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a53 \
     -machine virt,virtualization=true,gic-version=$gic_version \
     -m 2048 \
@@ -239,7 +241,7 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 
 # Run the test
 rm -f smoke.serial
-export TEST_CMD="qemu-system-aarch64 \
+export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a53 \
     -machine virt,virtualization=true,gic-version=$gic_version \
     -accel tcg,thread=multi \

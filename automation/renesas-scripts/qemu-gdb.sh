@@ -12,6 +12,7 @@ fi
 export GDB_SCRIPT="$1"
 export XEN_ROOT="${PWD}"
 export WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
+export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
 
 export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 export GDB_LOG="${GDB_LOG:-${XEN_ROOT}/gdb.serial}"
@@ -26,7 +27,7 @@ rm -f ${GDB_LOG}
 rm -f ${XEN_LOG}
 
 # Generate base device tree from QEMU
-qemu-system-aarch64 \
+${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a57 \
     -machine virt,virtualization=true,gic-version=3 \
     -m 2048 \
@@ -38,7 +39,7 @@ fdtput -c ${WORKDIR}/virt-gicv3.dtb /chosen || true
 fdtput -t s ${WORKDIR}/virt-gicv3.dtb /chosen xen,xen-bootargs "${XEN_CMDLINE}"
 
 # Run QEMU in background, GBD conflicts with "-serial stdio", so write Xen logs into file
-qemu-system-aarch64 \
+${QEMU_PREFIX}qemu-system-aarch64 \
     -s -S \
     -cpu cortex-a57 \
     -machine virt,virtualization=true,gic-version=3 \

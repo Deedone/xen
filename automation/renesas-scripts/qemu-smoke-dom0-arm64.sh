@@ -2,6 +2,8 @@
 
 set -ex -o pipefail
 
+export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
+
 # DomU Busybox
 cd binaries
 mkdir -p initrd
@@ -88,7 +90,7 @@ chmod +x sbin/fast-init
 find . | cpio -R 0:0 -H newc -o | gzip >> ../dom0-rootfs.cpio.gz
 cd ../..
 
-qemu-system-aarch64 \
+${QEMU_PREFIX}qemu-system-aarch64 \
    -cpu cortex-a53 \
    -machine virt,virtualization=true,gic-version=3 \
    -m 2048 \
@@ -120,7 +122,7 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 
 # Run the test
 rm -f smoke.serial
-export TEST_CMD="qemu-system-aarch64 \
+export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a53 \
     -machine virt,virtualization=true,gic-version=3 \
     -accel tcg,thread=multi \
