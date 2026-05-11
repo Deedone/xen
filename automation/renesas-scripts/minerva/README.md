@@ -222,6 +222,100 @@ _xzalloc
     _xmalloc
 ```
 
+## Parser Scope and Limitations
+
+The parser groups WARN-instrumented events into two per-pointer maps,
+each tracking the same allocation/free family:
+
+- `xmalloc` family--  alloc functions `xmem_pool_alloc`,
+  `xmalloc_whole_pages`; free function `xfree`. Outstanding
+  allocations live in the per-pointer deque routed through
+  `xmalloc_paths` in `Log.parse`.
+- `domheap` family--  alloc function `alloc_domheap_pages`; free
+  functions `free_domheap_pages`, `free_xenheap_pages`. Outstanding
+  allocations live in the per-pointer deque routed through
+  `alloc_domheap_paths`.
+
+Each WARN is routed by its function name. Pairing alloc with free is
+done by pointer key inside one family only; the parser never moves
+a free across families to match an alloc in the other.
+
+### Cross-family allocation/free observations
+
+A `_xmalloc(size)` of a whole-page-or-larger allocation passes
+through `xmalloc_whole_pages  ->  alloc_xenheap_pages  -> 
+alloc_domheap_pages(NULL, ...)`. With the current kernel
+instrumentation, **both** `xmalloc_whole_pages` and
+`alloc_domheap_pages` emit a WARN at the same returned pointer, so
+the same logical allocation is recorded twice--  once in each
+family's per-pointer map. The corresponding `xfree(p)` similarly
+emits both an `xfree` WARN and a `free_xenheap_pages` WARN on the
+sub-page chunks, so both maps see matching frees. Pairing succeeds
+**within each family**; the parser does not need to cross families
+to close these allocations.
+
+In observed pipeline data (pipeline 1674833972, the reference
+pipeline used by the surrounding analysis) the
+`xmalloc_whole_pages` / `free_xenheap_pages` paths are not exercised
+post-`SYS_STATE_active`, so no cross-family event is produced in
+practice. A zero-cross-family-pair result on that pipeline is the
+expected outcome of the current model.
+
+### One-sided observations
+
+Two cases can produce a one-sided alloc-or-free event with no
+matching counterpart in the WARN stream:
+
+- **Pre-`SYS_STATE_active` allocation, post-active free.** The WARN
+  gate suppresses output until `system_state >= SYS_STATE_active`.
+  An allocation made earlier (typically during boot, often in the
+  Xen static-virtual address window such as `ffff82e0...` on
+  x86_64) will not have an alloc WARN; if the corresponding free
+  happens post-active, only the free WARN is observed. The parser
+  reports this honestly as a `frees without matching alloc` summary
+  line. It is **not** a cross-family bug, and the parser
+  deliberately does not attempt to silently invent an alloc record
+  for it.
+- **Long-lived allocation, no free during the test window.** Many
+  per-domain init-time allocations (event-channel fifo setup,
+  ioreq-server creation, p2m table growth) are freed only at
+  domain destroy, after the test ends and after WARN logging stops.
+  These appear as outstanding allocations in the per-job parsed
+  output and are the dominant population in the `non-freed` size
+  totals.
+
+### What a stronger cross-family or layered-WARN reconciliation would require
+
+Pointer identity alone is not enough to deduplicate the two WARNs
+emitted for one logical layered allocation
+(`xmalloc_whole_pages  ->  alloc_domheap_pages`), nor to attribute a
+one-sided free to a pre-active alloc. A WARN-side change would be
+needed. The minimum useful additions:
+
+- **Caller return address** in every WARN line (rather than
+  reconstructing the call site from the post-WARN stack dump), so
+  layered WARNs of the same logical operation can be correlated
+  unambiguously.
+- **Layered-allocation tag** on inner WARNs (for example,
+  `alloc_domheap_pages` carrying a hint that it was invoked from
+  `xmalloc_whole_pages`), so the parser can deduplicate inner and
+  outer WARNs of the same logical alloc.
+- **Memflags / allocator-kind** on `alloc_domheap_pages` WARNs, so
+  the parser can distinguish deliberately-anonymous allocations
+  (those using `MEMF_no_owner` or `MEMF_no_refcount`) from
+  accidentally-anonymous ones.
+- **Pre-active suppressed-allocation counter**, so the parser can
+  explain orphan frees whose alloc predates the WARN window
+  instead of treating them as anomalies.
+- **Explicit per-CPU monotonic event ID** on every WARN, the
+  strongest fix: enables deterministic correlation of layered WARNs
+  across nested calls within the same logical operation.
+
+Until one or more of these is added on the kernel side, the parser
+remains a best-effort reconstructor from the existing WARN content,
+and the within-family pairing rule described above is the
+defensible default.
+
 ## Automated Generation of Comments
 
 To avoid repeating the analysis of known stack traces at each pipeline
