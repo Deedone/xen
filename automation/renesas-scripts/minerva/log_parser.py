@@ -42,13 +42,12 @@ class CallPath:
         self.path: deque[str] = deque()
 
     def __eq__(self, other: object):
-        return (isinstance(other, CallPath) and self.path == other.path)
+        return (isinstance(other, CallPath)
+                and self.function == other.function
+                and self.path == other.path)
 
     def __hash__(self):
-        return hash(tuple(self.path))
-
-    def __lt__(self, other: 'CallPath'):
-        return len(self.path) < len(other.path)
+        return hash((self.function, tuple(self.path)))
 
     def __repr__(self):
         size = f"(size={self.params.get('size')})" if "size" in self.params else ""
@@ -191,10 +190,9 @@ class Log:
         for domain_paths in paths.values():
             groups: dict[CallPath, list[CallPath]] = {}
             total_sizes: dict[CallPath, int] = {}
-            for path, group in groupby(domain_paths):
-                group_list = list(group)
-                groups[path] = group_list
-                total_sizes[path] = sum(p.size for p in group_list)
+            for path in domain_paths:
+                groups.setdefault(path, []).append(path)
+                total_sizes[path] = total_sizes.get(path, 0) + path.size
             for path in sorted(groups, key=lambda path: total_sizes[path], reverse=True):
                 print(comments[path], end="")
                 print(f"Domain     : {path.domain}")
