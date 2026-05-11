@@ -21,7 +21,7 @@ debug_pattern = re.compile(rf"{xen_info} DEBUG: (?P<domain>d(\d+|\[IDLE\])|NULL)
 param_pattern = re.compile(r"(?P<param>\w+)(=| )(?P<value>\S+)")
 trace_pattern = re.compile(rf"{xen_info} Xen call trace:")
 call_pattern = re.compile(rf"{xen_info}\s+\[.+\] (. )?(?P<function>[\w\-\/#\.]+)\+.+")
-header_pattern = re.compile(r"(?P<function>\w+)\(\)")
+header_pattern = re.compile(r"^(?P<function>\w+)\(\)\s*$")
 
 T = TypeVar("T")
 R = TypeVar("R")
