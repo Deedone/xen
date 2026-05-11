@@ -299,6 +299,9 @@ def download_job_logs(project_id: str, pipeline_id: str):
         with open(path, "w") as file:
             file.write(log.decode() if isinstance(log, bytes) else "")
 
+def callpath_sort_key(path: "CallPath"):
+    return (path.function, tuple(path.path))
+
 def update_comments(log_paths: list[Path], comments_path: Path, exclude: list[str],
                     legacy_null_is_d0: bool = False):
     if comments_path.exists():
@@ -318,8 +321,8 @@ def update_comments(log_paths: list[Path], comments_path: Path, exclude: list[st
             for path in set(domain_paths):
                 comments.setdefault(path, "")
         with open(comments_path, "w") as file, redirect_stdout(file):
-            for path, comment in comments.items():
-                print(comment, end="")
+            for path in sorted(comments, key=callpath_sort_key):
+                print(comments[path], end="")
                 print(f"{path.function}()")
                 print(path.path_str)
     return comments
