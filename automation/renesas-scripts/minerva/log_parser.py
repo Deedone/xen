@@ -102,8 +102,8 @@ class Log:
         in_trace = False
         path: CallPath | None = None
         paths: Paths = defaultdict(lambda: defaultdict(list))
-        xmalloc_paths: dict[str, CallPath] = {}
-        alloc_domheap_paths: dict[str, CallPath] = {}
+        xmalloc_paths: defaultdict[str, deque[CallPath]] = defaultdict(deque)
+        alloc_domheap_paths: defaultdict[str, deque[CallPath]] = defaultdict(deque)
         unmatched_xfree_paths: list[CallPath] = []
         unmatched_free_heap_paths: list[CallPath] = []
         alloc_paths = {"xmem_pool_alloc": xmalloc_paths,
@@ -123,11 +123,12 @@ class Log:
                 path = CallPath(function, params, domain)
                 paths[domain][function].append(path)
                 if function in alloc_paths:
-                    alloc_paths[function][path.params["p"]] = path
+                    alloc_paths[function][path.params["p"]].append(path)
                 elif function in free_info:
                     free_alloc_paths, unmatched_free_paths = free_info[function]
-                    if path.params["p"] in free_alloc_paths:
-                        path.params["size"] = free_alloc_paths.pop(path.params["p"]).params["size"]
+                    alloc_deque = free_alloc_paths.get(path.params["p"])
+                    if alloc_deque:
+                        path.params["size"] = alloc_deque.popleft().params["size"]
                     else:
                         path.params["size"] = 0
                         unmatched_free_paths.append(path)
@@ -148,8 +149,11 @@ class Log:
         def groupby_domain(iterable: Iterable[CallPath]):
             return {k: list(g) for k, g in groupby(iterable, lambda path: path.domain)}
 
-        return cls(log_path, paths, groupby_domain(xmalloc_paths.values()), unmatched_xfree_paths,
-                   groupby_domain(alloc_domheap_paths.values()), unmatched_free_heap_paths)
+        return cls(log_path, paths,
+                   groupby_domain(itertools.chain.from_iterable(xmalloc_paths.values())),
+                   unmatched_xfree_paths,
+                   groupby_domain(itertools.chain.from_iterable(alloc_domheap_paths.values())),
+                   unmatched_free_heap_paths)
 
     @staticmethod
     def print_total_size(paths: dict[str, list[CallPath]], domain: str, function: str):
@@ -160,6 +164,14 @@ class Log:
         max_path = max(domain_paths, key=lambda path: path.size)
         print(f"  [{domain}] total non-freed {function} size: {total_size} B")
         print(f"  [{domain}] max size non-freed {function} path:\n{max_path.indented(4)}")
+
+    @staticmethod
+    def print_unmatched_free_count(unmatched: list[CallPath], domain: str, function: str):
+        n = sum(1 for p in unmatched if p.domain == domain and p.function == function)
+        if n == 0:
+            return
+        print(f"  [{domain}] frees without matching alloc ({function}):")
+        print(f"    num occurrences: {n}")
 
     def print_stats(self):
         for i, domain in enumerate(sorted(self.paths)):
@@ -181,6 +193,11 @@ class Log:
 
             self.print_total_size(self.xmalloc_paths, domain, "xmalloc")
             self.print_total_size(self.alloc_domheap_paths, domain, "alloc_domheap_pages")
+            self.print_unmatched_free_count(self.unmatched_xfree_paths, domain, "xfree")
+            self.print_unmatched_free_count(self.unmatched_free_heap_paths, domain,
+                                            "free_domheap_pages")
+            self.print_unmatched_free_count(self.unmatched_free_heap_paths, domain,
+                                            "free_xenheap_pages")
             print()
             if i < len(self.paths) - 1:
                 print("  " + "-" * 58 + "\n")
@@ -228,6 +245,14 @@ class Log:
         print("############################################################\n")
         for xfree_path in self.unmatched_xfree_paths:
             print(xfree_path)
+
+        print()
+        print("############################################################")
+        print(" free_domheap_pages()/free_xenheap_pages() paths without")
+        print(" a matching allocation")
+        print("############################################################\n")
+        for free_path in self.unmatched_free_heap_paths:
+            print(free_path)
 
     def print_paths_full(self):
         print("############################################################")
