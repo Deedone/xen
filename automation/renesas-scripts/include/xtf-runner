@@ -72,6 +72,7 @@ function xtf_build_cmdline()
         [argo]="argo=1 mac-permissive=1"
         [hyp-domctl-sched-rtds-edf]="sched=rtds maxcpus=1"
         [hyp-sysctl-sched-rtds-cmdline]="sched=rtds maxcpus=1"
+        [hyp-sysctl-sched-credit2-default]="maxcpus=1"
     )
 
     cmdline+=("${XEN_CMDLINE}")
