@@ -95,7 +95,8 @@ class Log:
         self.arch = match.group().replace("-", "_") if match else ""
 
     @classmethod
-    def parse(cls, log_path: Path, exclude: list[str], skip_domain: bool = False):
+    def parse(cls, log_path: Path, exclude: list[str], skip_domain: bool = False,
+              legacy_null_is_d0: bool = False):
         with open(log_path, "r") as file:
             log_text = file.read()
 
@@ -118,7 +119,7 @@ class Log:
                 function = match.group("function")
                 params = match.group("params")
                 domain = match.group("domain") if not skip_domain else ""
-                if domain == "NULL":
+                if legacy_null_is_d0 and domain == "NULL":
                     domain = "d0"
                 path = CallPath(function, params, domain)
                 paths[domain][function].append(path)
@@ -275,7 +276,8 @@ def download_job_logs(project_id: str, pipeline_id: str):
         with open(path, "w") as file:
             file.write(log.decode() if isinstance(log, bytes) else "")
 
-def update_comments(log_paths: list[Path], comments_path: Path, exclude: list[str]):
+def update_comments(log_paths: list[Path], comments_path: Path, exclude: list[str],
+                    legacy_null_is_d0: bool = False):
     if comments_path.exists():
         print("Comments file found")
         comments = parse_comments(comments_path)
@@ -284,7 +286,8 @@ def update_comments(log_paths: list[Path], comments_path: Path, exclude: list[st
         comments: dict[CallPath, str] = {}
     for log_path in log_paths:
         print(f"Extracing unique paths from job {log_path.name}")
-        log = Log.parse(log_path, exclude, skip_domain=True)
+        log = Log.parse(log_path, exclude, skip_domain=True,
+                        legacy_null_is_d0=legacy_null_is_d0)
         for domain_paths in log.xmalloc_paths.values():
             for path in set(domain_paths):
                 comments.setdefault(path, "")
@@ -324,11 +327,11 @@ def parse_comments(comments_path: Path):
     return comments
 
 def parse_pipeline(log_paths: list[Path], comments: dict[CallPath, str], output_dir: Path,
-                   verbose: bool, exclude: list[str]):
+                   verbose: bool, exclude: list[str], legacy_null_is_d0: bool = False):
     logs: DefaultDict[str, list[Log]] = defaultdict(list)
     for log_path in log_paths:
         print(f"Parsing job {log_path.name}")
-        log = Log.parse(log_path, exclude)
+        log = Log.parse(log_path, exclude, legacy_null_is_d0=legacy_null_is_d0)
         logs[log.arch].append(log)
         arch_dir = output_dir / log.arch
         arch_dir.mkdir(exist_ok=True)
@@ -348,7 +351,7 @@ def parse_pipeline(log_paths: list[Path], comments: dict[CallPath, str], output_
             print("-" * 60)
 
 def run(pipeline_id: str, project_id: str, force_download: bool, verbose: bool, exclude: list[str],
-        comments_path: Path | None = None):
+        comments_path: Path | None = None, legacy_null_is_d0: bool = False):
     pipeline_dir = Path(pipeline_id)
     if not pipeline_dir.exists() or force_download:
         download_job_logs(project_id, pipeline_id)
@@ -359,8 +362,10 @@ def run(pipeline_id: str, project_id: str, force_download: bool, verbose: bool, 
     parsed_dir.mkdir(exist_ok=True)
     if not comments_path:
         comments_path = parsed_dir / "comments"
-    comments = update_comments(log_paths, comments_path, exclude)
-    parse_pipeline(log_paths, comments, parsed_dir, verbose, exclude)
+    comments = update_comments(log_paths, comments_path, exclude,
+                               legacy_null_is_d0=legacy_null_is_d0)
+    parse_pipeline(log_paths, comments, parsed_dir, verbose, exclude,
+                   legacy_null_is_d0=legacy_null_is_d0)
 
 if __name__ == "__main__":
     parser = ArgumentParser("log_parser", description="Parse Xen Gitlab CI job log")
@@ -373,5 +378,10 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--exclude", nargs="+", metavar="FUNCTION", default=[],
                         help="Set of functions to be excluded from parsing")
     parser.add_argument("--comments-path", type=Path)
+    parser.add_argument("--legacy-null-is-d0", action="store_true",
+                        help="Map a NULL domain label to d0 in parsed output. Required "
+                             "only for analysis of pre-92b4198cea logs where the kernel "
+                             "did not yet emit a separate d0 / NULL distinction. Off by "
+                             "default.")
     args = parser.parse_args()
     run(**vars(args))
