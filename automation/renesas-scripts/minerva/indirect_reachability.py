@@ -111,12 +111,12 @@ INDIRECT_ALLOCATION_COLUMNS = [
 # name as one declared on many unrelated ops tables (`.init`, `.read`,
 # `.write`, `.map_page`, ...). A naive field-name-only join across
 # ops-resolution.csv and indirect-call-sites.csv treats every such
-# pair as a candidate synthetic edge and inflates the candidate count
-# numerator with false correlations.
+# pair as a candidate synthetic edge and would inflate the candidate
+# count with false correlations.
 #
-# Each (call-site, candidate-impl) pair is classified into each (call-site, candidate-impl) pair into one of
-# these `candidate_binding` buckets, and surfaces only the first three
-# in `synthetic_edges.candidates.yaml`:
+# Each (call-site, candidate-impl) pair is classified into one of
+# these `candidate_binding` buckets; only the first three are
+# surfaced in `synthetic_edges.candidates.yaml`:
 #
 #   table_compatible          The call site dispatches through a
 #                             receiver whose name appears in the
@@ -130,7 +130,7 @@ INDIRECT_ALLOCATION_COLUMNS = [
 #                             family (table_instance / table_type /
 #                             source_file contains a family-keyword).
 #
-#   curated_compatible        Reserved for an explicit family map,
+#   curated_compatible        Reserved for an explicit family map;
 #                             not produced by default.
 #
 #   field_name_only           Match is purely field-name; no table or
@@ -515,7 +515,11 @@ def write_reachability_summary(out_dir: Path, mode: str,
     lines.append("## Counts\n")
     lines.append("| Counter | Value |")
     lines.append("| --- | --- |")
-    for k in ("implementations_examined",
+    for k in ("callgraph_backend",
+              "target_tree_source",
+              "callgraph_functions",
+              "callgraph_edges",
+              "implementations_examined",
               "implementations_reaching_alloc",
               "indirect_call_sites_examined",
               "indirect_call_sites_reaching_alloc",
@@ -531,7 +535,7 @@ def write_reachability_summary(out_dir: Path, mode: str,
               "path_found_UNKNOWN",
               "path_found_ERROR"):
         if k in counts:
-            lines.append(f"| `{k}` | {counts.get(k, 0)} |")
+            lines.append(f"| `{k}` | {counts.get(k, '')} |")
     lines.append("")
     if unresolved_examples:
         lines.append("## Implementations with no static-graph path "
@@ -649,6 +653,28 @@ def write_synthetic_edges_yaml(out_dir: Path, config_name: str,
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ci-dir", type=Path, default=None)
+    p.add_argument("--normalized-callgraph-dir", type=Path, default=None,
+                   help="Directory of normalized callgraph CSVs "
+                        "(`scripts/callgraph/normalized_graph.py`). When "
+                        "supplied, PASS-mode target-tree membership is "
+                        "computed against the normalized graph instead "
+                        "of via `callpath.py`. Use the GCC adapter "
+                        "(`scripts/callgraph/gcc_ci_to_normalized.py`) "
+                        "or the LLVM adapter "
+                        "(`scripts/callgraph/llvm_ir_to_normalized.py`) "
+                        "to produce this directory.")
+    p.add_argument("--callgraph-backend",
+                   choices=("auto", "gcc-ci", "normalized"),
+                   default="auto",
+                   help="Callgraph backend. `gcc-ci` (default when "
+                        "--ci-dir is supplied) keeps the existing "
+                        "callpath.py-driven behaviour. `normalized` "
+                        "(default when --normalized-callgraph-dir is "
+                        "supplied) reads functions.csv / edges.csv "
+                        "and answers reachability via "
+                        "`functions_reaching_target`. `auto` picks "
+                        "based on which input was supplied; ambiguous "
+                        "inputs are an error.")
     p.add_argument("--collector-run", type=Path, required=True)
     p.add_argument("--targets", nargs="+", default=DEFAULT_TARGETS)
     p.add_argument("--out-dir", type=Path, required=True)
@@ -669,11 +695,25 @@ def main():
                         "produce the same yes/no semantic; target-tree "
                         "is dramatically faster on hosts where Python "
                         "subprocess spawn is expensive (Windows / "
-                        "anti-virus / launcher shims).")
+                        "anti-virus / launcher shims). Ignored when the "
+                        "normalized backend is selected; that backend "
+                        "uses target-tree set-membership unconditionally.")
     p.add_argument("--xen-root", type=Path, default=Path("."),
                    help="Used only to locate callpath.py if --ci-dir "
                         "is supplied.")
     args = p.parse_args()
+
+    # Resolve callgraph backend.
+    if args.callgraph_backend == "auto":
+        if args.normalized_callgraph_dir and args.ci_dir:
+            print("ERROR: both --normalized-callgraph-dir and --ci-dir "
+                  "supplied with --callgraph-backend=auto; please pick "
+                  "one explicitly.", file=sys.stderr)
+            return 2
+        if args.normalized_callgraph_dir:
+            args.callgraph_backend = "normalized"
+        else:
+            args.callgraph_backend = "gcc-ci"
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     collector = args.collector_run
@@ -699,27 +739,82 @@ def main():
     )
 
     # Decide mode.
-    #   PASS                live reachability via callpath.py.
-    #   PARTIAL             --ci-dir absent or unusable; emit UNKNOWN
+    #   PASS                live reachability--  either via callpath.py
+    #                       (`gcc-ci` backend, the historical path) or
+    #                       via normalized-graph set-membership
+    #                       (`normalized` backend).
+    #   PARTIAL             input absent or unusable; emit UNKNOWN
     #                       and command stubs.
     have_ci = ci_dir_has_files(args.ci_dir)
     callpath_py = find_callpath_py(args.xen_root.resolve()) if have_ci else None
-    mode = "PASS" if (have_ci and callpath_py) else "PARTIAL"
-    if have_ci and not callpath_py:
+    have_normalized = (args.normalized_callgraph_dir is not None
+                       and args.normalized_callgraph_dir.exists()
+                       and (args.normalized_callgraph_dir / "edges.csv").exists())
+    if args.callgraph_backend == "gcc-ci":
+        mode = "PASS" if (have_ci and callpath_py) else "PARTIAL"
+    else:  # normalized
+        mode = "PASS" if have_normalized else "PARTIAL"
+    if args.callgraph_backend == "gcc-ci" and have_ci and not callpath_py:
         print(
             "WARNING: --ci-dir has .ci files but callpath.py could not "
             "be located; falling back to dry-run.",
             file=sys.stderr,
         )
+    if args.callgraph_backend == "normalized" and not have_normalized:
+        print(
+            f"WARNING: --normalized-callgraph-dir not usable "
+            f"({args.normalized_callgraph_dir}); falling back to "
+            f"PARTIAL.",
+            file=sys.stderr,
+        )
 
-    # PASS-mode reachability strategy. target-tree (default): one
-    # callpath.py call per allocation target; answer each (impl, target)
-    # query by set membership. per-impl: original loop, one call per
-    # unique implementation per target.
+    # PASS-mode reachability strategy.
+    #   gcc-ci + target-tree: one `callpath.py to <target>` call per
+    #                         allocation target; set-membership.
+    #   gcc-ci + per-impl:    legacy loop, one `callpath.py from
+    #                         <impl>` per unique implementation.
+    #   normalized:           load functions.csv/edges.csv once;
+    #                         answer each (impl, target) via
+    #                         `functions_reaching_target` BFS. The
+    #                         reachability-strategy flag is ignored.
     target_sets: dict[str, set[str]] = {}
     target_first_line: dict[str, dict[str, str]] = {}
     target_errors: dict[str, str] = {}
-    if mode == "PASS" and args.reachability_strategy == "target-tree":
+    callgraph_functions = 0
+    callgraph_edges = 0
+    target_tree_source = ""
+    if mode == "PASS" and args.callgraph_backend == "normalized":
+        # Load normalized graph once. functions_reaching_target uses
+        # the reverse-callgraph BFS and answers each per-impl query
+        # by set membership.
+        ng_mod_path = (args.xen_root.resolve()
+                       / "automation/renesas-scripts/minerva" / "callgraph" / "normalized_graph.py")
+        if not ng_mod_path.exists():
+            print(f"ERROR: cannot find {ng_mod_path}", file=sys.stderr)
+            return 2
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "normalized_graph_runtime", str(ng_mod_path))
+        ng_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ng_mod)
+        functions = ng_mod.load_functions(args.normalized_callgraph_dir)
+        edges = ng_mod.load_edges(args.normalized_callgraph_dir)
+        callgraph_functions = len(functions)
+        callgraph_edges = len(edges)
+        target_tree_source = "normalized-graph"
+        for target in args.targets:
+            reach = ng_mod.functions_reaching_target(edges, target)
+            target_sets[target] = reach
+            target_first_line[target] = {}
+            target_errors[target] = "" if reach else (
+                f"target {target} not in normalized graph")
+            print(
+                f"  target {target}: {len(reach)} distinct functions "
+                f"reach target (normalized BFS)",
+                file=sys.stderr,
+            )
+    elif mode == "PASS" and args.reachability_strategy == "target-tree":
+        target_tree_source = "callpath.py-to-target"
         for target in args.targets:
             names, first, err = query_target_tree(
                 callpath_py, args.ci_dir, target, args.timeout,
@@ -739,6 +834,8 @@ def main():
                     f"functions in paths-to-target tree",
                     file=sys.stderr,
                 )
+    elif mode == "PASS":
+        target_tree_source = "callpath.py-per-impl"
 
     # Cache (impl, target) -> result so duplicate impls only fire once.
     cache: dict[tuple[str, str], tuple[str, str, str]] = {}
@@ -776,7 +873,12 @@ def main():
                 if key in cache:
                     path_found, sig, err = cache[key]
                 else:
-                    if mode == "PASS" and args.reachability_strategy == "target-tree":
+                    use_set_membership = (
+                        mode == "PASS"
+                        and (args.callgraph_backend == "normalized"
+                             or args.reachability_strategy == "target-tree")
+                    )
+                    if use_set_membership:
                         terr = target_errors.get(target, "")
                         if terr:
                             path_found, sig, err = "UNKNOWN", "", terr
@@ -987,6 +1089,10 @@ def main():
             sum(1 for r in rows if r["path_found"] == "UNKNOWN"),
         "path_found_ERROR":
             sum(1 for r in rows if r["path_found"] == "ERROR"),
+        "callgraph_backend": args.callgraph_backend,
+        "callgraph_functions": callgraph_functions,
+        "callgraph_edges": callgraph_edges,
+        "target_tree_source": target_tree_source,
     }
 
     # Per-binding and per-exclusion-reason breakdowns surface in
