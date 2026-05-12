@@ -43,12 +43,6 @@ struct rcar4_pcie_priv {
     DECLARE_BITMAP(osid_regs, NUM_OSID_REGS);
 };
 
-#define ULL(X) _AC(X, ULL)
-#define MADDR_RGID(a)    (ULL(a) << CONFIG_RCAR_PA_BITS)
-#define MADDR_PA_MASK    ((1ULL << CONFIG_RCAR_PA_BITS) - 1)
-
-#define MADDR_ENCODE_RGID(a)    (MADDR_RGID(CONFIG_RCAR_RGID) | (a))
-
 /*
  * PCI host bridges often have different ways to access the root and child
  * bus config spaces:
@@ -67,14 +61,6 @@ static int __init rcar4_child_cfg_reg_index(struct dt_device_node *np)
     return dt_property_match_string(np, "reg-names", "config");
 }
 
-static void rcar4_pcie_fixup_bar(struct pci_host_bridge *bridge,
-                                 unsigned int bar_num,
-                                 paddr_t *addr)
-{
-    if ( IS_ENABLED(CONFIG_RCAR_REGION_ID_SUPPORT) )
-        *addr = MADDR_ENCODE_RGID(*addr);
-}
-
 /* ECAM ops */
 static const struct pci_ecam_ops rcar4_pcie_ops = {
     .bus_shift  = 20,
@@ -85,7 +71,6 @@ static const struct pci_ecam_ops rcar4_pcie_ops = {
         .write                  = pci_generic_config_write,
         .need_p2m_hwdom_mapping = pci_ecam_need_p2m_hwdom_mapping,
         .init_bus_range         = pci_generic_init_bus_range,
-        .fixup_bar              = rcar4_pcie_fixup_bar,
     }
 };
 
