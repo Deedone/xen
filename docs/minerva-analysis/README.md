@@ -11,6 +11,9 @@ runtime logs to produce per-run diagnostic reports.
 | --- | --- |
 | [parser-tools.md](parser-tools.md) | Runtime log parser and comments-file format. |
 | [indirect-call-workbench.md](indirect-call-workbench.md) | Indirect-call collector and reachability workbench. |
+| [ci-workflow.md](ci-workflow.md) | GitLab CI integration: driver entry point, variables, per-run artifacts. |
+| [artifact-contract.md](artifact-contract.md) | Per-run artifact tree contract. |
+| [runtime-static-status.md](runtime-static-status.md) | Status labels and decision rules. |
 
 ## Tool inventory
 
@@ -20,14 +23,16 @@ runtime logs to produce per-run diagnostic reports.
 | `minerva_static_analysis/callpath.py` | Static caller/callee path discovery from a GCC `.ci` tree. |
 | `scripts/collect.py` | Indirect-call scoping collector--  ops-table inventory, runtime-registration sites, indirect call sites. |
 | `scripts/indirect_reachability.py` | Reachability workbench over collector output and a GCC `.ci` callgraph. |
+| `scripts/indirect_ci_driver.py` | CI orchestrator: build  ->  collect  ->  reachability  ->  direct-static  ->  optional runtime. |
 
 ## Outputs are per-run diagnostics
 
 The numbers these tools emit--  edge counts, reachable-function
-counts--  are per-run artifact values. They change with Xen
-source revisions, configuration, compiler version, callgraph
-coverage, and synthetic-edge filtering rules. They are not
-committed constants.
+counts, status labels--  are per-run artifact values. They
+change with Xen source revisions, configuration, compiler
+version, callgraph coverage, runtime workload, and
+synthetic-edge filtering rules. They are not committed
+constants.
 
 ## What this tooling does not assert
 
