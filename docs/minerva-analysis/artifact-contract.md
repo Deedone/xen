@@ -20,6 +20,12 @@ indirect-reachability/
     ci-files.list
     ci-files.tar.zst                 (optional; tree or compressed)
 
+  normalized-callgraph/              (when a callgraph backend
+                                      produces or consumes one)
+    functions.csv
+    edges.csv
+    metadata.json
+
   collect/
     config-scope.md
     ops-inventory.csv
@@ -37,11 +43,12 @@ indirect-reachability/
     candidate-binding-summary.md
 
   direct-static/
-    alloc_domheap_pages.paths
+    alloc_domheap_pages.paths        (gcc-ci backend)
+    alloc_domheap_pages.functions    (normalized / llvm-ir backend)
     alloc_domheap_pages.stderr
-    alloc_xenheap_pages.paths
+    alloc_xenheap_pages.paths|.functions
     alloc_xenheap_pages.stderr
-    _xmalloc.paths
+    _xmalloc.paths|.functions
     _xmalloc.stderr
     direct-static-summary.md
     direct-static-summary.json
@@ -56,8 +63,11 @@ indirect-reachability/
     runtime-static-comparison.json
 ```
 
-`.paths` files use the nested-tree format produced by
-`callpath.py to`.
+`.paths` is the GCC `.ci`-style nested-tree format produced by
+`callpath.py to`. `.functions` is the flat caller-set produced
+by the normalized-graph backend (one function per line). The
+backend in effect for a given run is recorded in
+`status.json::callgraph_backend`.
 
 ## Invariants
 
@@ -96,6 +106,9 @@ The top-level `status.json` records one of these labels.
   does not flip COMPLETE to PROXY on its own.
 - **PARTIAL**--  required static-analysis inputs are missing
   or a stage failed.
+- **UNSUPPORTED_BACKEND**--  the requested callgraph backend
+  is unavailable in this run (for example,
+  `MINERVA_CALLGRAPH_BACKEND=llvm-ir` with no `LLVM_IR_DIR`).
 
 ### Decision table
 
@@ -105,9 +118,11 @@ The top-level `status.json` records one of these labels.
 | OK | present + aligned | OK | **COMPLETE** |
 | OK | present + mismatch | OK or fail | **PROXY** (operator-set) |
 | failure of any static input | any | any | **PARTIAL** |
+| backend not available | any | any | **UNSUPPORTED_BACKEND** |
 
 CI archives whatever artifacts exist even when the overall
-status is `PARTIAL` so the operator can diagnose.
+status is `PARTIAL` or `UNSUPPORTED_BACKEND` so the operator
+can diagnose.
 
 ## Metric policy
 

@@ -13,7 +13,7 @@ All static inputs and the runtime parser output exist and
 correspond to the same Xen configuration and source revision:
 
 - expanded `.config`
-- `.ci` tree (`-fcallgraph-info=su`)
+- callgraph artifacts (`.ci` tree and/or normalized graph)
 - collector output (`collect/`)
 - reachability workbench output (`reachability/`)
 - direct-static baselines (`direct-static/`)
@@ -78,6 +78,18 @@ failed:
 the failing stage. The driver exits non-zero (2). The GitLab
 job keeps artifacts via `when: always`.
 
+### UNSUPPORTED_BACKEND
+
+The requested callgraph backend is unavailable for this run.
+Examples:
+
+- `MINERVA_CALLGRAPH_BACKEND=llvm-ir` with no `LLVM_IR_DIR`.
+- `MINERVA_CALLGRAPH_BACKEND=normalized` with no
+  `NORMALIZED_CALLGRAPH_DIR`.
+
+The driver exits non-zero (2). Artifacts produced before the
+backend check are preserved.
+
 ## Decision rule
 
 ```
@@ -88,6 +100,7 @@ if static stack OK
   if runtime requested AND runtime failed
      AND not allow_runtime_failure           -> PARTIAL
   if runtime not requested                   -> STATIC_ONLY
+else if backend unavailable                  -> UNSUPPORTED_BACKEND
 else                                         -> PARTIAL
 ```
 
@@ -100,7 +113,9 @@ They are **not** committed constants. They change with:
 - Xen source revisions
 - configuration changes (`XEN_DEFCONFIG`, `XEN_EXTRA_CONFIG`)
 - compiler version
-- callgraph coverage (which `.ci` files were generated)
+- callgraph coverage (which artifacts were generated)
+- callgraph backend selection (`gcc-ci`, `llvm-ir`,
+  `normalized`)
 - runtime workload availability
 - synthetic-edge filtering rules
 
