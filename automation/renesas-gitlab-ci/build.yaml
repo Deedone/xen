@@ -115,3 +115,13 @@ xen-atfe-arm64-earlyprintk:
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
   rules:
     - if: '$RUN_UBSAN == "true"'
+
+xen-atfe-arm64-minerva:
+  extends: .atfe-arm64-build
+  variables:
+    HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    EXTRA_XEN_CONFIG: |
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
+      CONFIG_DEBUG_INFO=y
+      CONFIG_MINERVA_ANALYSIS=y
