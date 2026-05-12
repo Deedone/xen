@@ -53,3 +53,39 @@ include:
   - local: 'automation/renesas-gitlab-ci/fuzzer.yaml'
     rules:
       - if: '$RUN_FUZZER == "true"'
+
+# Indirect-call reachability per-run artifact pipeline.
+#
+# Target Xen configuration is taken from CI environment variables; the
+# defaults below are smoke-validation only and must not be treated as
+# the only supported config. Each pipeline run generates a fresh
+# expanded .config and fresh .ci files inside its own job workspace.
+# Numbers in indirect-reachability/status.json are per-run artifact
+# values; they are NOT committed constants.
+#
+# Runtime logs are optional. Absence yields STATIC_ONLY (a valid
+# success state). COMPLETE requires a matching runtime workload that
+# the operator has aligned to the same .config and source revision.
+minerva-indirect-reachability:
+  stage: build
+  image: xentroops/xen_rel
+  allow_failure: true
+  when: manual
+  tags:
+    - arm64
+  variables:
+    XEN_DEFCONFIG: "arm64_defconfig"
+  script:
+    - python3 automation/renesas-scripts/minerva/indirect_ci_driver.py
+        --xen-root .
+        --out-dir "indirect-reachability"
+        --config-name "${XEN_DEFCONFIG}+debug-info"
+        --target-arch arm64
+        --defconfig "$XEN_DEFCONFIG"
+        --extra "CONFIG_DEBUG_INFO=y"
+        --jobs "$(nproc)"
+        --no-runtime
+  artifacts:
+    when: always
+    paths:
+      - indirect-reachability/
