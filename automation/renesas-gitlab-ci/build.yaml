@@ -82,49 +82,8 @@ xen-atfe-arm64:
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG_INFO=y
 
-xen-atfe-debug-arm64:
-  extends: .atfe-arm64-build-debug
-  variables:
-    HYPERVISOR_ONLY: y
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
-    EXTRA_XEN_CONFIG: |
-      CONFIG_UBSAN=y
-      CONFIG_UBSAN_FATAL=y
-      CONFIG_CMDLINE="xsm=flask flask=permissive"
-
-xen-atfe-debug-arm64-staticmem:
-  extends: .atfe-arm64-build-debug
-  variables:
-    HYPERVISOR_ONLY: y
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
-    EXTRA_XEN_CONFIG: |
-      CONFIG_EXPERT=y
-      CONFIG_UNSUPPORTED=y
-      CONFIG_STATIC_MEMORY=y
-      CONFIG_CMDLINE="xsm=flask flask=permissive"
-
-xen-atfe-debug-arm64-static-shared-mem:
-  extends: .atfe-arm64-build-debug
-  variables:
-    HYPERVISOR_ONLY: y
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
-    EXTRA_XEN_CONFIG: |
-      CONFIG_UNSUPPORTED=y
-      CONFIG_STATIC_MEMORY=y
-      CONFIG_STATIC_SHM=y
-      CONFIG_CMDLINE="xsm=flask flask=permissive"
-
-xen-atfe-debug-arm64-boot-cpupools:
-  extends: .atfe-arm64-build-debug
-  variables:
-    HYPERVISOR_ONLY: y
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
-    EXTRA_XEN_CONFIG: |
-      CONFIG_BOOT_TIME_CPUPOOLS=y
-      CONFIG_CMDLINE="xsm=flask flask=permissive"
-
-xen-atfe-debug-arm64-earlyprintk:
-  extends: .atfe-arm64-build-debug
+xen-atfe-arm64-earlyprintk:
+  extends: .atfe-arm64-build
   variables:
     HYPERVISOR_ONLY: y
     KBUILD_DEFCONFIG: rel_arm64_defconfig
