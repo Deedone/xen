@@ -19,6 +19,14 @@ set -x
 
 export XEN_ROOT="${PWD}"
 
+if [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-edf" ]]; then
+    domu_check="
+taskset -c 0 sh -c 'while :; do :; done' &
+taskset -c 1 sh -c 'while :; do :; done' &
+wait
+"
+fi
+
 # DomU Busybox
 cd binaries
 mkdir -p initrd
@@ -38,6 +46,7 @@ echo "#!/bin/sh
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+${domu_check}
 /bin/sh" > initrd/init
 chmod +x initrd/init
 cd initrd
@@ -54,31 +63,9 @@ fi
 source include/xtf-${ARCH}
 
 # Per-test environment overrides
-if [[ "${XTF_NAME_ARG}" == "hyp-domctl-sched-rtds-edf" ]]; then
-    export XTF_NUM_DOMUS=2
+if [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-edf" ]]; then
+    export XTF_NUM_DOMUS=1
+    export XTF_DOMU_VCPUS=2
 fi
 
 xtf_test $@
-
-# Post-test verification: parse Xen serial log for RTDS EDF ordering.
-if [[ "${XTF_NAME_ARG}" == "hyp-domctl-sched-rtds-edf" ]]; then
-    echo "--- Verifying RTDS EDF ordering from serial log ---"
-    rtds_dump=$(sed 's/\r//g' < "${XEN_ROOT}/smoke.serial" | \
-        sed -n '/Global RunQueue info:/,/Global DepletedQueue info:/p')
-
-    d1=$(printf '%s\n' "${rtds_dump}" | \
-        sed -n 's/.*\[\s*1\.[0-9]\+\s*\].*cur_d=\([0-9][0-9]*\).*/\1/p' | \
-        head -n1 | tr -cd '0-9')
-    d2=$(printf '%s\n' "${rtds_dump}" | \
-        sed -n 's/.*\[\s*2\.[0-9]\+\s*\].*cur_d=\([0-9][0-9]*\).*/\1/p' | \
-        head -n1 | tr -cd '0-9')
-
-    echo "DomU1 cur_deadline=${d1:-<not found>}  DomU2 cur_deadline=${d2:-<not found>}"
-
-    if [ -n "${d1}" ] && [ -n "${d2}" ] && [ "${d1}" -le "${d2}" ]; then
-        echo "rtds_sched_edf test passed"
-    else
-        echo "FAIL: EDF ordering not observed (d1=${d1:-?} d2=${d2:-?})"
-        exit 1
-    fi
-fi

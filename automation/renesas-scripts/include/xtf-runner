@@ -70,7 +70,7 @@ function xtf_build_cmdline()
     declare -a cmdline=()
     declare -A per_test_args=(
         [argo]="argo=1 mac-permissive=1"
-        [hyp-domctl-sched-rtds-edf]="sched=rtds maxcpus=1"
+        [hyp-sysctl-sched-rtds-edf]="sched=rtds maxcpus=2 dom0_max_vcpus=1 dom0_vcpus_pin=true"
         [hyp-sysctl-sched-rtds-cmdline]="sched=rtds maxcpus=1"
         [hyp-sysctl-sched-credit2-default]="maxcpus=1"
     )

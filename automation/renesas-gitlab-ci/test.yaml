@@ -220,10 +220,10 @@ qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-cmdline:
     - *arm64-test-needs
     - xen-atfe-debug-arm64
 
-qemu-xtf-dom0-arm64-hyp-domctl-sched-rtds-edf:
+qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-edf:
   extends: .qemu-arm64
   script:
-    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-sched-rtds-edf 2>&1 | tee ${LOGFILE}
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-edf 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
 
