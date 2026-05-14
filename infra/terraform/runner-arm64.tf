@@ -36,9 +36,10 @@ module "gitlab_runner_arm64" {
   }
 
   runner_worker_docker_options = {
-    privileged = true
-    volumes    = ["/cache", "/var/run/docker.sock:/var/run/docker.sock"]
-    image      = "alpine:latest"
+    privileged   = true
+    volumes      = ["/cache", "/var/run/docker.sock:/var/run/docker.sock"]
+    image        = "alpine:latest"
+    pull_policies = ["if-not-present"]
   }
 
   # Fleeting plugin (docker-autoscaler)
