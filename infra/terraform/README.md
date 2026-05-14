@@ -19,7 +19,7 @@ GitLab Server (gitpct.epam.com)
 │         │ fleeting plugin                   │
 │  ┌──────▼──────┐                            │
 │  │ Worker ASG  │  Spot, on-demand only      │
-│  │ c7g.16xl    │  50 jobs per instance      │
+│  │ m7g.8xl    │  50 jobs per instance      │
 │  │ max: 2      │  idle 3 min then terminate │
 │  └─────────────┘                            │
 │                                             │
@@ -112,11 +112,11 @@ variable "worker_arm64_instance_types" {
 ```
 
 Choose based on `capacity_per_instance`:
-- 4 jobs/instance → `c7g.4xlarge` (16 vCPU)
-- 10 jobs/instance → `c7g.8xlarge` (32 vCPU)
-- 50 jobs/instance → `c7g.16xlarge` (64 vCPU)
+- 4 jobs/instance → `m7g.xlarge` (4 vCPU, 16GB)
+- 10 jobs/instance → `m7g.2xlarge` (8 vCPU, 32GB)
+- 50 jobs/instance → `m7g.8xlarge` (32 vCPU, 128GB)
 
-Rule of thumb: ~1-2 vCPU per concurrent build job.
+Rule of thumb: ~1 vCPU + ~2GB RAM per concurrent build job.
 
 ## Worker Idle Time
 
