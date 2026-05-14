@@ -77,6 +77,9 @@ module "gitlab_runner_arm64" {
       usermod -aG docker ubuntu
       # Re-enable SSH now that Docker is ready
       systemctl start ssh.socket ssh.service
+      # Pre-pull images in background (jobs can start immediately, pulls happen in parallel)
+      (docker pull xentroops/xen_rel;
+       docker pull xentroops/xen_artifacts_rel) &
     EOF
   }
 
