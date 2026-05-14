@@ -1,6 +1,6 @@
 module "gitlab_runner_x86" {
   source  = "cattle-ops/gitlab-runner/aws"
-  version = "~> 7.0"
+  version = "~> 9.0"
 
   environment = "ci-x86"
 

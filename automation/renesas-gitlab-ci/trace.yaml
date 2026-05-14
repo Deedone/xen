@@ -12,8 +12,7 @@ oft-build:
       - trace.sh
     when: always
   tags:
-   - arm64
-   - aws-spot
+   - aws-arm64
   needs: []
   rules:
    - when: manual
@@ -29,8 +28,7 @@ oft-trace:
       - trace.log
     when: always
   tags:
-   - arm64
-   - aws-spot
+   - aws-arm64
   needs:
     - oft-build
   rules:

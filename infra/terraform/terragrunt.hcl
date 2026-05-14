@@ -6,6 +6,11 @@ include "root" {
 
 terraform {
   source = "."
+
+  extra_arguments "init_reconfigure" {
+    commands  = ["init"]
+    arguments = ["-reconfigure", "-upgrade"]
+  }
 }
 
 inputs = {
