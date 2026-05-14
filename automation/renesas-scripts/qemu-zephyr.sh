@@ -15,7 +15,7 @@ export ZTESTS_ROOT=${XEN_ROOT}/zephyr_tests
 
 export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 
-export PASSED="${PASSED:-Test result: SUCCESS}"
+export PASSED="${PASSED:-TESTSUITE .* succeeded}"
 
 # Set artifacts path (replacing prebuilt images)
 export PREBUILT_IMAGES=${WORKDIR}
@@ -70,6 +70,6 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
 cat ${QEMU_LOG} || true
 
 # Test validation
-grep -qF "${PASSED}" "${QEMU_LOG}" && { echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
+grep -qE "${PASSED}" "${QEMU_LOG}" && { echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
 echo -e "\e[31m***NOT FOUND EXPECTED TEST STRING***\e[0m"
 exit 1
