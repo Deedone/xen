@@ -19,25 +19,25 @@ variable "gitlab_url" {
 variable "worker_arm64_instance_types" {
   description = "Instance types for arm64 Spot workers (priority order)"
   type        = list(string)
-  default     = ["c7g.4xlarge", "c6g.4xlarge"]
+  default     = ["c7g.16xlarge", "c6g.16xlarge"]
 }
 
 variable "worker_max_count_arm64" {
   description = "Max concurrent arm64 worker instances"
   type        = number
-  default     = 10
+  default     = 2
 }
 
 variable "worker_x86_instance_types" {
   description = "Instance types for x86_64 Spot workers (priority order)"
   type        = list(string)
-  default     = ["c6i.4xlarge", "c6a.4xlarge", "c5.4xlarge"]
+  default     = ["c6i.16xlarge", "c6a.16xlarge", "c5.18xlarge"]
 }
 
 variable "worker_max_count_x86" {
   description = "Max concurrent x86_64 worker instances"
   type        = number
-  default     = 15
+  default     = 2
 }
 
 variable "cache_bucket_prefix" {

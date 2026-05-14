@@ -32,7 +32,7 @@ module "gitlab_runner_arm64" {
 
   runner_worker = {
     type     = "docker-autoscaler"
-    max_jobs = var.worker_max_count_arm64
+    max_jobs = 2
   }
 
   runner_worker_docker_options = {
@@ -45,7 +45,8 @@ module "gitlab_runner_arm64" {
   runner_worker_docker_autoscaler = {
     fleeting_plugin_version = "1.1.0"
     connector_config_user   = "ubuntu"
-    max_use_count           = 1
+    max_use_count           = 10
+    capacity_per_instance   = 50
   }
 
   runner_worker_docker_autoscaler_ami_filter = {
@@ -56,6 +57,26 @@ module "gitlab_runner_arm64" {
   runner_worker_docker_autoscaler_instance = {
     root_size            = var.worker_root_volume_size
     private_address_only = false
+    start_script         = <<-EOF
+      #!/bin/bash
+      set -e
+      export DEBIAN_FRONTEND=noninteractive
+      # Stop SSH until Docker is ready
+      systemctl stop ssh.socket ssh.service 2>/dev/null || true
+      # Install Docker from official repo
+      apt-get update -qq
+      apt-get install -y -qq ca-certificates curl >/dev/null 2>&1
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+      apt-get update -qq
+      apt-get install -y -qq docker-ce docker-ce-cli containerd.io >/dev/null 2>&1
+      systemctl enable docker
+      systemctl start docker
+      usermod -aG docker ubuntu
+      # Re-enable SSH now that Docker is ready
+      systemctl start ssh.socket ssh.service
+    EOF
   }
 
   runner_worker_docker_autoscaler_asg = {
@@ -68,7 +89,7 @@ module "gitlab_runner_arm64" {
   }
 
   # Terminate old manager quickly on replacement
-  runner_terminate_ec2_lifecycle_timeout_duration = 60
+  runner_terminate_ec2_lifecycle_timeout_duration = 30
 
   runner_worker_docker_autoscaler_autoscaling_options = []
 
