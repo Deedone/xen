@@ -27,7 +27,7 @@ module "gitlab_runner_arm64" {
   }
 
   runner_manager = {
-    maximum_concurrent_jobs = 50
+    maximum_concurrent_jobs = 100
   }
 
   runner_worker = {
