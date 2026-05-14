@@ -27,7 +27,7 @@ module "gitlab_runner_x86" {
   }
 
   runner_manager = {
-    maximum_concurrent_jobs = var.worker_max_count_x86
+    maximum_concurrent_jobs = 50
   }
 
   runner_worker = {
