@@ -10,6 +10,7 @@ linux-6.6.86-image-export:
       - binaries/
   tags:
     - arm64
+    - aws-spot
   needs: []
 
 # Root FS
@@ -24,6 +25,7 @@ alpine-3.18-rootfs-export:
       - binaries/
   tags:
     - arm64
+    - aws-spot
   needs: []
 
 # Xen Tools
@@ -38,6 +40,7 @@ alpine-3.18-xen-tools-export:
       - binaries/xen-tools.cpio.gz
   tags:
     - arm64
+    - aws-spot
   needs: []
   variables:
     CC: gcc

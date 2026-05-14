@@ -25,6 +25,7 @@
     when: always
   tags:
     - arm64
+    - aws-spot
 
 # Test jobs
 qemu-smoke-dom0-arm64-gcc:

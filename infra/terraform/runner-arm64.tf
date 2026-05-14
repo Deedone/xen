@@ -31,7 +31,8 @@ module "gitlab_runner_arm64" {
   }
 
   runner_worker = {
-    type = "docker-autoscaler"
+    type     = "docker-autoscaler"
+    max_jobs = var.worker_max_count_arm64
   }
 
   runner_worker_docker_options = {
@@ -65,6 +66,9 @@ module "gitlab_runner_arm64" {
     spot_allocation_strategy                 = "lowest-price"
     subnet_ids                               = data.aws_subnets.default.ids
   }
+
+  # Terminate old manager quickly on replacement
+  runner_terminate_ec2_lifecycle_timeout_duration = 60
 
   runner_worker_docker_autoscaler_autoscaling_options = []
 

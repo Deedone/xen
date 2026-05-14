@@ -36,6 +36,7 @@
     XEN_TARGET_ARCH: arm64
   tags:
     - arm64
+    - aws-spot
 
 .arm64-build:
   extends: .arm64-build-tmpl
