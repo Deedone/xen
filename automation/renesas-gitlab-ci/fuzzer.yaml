@@ -1,0 +1,56 @@
+xen-gcc-arm64-fuzzer:
+  stage: build
+  image: xentroops/xen-fuzzer:v2
+  variables:
+    CC: gcc
+    CXX: g++
+    debug: n
+    CROSS_COMPILE: aarch64-linux-gnu-
+    XEN_TARGET_ARCH: arm64
+    HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    EXTRA_XEN_CONFIG: |
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
+      CONFIG_MGMT_HYPERCALLS=y
+      CONFIG_LIVEPATCH=n
+      CONFIG_COVERAGE=y
+      CONFIG_CONDITION_COVERAGE=y
+      CONFIG_FUZZING=y
+      CONFIG_FUZZER_LIBAFL_QEMU=y
+      CONFIG_FUZZER_PASS_BLOCKING=y
+  script:
+    - mkdir -p binaries
+    - ./automation/renesas-scripts/build 2>&1 | tee build.log
+  artifacts:
+    paths:
+      - 'binaries/xen'
+      - 'binaries/xen-syms'
+      - 'xen-config'
+      - '*.log'
+    when: always
+  needs: []
+  rules:
+    - when: always
+  tags:
+    - epdefrans_docker
+
+fuzzer_run:
+  stage: test
+  image: xentroops/xen-fuzzer:v2
+  variables:
+    LOGFILE: fuzzer-run.log
+  script:
+    - ./automation/renesas-scripts/fuzzer.sh 2>&1 | tee ${LOGFILE}
+  timeout: 24h
+  artifacts:
+    paths:
+      - '*.serial'
+      - ${LOGFILE}
+      - 'crashes/'
+    when: always
+  rules:
+    - when: on_success
+  tags:
+    - epdefrans_docker
+  needs:
+    - xen-gcc-arm64-fuzzer

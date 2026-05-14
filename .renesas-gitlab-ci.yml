@@ -11,6 +11,9 @@ workflow:
     - if: '$RUN_COVERAGE == "true"'
       variables:
         PIPELINE_NAME_PREFIX: "COVERAGE"
+    - if: '$RUN_FUZZER == "true"'
+      variables:
+        PIPELINE_NAME_PREFIX: "FUZZER"
     - when: always
       variables:
         PIPELINE_NAME_PREFIX: "RELEASE"
@@ -33,7 +36,20 @@ default:
 
 include:
   - local: 'automation/renesas-gitlab-ci/artifacts.yaml'
+    rules:
+      - if: '$RUN_FUZZER != "true"'
   - local: 'automation/renesas-gitlab-ci/build.yaml'
+    rules:
+      - if: '$RUN_FUZZER != "true"'
   - local: 'automation/renesas-gitlab-ci/test.yaml'
+    rules:
+      - if: '$RUN_FUZZER != "true"'
   - local: 'automation/renesas-gitlab-ci/trace.yaml'
+    rules:
+      - if: '$RUN_FUZZER != "true"'
   - local: 'automation/renesas-gitlab-ci/analyze.yaml'
+    rules:
+      - if: '$RUN_FUZZER != "true"'
+  - local: 'automation/renesas-gitlab-ci/fuzzer.yaml'
+    rules:
+      - if: '$RUN_FUZZER == "true"'
