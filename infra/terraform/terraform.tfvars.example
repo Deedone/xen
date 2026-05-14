@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in values
+aws_region  = "eu-central-1"
+environment = "ci"
+gitlab_url  = "https://gitpct.epam.com"
+
+# Tokens stored in SSM Parameter Store:
+#   /xen-ci/runner-token-x86   (SecureString)
+#   /xen-ci/runner-token-arm64 (SecureString)
+
+# arm64 fleet
+worker_max_count_arm64      = 10
+worker_arm64_instance_types = ["c7g.4xlarge", "c6g.4xlarge"]
+
+# x86_64 fleet
+worker_max_count_x86      = 15
+worker_x86_instance_types = ["c6i.4xlarge", "c6a.4xlarge", "c5.4xlarge"]
