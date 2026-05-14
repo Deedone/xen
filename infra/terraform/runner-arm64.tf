@@ -46,7 +46,7 @@ module "gitlab_runner_arm64" {
   runner_worker_docker_autoscaler = {
     fleeting_plugin_version = "1.1.0"
     connector_config_user   = "ubuntu"
-    max_use_count           = 10
+    max_use_count           = 200
     capacity_per_instance   = 50
   }
 
