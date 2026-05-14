@@ -19,7 +19,7 @@ variable "gitlab_url" {
 variable "worker_arm64_instance_types" {
   description = "Instance types for arm64 Spot workers (priority order)"
   type        = list(string)
-  default     = ["c7g.16xlarge", "c6g.16xlarge"]
+  default     = ["m7g.8xlarge", "m6g.8xlarge"]
 }
 
 variable "worker_max_count_arm64" {
