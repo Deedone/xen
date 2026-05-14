@@ -21,6 +21,7 @@ default:
       - stuck_or_timeout_failure
       - scheduler_failure
       - unknown_failure
+      - script_failure
 
 include:
   - local: 'automation/renesas-gitlab-ci/artifacts.yaml'
