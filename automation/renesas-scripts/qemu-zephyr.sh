@@ -26,22 +26,26 @@ git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-
 
 cd ${ZEPHYR_SDK_INSTALL_DIR}
 
-# DomU builds: use xenvm board for Xen virtual machines
-west build -p always -b xenvm ${ZTESTS_ROOT}/testcases/domu-basic
+# Auto-detect and build DomU dependencies
+DOMAIN_BINS_S="${ZTESTS_ROOT}/testcases/${APP_NAME}/src/domain_bins.S"
+if [ -f "${DOMAIN_BINS_S}" ]; then
+    EXTRA_DOMUS=$(grep '\.incbin.*"domu-[^"]*\.bin"' "${DOMAIN_BINS_S}" | \
+        sed -n 's/.*\.incbin[[:space:]]*"\(domu-[^"]*\)\.bin".*/\1/p' | \
+        sort -u || true)
 
-cp build/zephyr/zephyr.bin ${WORKDIR}/domu-basic.bin
-cp build/zephyr/zephyr.elf ${WORKDIR}/domu-basic.elf
-# Copy DTB if it exists (for domu-basic)
-if [ -f "build/domu-basic.dtb" ]; then
-    cp build/domu-basic.dtb ${WORKDIR}/domu-basic.dtb
+    for domu in ${EXTRA_DOMUS}; do
+        west build -p always -b xenvm "${ZTESTS_ROOT}/testcases/${domu}"
+        cp build/zephyr/zephyr.bin "${WORKDIR}/${domu}.bin"
+        if [ -f "build/${domu}.dtb" ]; then
+            cp "build/${domu}.dtb" "${WORKDIR}/${domu}.dtb"
+        fi
+    done
 fi
 
 # Dom0 builds: use qemu_cortex_a53 with xen_dom0 snippet for privileged domain features
 # and use application level DTS overlay xen_dom0_overlay snippet, which adds "hypervisor" node
 west build -p always -b qemu_cortex_a53 -S xen_dom0 -S xen_dom0_overlay ${ZTESTS_ROOT}/testcases/${APP_NAME}
-
 cp build/zephyr/zephyr.bin ${WORKDIR}/${APP_NAME}.bin
-cp build/zephyr/zephyr.elf ${WORKDIR}/${APP_NAME}.elf
 
 # Recompile xen.dtb from xen.dts to ensure it's up-to-date
 dtc -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen.dtb
