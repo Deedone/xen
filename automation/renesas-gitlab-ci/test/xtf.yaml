@@ -139,3 +139,10 @@ qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-edf:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-edf 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
+
+qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-extratime 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs

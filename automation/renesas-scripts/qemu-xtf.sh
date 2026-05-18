@@ -25,6 +25,11 @@ taskset -c 0 sh -c 'while :; do :; done' &
 taskset -c 1 sh -c 'while :; do :; done' &
 wait
 "
+elif [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-extratime" ]]; then
+    domu_check="
+taskset -c 0 sh -c 'while :; do :; done' &
+wait
+"
 fi
 
 # DomU Busybox
@@ -66,6 +71,9 @@ source include/xtf-${ARCH}
 if [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-edf" ]]; then
     export XTF_NUM_DOMUS=1
     export XTF_DOMU_VCPUS=2
+elif [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-extratime" ]]; then
+    export XTF_NUM_DOMUS=1
+    export XTF_DOMU_VCPUS=1
 fi
 
 xtf_test $@
