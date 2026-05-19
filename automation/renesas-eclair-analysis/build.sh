@@ -21,7 +21,11 @@ if [ "$1" = "X86_64" ]; then
   export CROSS_COMPILE=
   export XEN_TARGET_ARCH=x86_64
 elif [ "$1" = "ARM64" ]; then
-  export CROSS_COMPILE=aarch64-linux-gnu-
+  if [ "$llvm" = "y" ]; then
+    export CROSS_COMPILE=
+  else
+    export CROSS_COMPILE=aarch64-linux-gnu-
+  fi
   export XEN_TARGET_ARCH=arm64
 else
   fatal "Unknown configuration: $1"
@@ -34,8 +38,13 @@ else
 fi
 
 # Variables driving the build
-CC=${CROSS_COMPILE}gcc-12
-CXX=${CROSS_COMPILE}g++-12
+if [ "$llvm" = "y" ]; then
+  CC=clang
+  CXX=clang++
+else
+  CC=${CROSS_COMPILE}gcc-12
+  CXX=${CROSS_COMPILE}g++-12
+fi
 
 runtime_failures_docs() {
   doc="C-runtime-failures.rst"

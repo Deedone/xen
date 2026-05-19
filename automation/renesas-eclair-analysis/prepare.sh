@@ -22,7 +22,11 @@ if [ $# -ne 1 ]; then
   exit 1
 fi
 
-export XEN_TARGET_ARCH
+if [ "$llvm" = "y" ]; then
+  echo "ECLAIR + LLVM" >&2
+else
+  echo "ECLAIR + GNU" >&2
+fi
 
 if [ "$1" = "X86_64" ]; then
   XEN_TARGET_ARCH=x86_64
@@ -31,6 +35,8 @@ elif [ "$1" = "ARM64" ]; then
 else
   fatal "Unknown configuration: $1"
 fi
+
+export XEN_TARGET_ARCH
 
 (
     make -C xen defconfig

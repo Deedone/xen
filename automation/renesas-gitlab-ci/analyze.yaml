@@ -1,16 +1,37 @@
+.gcc-tmpl:
+  variables: &gcc
+    CC: gcc
+    CXX: g++
+
+.clang-tmpl:
+  variables: &clang
+    LLVM_BIN_DIR: /opt/atfe/bin/
+    CC: gcc
+    CXX: g++
+    HOSTCC: gcc
+    HOSTCXX: g++
+    clang: y
+    llvm: y
+
 .eclair-analysis:
   stage: analyze
-  tags:
-    - epdefrans
+  allow_failure: true
   variables:
+    XEN_TARGET_ARCH: arm64
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    EXTRA_XEN_CONFIG: |
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
+      CONFIG_DEBUG=n
+      CONFIG_DEBUG_INFO=n
     ECLAIR_OUTPUT_DIR: "ECLAIR_out"
     ANALYSIS_KIND: "normal"
-    EXTRA_XEN_CONFIG: |
-      CONFIG_DEBUG_INFO=n
+    VARIANT: "ARM64"
+    LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
   before_script:
     # Kill eclair_report server (if running), because DB will be updated after analysis
     - pkill eclair_report || true
   script:
+    - export PATH=${LLVM_BIN_DIR}:$PATH
     - ./automation/renesas-scripts/eclair 2>&1 | tee "${LOGFILE}"
   after_script:
     # Store latest analysis result
@@ -18,7 +39,6 @@
     - mkdir -p /home/gitlab-runner/xen_latest || true
     - cp -r ./ECLAIR_out /home/gitlab-runner/xen_latest
   artifacts:
-    when: always
     paths:
       - "${ECLAIR_OUTPUT_DIR}/*.log"
       - "${ECLAIR_OUTPUT_DIR}/*.txt"
@@ -28,32 +48,39 @@
       - "intermediates/"
     reports:
       codequality: code-quality-report.json
+    when: always
   rules:
     - when: manual
   needs: []
+  tags:
+    - epdefrans
 
-eclair-monitored:
+eclair-gcc-monitored:
   extends: .eclair-analysis
-  allow_failure: true
   variables:
-    VARIANT: "ARM64"
     RULESET: "monitored"
-    LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    <<: *gcc
 
-eclair-accepted:
+eclair-gcc-accepted:
   extends: .eclair-analysis
-  allow_failure: true
   variables:
-    VARIANT: "ARM64"
     RULESET: "accepted"
-    LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    <<: *gcc
+
+eclair-clang-monitored:
+  extends: .eclair-analysis
+  variables:
+    RULESET: "monitored"
+    <<: *clang
+
+eclair-clang-accepted:
+  extends: .eclair-analysis
+  variables:
+    RULESET: "accepted"
+    <<: *clang
 
 eclair-server-start:
   stage: analyze
-  tags:
-    - epdefrans
   variables:
     TERM: xterm
   script:
@@ -66,58 +93,56 @@ eclair-server-start:
   rules:
     - when: manual
   needs: []
+  tags:
+    - epdefrans
 
 eclair-server-stop:
   stage: analyze
-  tags:
-    - epdefrans
   script:
     - ps -aux | grep eclair_report || true
     - pkill eclair_report || true
   rules:
     - when: manual
   needs: []
+  tags:
+    - epdefrans
 
 .xen-analysis-py:
   stage: analyze
   image: xentroops/xen_rel
-  tags:
-    - arm64
+  allow_failure: true
   variables:
-    CC: clang
-    CXX: clang++
-    HOSTCC: gcc
-    HOSTCXX: g++
-    clang: y
-    llvm: y
-    LOGFILE: "cppcheck.log"
     XEN_TARGET_ARCH: arm64
     KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG=n
       CONFIG_DEBUG_INFO=n
+    LOGFILE: "cppcheck.log"
+    <<: *clang
   before_script:
     - mkdir -p binaries
     - make -C xen defconfig 2>&1 | tee "${LOGFILE}"
     - echo "${EXTRA_XEN_CONFIG}" >> xen/.config 2>&1 | tee "${LOGFILE}"
     - make -j$(nproc) -C xen olddefconfig 2>&1 | tee "${LOGFILE}"
   artifacts:
-    when: always
     paths:
       - "xen/cppcheck-report"
       - "xen/cppcheck-htmlreport"
       - "*.log"
+    when: always
   rules:
     - when: manual
   needs: []
+  tags:
+    - aws-arm64
 
-cppcheck:
+cppcheck-clang:
   extends: .xen-analysis-py
   script:
     - xen/scripts/xen-analysis.py --run-cppcheck --cppcheck-html -- -j$(nproc) 2>&1 | tee "${LOGFILE}"
 
-cppcheck-misra:
+cppcheck-misra-clang:
   extends: .xen-analysis-py
   script:
     - xen/scripts/xen-analysis.py --run-cppcheck --cppcheck-misra --cppcheck-html -- -j$(nproc) 2>&1 | tee "${LOGFILE}"

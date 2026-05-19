@@ -42,7 +42,11 @@ if [[ "$1" = "X86_64" ]]; then
   export CROSS_COMPILE=
   export XEN_TARGET_ARCH=x86_64
 elif [[ "$1" = "ARM64" ]]; then
-  export CROSS_COMPILE=aarch64-linux-gnu-
+  if [ "$llvm" = "y" ]; then
+    export CROSS_COMPILE=
+  else
+    export CROSS_COMPILE=aarch64-linux-gnu-
+  fi
   export XEN_TARGET_ARCH=arm64
 else
   fatal "Unknown configuration: $1"
@@ -60,12 +64,21 @@ accepted|monitored)
   ;;
 esac
 
-export CC_ALIASES="${CROSS_COMPILE}gcc-12"
-export CXX_ALIASES="${CROSS_COMPILE}g++-12"
-export LD_ALIASES="${CROSS_COMPILE}ld"
-export AR_ALIASES="${CROSS_COMPILE}ar"
-export AS_ALIASES="${CROSS_COMPILE}as"
-export FILEMANIP_ALIASES="cp mv ${CROSS_COMPILE}objcopy"
+if [ "$llvm" = "y" ]; then
+  export CC_ALIASES="clang"
+  export CXX_ALIASES="clang++"
+  export LD_ALIASES="ld.lld"
+  export AR_ALIASES="llvm-ar"
+  export AS_ALIASES="llvm-as"
+  export FILEMANIP_ALIASES="cp mv llvm-objcopy"
+else
+  export CC_ALIASES="${CROSS_COMPILE}gcc-12"
+  export CXX_ALIASES="${CROSS_COMPILE}g++-12"
+  export LD_ALIASES="${CROSS_COMPILE}ld"
+  export AR_ALIASES="${CROSS_COMPILE}ar"
+  export AS_ALIASES="${CROSS_COMPILE}as"
+  export FILEMANIP_ALIASES="cp mv ${CROSS_COMPILE}objcopy"
+fi
 
 # ECLAIR binary data directory and workspace.
 export ECLAIR_DATA_DIR="${ECLAIR_OUTPUT_DIR}/.data"
