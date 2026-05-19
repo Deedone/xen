@@ -74,3 +74,47 @@ eclair-server-stop:
   rules:
     - when: manual
   needs: []
+
+.xen-analysis-py:
+  stage: analyze
+  image: xentroops/xen_rel
+  tags:
+    - arm64
+  variables:
+    CC: clang
+    CXX: clang++
+    HOSTCC: gcc
+    HOSTCXX: g++
+    clang: y
+    llvm: y
+    LOGFILE: "cppcheck.log"
+    XEN_TARGET_ARCH: arm64
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    EXTRA_XEN_CONFIG: |
+      CONFIG_CMDLINE="xsm=flask flask=permissive"
+      CONFIG_DEBUG=n
+      CONFIG_DEBUG_INFO=y
+  before_script:
+    - mkdir -p binaries
+    - make -C xen defconfig 2>&1 | tee "${LOGFILE}"
+    - echo "${EXTRA_XEN_CONFIG}" >> xen/.config 2>&1 | tee "${LOGFILE}"
+    - make -j$(nproc) -C xen olddefconfig 2>&1 | tee "${LOGFILE}"
+  artifacts:
+    when: always
+    paths:
+      - "xen/cppcheck-report"
+      - "xen/cppcheck-htmlreport"
+      - "*.log"
+  rules:
+    - when: manual
+  needs: []
+
+cppcheck:
+  extends: .xen-analysis-py
+  script:
+    - xen/scripts/xen-analysis.py --run-cppcheck --cppcheck-html -- -j$(nproc) 2>&1 | tee "${LOGFILE}"
+
+cppcheck-misra:
+  extends: .xen-analysis-py
+  script:
+    - xen/scripts/xen-analysis.py --run-cppcheck --cppcheck-misra --cppcheck-html -- -j$(nproc) 2>&1 | tee "${LOGFILE}"

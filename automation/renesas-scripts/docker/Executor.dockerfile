@@ -213,6 +213,7 @@ RUN apt-get update && \
     checkpolicy=3.4-1+b2 \
     cmake=3.25.1-1 \
     cpio=2.13+dfsg-7.1 \
+    cppcheck=2.10-2 \
     curl=7.88.1-10+deb12u14 \
     device-tree-compiler=1.6.1-4+b1 \
     expect=5.45.4-2+b1 \
@@ -285,5 +286,12 @@ ARG LCOV_GIT=https://github.com/linux-test-project/lcov.git
 WORKDIR /tmp
 RUN cd /tmp && git clone -b "${LCOV_BRANCH}" --single-branch --depth 1 "${LCOV_GIT}" \
     && cd lcov &&  make install && cd /tmp && rm -fr /tmp/*
+
+# Install Cppcheck 2.7
+ARG CPPCHECK_URL=https://github.com/danmar/cppcheck/archive/2.7.tar.gz
+WORKDIR /tmp
+RUN cd /tmp && wget --progress=bar:force:noscroll ${CPPCHECK_URL} \
+    && tar xf 2.7.tar.gz && cd cppcheck-2.7 && mkdir build && cd build \
+    && cmake .. && cmake --build . && make install && cd /tmp && rm -fr /tmp/*
 
 WORKDIR /build
