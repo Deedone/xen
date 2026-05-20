@@ -1,0 +1,95 @@
+.test-jobs-common:
+  stage: test
+  image: xentroops/xen_rel
+  rules:
+  - when: on_success
+
+.arm64-test-needs: &arm64-test-needs
+  - linux-6.6.86-image-export
+  - alpine-3.18-rootfs-export
+  - alpine-3.18-xen-tools-export
+  - xen-atfe-arm64
+
+.qemu-arm64:
+  extends: .test-jobs-common
+  variables:
+    LOGFILE: qemu-smoke-arm64.log
+  artifacts:
+    paths:
+      - '*.serial'
+      - '*.log'
+    when: always
+  tags:
+    - aws-arm64
+
+# Test jobs
+qemu-smoke-dom0-arm64-gcc:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0-arm64.sh 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0-arm64-gcc-debug:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0-arm64.sh 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug-gicv3:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh gicv3 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug-staticmem:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh static-mem 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug-staticheap:
+ extends: .qemu-arm64
+ script:
+   - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh static-heap 2>&1 | tee ${LOGFILE}
+ needs:
+   - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug-static-shared-mem:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh static-shared-mem 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug-boot-cpupools:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh boot-cpupools 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+
+qemu-smoke-dom0less-arm64-gcc-debug-earlyprintk:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-smoke-dom0less-arm64.sh earlyprintk 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-test-needs
+    - xen-atfe-arm64-earlyprintk

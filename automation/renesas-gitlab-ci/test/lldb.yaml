@@ -1,0 +1,102 @@
+.test-jobs-common:
+  stage: test
+  image: xentroops/xen_rel
+  rules:
+  - when: on_success
+
+.arm64-xtf-test-needs: &arm64-xtf-test-needs
+  - xen-atfe-arm64
+  - linux-6.6.86-image-export
+  - alpine-3.18-xen-tools-export
+
+.qemu-arm64:
+  extends: .test-jobs-common
+  variables:
+    LOGFILE: qemu-smoke-arm64.log
+  artifacts:
+    paths:
+      - '*.serial'
+      - '*.log'
+    when: always
+  tags:
+    - aws-arm64
+
+# Test jobs
+
+# Tests for scheduler_init()
+qemu-lldb-sched-init-success:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-cpu-sched-up-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_cpu_sched_up_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-domain-create-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_domain_create_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-get-by-name-default-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_get_by_name_default_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-global-init-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_global_init_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-nr-cpu-ids-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_nr_cpu_ids_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-sched-init-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_sched_init_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-sched-ratelimit-max:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_sched_ratelimit_max.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-sched-ratelimit-min:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_sched_ratelimit_min.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-test-func-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_test_func_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
+
+qemu-lldb-sched-init-vcpu-create-fail:
+  extends: .qemu-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh sched_core_scheduler_init_vcpu_create_fail.py 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-xtf-test-needs
