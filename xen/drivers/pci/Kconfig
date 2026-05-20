@@ -5,3 +5,8 @@ config HAS_PCI
 config HAS_PCI_MSI
 	bool
 	depends on HAS_PCI
+
+config PCI_REBAR
+    bool "Enable resizable bar support for PCI devices"
+    depends on HAS_PCI
+    default n
