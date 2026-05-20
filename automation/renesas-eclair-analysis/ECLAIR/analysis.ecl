@@ -19,7 +19,7 @@ counterparts for the purposes of MISRA C static analysis."
 -frames+={hide, "kind(program)&&target(xen_syms_tmp||xen_efi_tmp)"}
 -doc_end
 
--eval_file=toolchain.ecl
+-eval_file=getenv("TOOLCHAIN_FILE")
 -eval_file=public_APIs.ecl
 
 -doc="Initially, there are no files tagged as adopted."

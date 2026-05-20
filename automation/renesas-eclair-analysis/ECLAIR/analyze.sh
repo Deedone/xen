@@ -37,6 +37,7 @@ ECLAIR_BUILD_LOG="${ECLAIR_OUTPUT_DIR}/BUILD.log"
 # Set the variable for the report log file.
 ECLAIR_REPORT_LOG="${ECLAIR_OUTPUT_DIR}/REPORT.log"
 ECLAIR_CC_LOG="${ECLAIR_OUTPUT_DIR}/CC.log"
+export TOOLCHAIN_FILE="toolchain_gcc.ecl"
 
 if [[ "$1" = "X86_64" ]]; then
   export CROSS_COMPILE=
@@ -44,6 +45,7 @@ if [[ "$1" = "X86_64" ]]; then
 elif [[ "$1" = "ARM64" ]]; then
   if [ "$llvm" = "y" ]; then
     export CROSS_COMPILE=
+    export TOOLCHAIN_FILE="toolchain_clang.ecl"
   else
     export CROSS_COMPILE=aarch64-linux-gnu-
   fi
