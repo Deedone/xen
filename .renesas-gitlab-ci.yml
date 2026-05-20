@@ -3,8 +3,14 @@ variables:
   GIT_DEPTH: 1
 
 workflow:
+  name: '$PIPELINE_NAME_PREFIX | $CI_COMMIT_REF_NAME | $CI_COMMIT_TITLE'
   rules:
+    - if: '$RUN_UBSAN == "true"'
+      variables:
+        PIPELINE_NAME_PREFIX: "UBSAN"
     - when: always
+      variables:
+        PIPELINE_NAME_PREFIX: "RELEASE"
 
 stages:
   - artifacts

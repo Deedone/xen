@@ -1,4 +1,6 @@
 include:
   - local: 'automation/renesas-gitlab-ci/test/lldb.yaml'
   - local: 'automation/renesas-gitlab-ci/test/smoke.yaml'
+    rules:
+      - if: '$RUN_UBSAN == "true"'
   - local: 'automation/renesas-gitlab-ci/test/xtf.yaml'
