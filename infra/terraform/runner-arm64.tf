@@ -60,23 +60,39 @@ module "gitlab_runner_arm64" {
     private_address_only = false
     start_script         = <<-EOF
       #!/bin/bash
-      set -e
       export DEBIAN_FRONTEND=noninteractive
-      # Stop SSH until Docker is ready
+
+      # Ensure SSH is always re-enabled even if the script fails
+      trap 'systemctl start ssh.socket ssh.service' EXIT
+
+      # Stop SSH until Docker is ready (prevents runner from connecting too early)
       systemctl stop ssh.socket ssh.service 2>/dev/null || true
-      # Install Docker from official repo
-      apt-get update -qq
+
+      # Install Docker from official repo with retries
+      for attempt in 1 2 3; do
+        apt-get update -qq && break
+        echo "apt-get update failed (attempt $attempt/3), retrying in 10s..."
+        sleep 10
+      done
+
       apt-get install -y -qq ca-certificates curl >/dev/null 2>&1
       install -m 0755 -d /etc/apt/keyrings
       curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
       echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
-      apt-get update -qq
-      apt-get install -y -qq docker-ce docker-ce-cli containerd.io >/dev/null 2>&1
+
+      for attempt in 1 2 3; do
+        apt-get update -qq && apt-get install -y -qq docker-ce docker-ce-cli containerd.io >/dev/null 2>&1 && break
+        echo "Docker install failed (attempt $attempt/3), retrying in 10s..."
+        sleep 10
+      done
+
       systemctl enable docker
       systemctl start docker
       usermod -aG docker ubuntu
-      # Re-enable SSH now that Docker is ready
+
+      # SSH re-enabled by EXIT trap, but explicit for clarity
       systemctl start ssh.socket ssh.service
+
       # Pre-pull images in background (jobs can start immediately, pulls happen in parallel)
       (docker pull xentroops/xen_rel;
        docker pull xentroops/xen_artifacts_rel) &
