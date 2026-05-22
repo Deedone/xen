@@ -59,9 +59,9 @@ include:
 # Target Xen configuration is taken from CI environment variables; the
 # defaults below are smoke-validation only and must not be treated as
 # the only supported config. Each pipeline run generates a fresh
-# expanded .config and fresh .ci files inside its own job workspace.
-# Numbers in indirect-reachability/status.json are per-run artifact
-# values; they are NOT committed constants.
+# expanded .config and fresh callgraph artifacts inside its own job
+# workspace. Numbers in indirect-reachability/status.json are per-run
+# artifact values; they are NOT committed constants.
 #
 # Runtime logs are optional. Absence yields STATIC_ONLY (a valid
 # success state). COMPLETE requires a matching runtime workload that
@@ -75,16 +75,13 @@ minerva-indirect-reachability:
     - arm64
   variables:
     XEN_DEFCONFIG: "arm64_defconfig"
+    # Callgraph backend selector. gcc-ci (default) keeps the
+    # existing GCC `.ci` path. llvm-ir consumes Clang/LLVM
+    # textual IR from $LLVM_IR_DIR. normalized consumes a
+    # prebuilt graph from $NORMALIZED_CALLGRAPH_DIR.
+    MINERVA_CALLGRAPH_BACKEND: "gcc-ci"
   script:
-    - python3 automation/renesas-scripts/minerva/indirect_ci_driver.py
-        --xen-root .
-        --out-dir "indirect-reachability"
-        --config-name "${XEN_DEFCONFIG}+debug-info"
-        --target-arch arm64
-        --defconfig "$XEN_DEFCONFIG"
-        --extra "CONFIG_DEBUG_INFO=y"
-        --jobs "$(nproc)"
-        --no-runtime
+    - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
   artifacts:
     when: always
     paths:

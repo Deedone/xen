@@ -4,12 +4,14 @@
 Orchestrates one CI run of the indirect-call reachability workflow:
 
   1. produce or consume the expanded Xen `.config`;
-  2. produce or consume the GCC callgraph `.ci` tree;
+  2. produce or consume the callgraph artifacts (GCC `.ci` tree
+     and/or normalized graph; optionally LLVM IR);
   3. run scripts/collect.py on the archived `.config`;
   4. run scripts/indirect_reachability.py on the collector output
-     and the `.ci` tree;
+     and the callgraph artifacts;
   5. run direct-static baselines via
-     minerva_static_analysis/callpath.py;
+     minerva_static_analysis/callpath.py (gcc-ci backend) or
+     normalized-graph target-tree membership (normalized/llvm-ir);
   6. optionally run minerva_analysis/log_parser.py against a
      runtime log directory;
   7. emit a single archive directory matching the per-run artifact
@@ -20,8 +22,8 @@ extra symbols, cross-compile prefix, and config name are all driver
 arguments (typically supplied from CI environment variables). The
 driver does not assume one specific Xen configuration.
 
-Status labels: COMPLETE / STATIC_ONLY /
-PROXY / PARTIAL. No final runtime-vs-static coverage number is
+Status labels: COMPLETE / STATIC_ONLY / PROXY / PARTIAL /
+UNSUPPORTED_BACKEND. No final runtime-vs-static coverage number is
 produced or claimed; counters in status.json are per-run artifact
 values.
 """
@@ -105,7 +107,8 @@ def write_environment_md(out_dir: Path, args: argparse.Namespace,
         f"config name:    `{args.config_name}`",
         f"extras:         {', '.join(args.extra) if args.extra else '(none)'}",
         f"callgraph flag: `{args.callgraph_flag}`",
-        f"jobs:           {args.jobs}",
+        f"jobs:           {args.jobs} "
+        f"(host cpu_count={os.cpu_count() or 'unknown'})",
         f"mode:           {'skip-build (local validation only)' if args.skip_build else 'build'}",
         f"runtime:        "
         f"{'skipped' if args.no_runtime or not args.runtime_log_dir else str(args.runtime_log_dir)}",
@@ -124,6 +127,7 @@ def write_environment_md(out_dir: Path, args: argparse.Namespace,
               "XEN_CALLGRAPH_FLAG", "XEN_BUILD_JOBS",
               "MINERVA_RUNTIME_LOG_DIR", "MINERVA_INDIRECT_OUT",
               "MINERVA_CI_ALLOW_RUNTIME_FAILURE",
+              "MINERVA_CI_SKIP_RUNTIME",
               "CI_JOB_ID", "CI_COMMIT_SHA", "CI_PIPELINE_ID"):
         val = os.environ.get(v)
         if val is not None:
@@ -262,17 +266,55 @@ def stage_collect(xen_root: Path, out_dir: Path, args: argparse.Namespace,
     return json.loads(summary_path.read_text())
 
 
-def stage_reachability(xen_root: Path, out_dir: Path, ci_dir: Path,
-                       targets: list[str]) -> dict:
+def stage_normalize_gcc(xen_root: Path, out_dir: Path,
+                        ci_dir: Path, args) -> Path:
+    """Run the GCC `.ci` -> normalized adapter; return out dir."""
+    norm = out_dir / "normalized"
+    _run([sys.executable,
+          str(xen_root / "automation/renesas-scripts/minerva" / "callgraph" /
+              "gcc_ci_to_normalized.py"),
+          "--ci-dir", str(ci_dir),
+          "--out-dir", str(norm),
+          "--config-name", args.config_name,
+          "--target-arch", args.target_arch])
+    return norm
+
+
+def stage_normalize_llvm(xen_root: Path, out_dir: Path,
+                         ir_dir: Path, args) -> Path:
+    """Run the LLVM IR -> normalized adapter; return out dir."""
+    norm = out_dir / "normalized"
+    cmd = [sys.executable,
+           str(xen_root / "automation/renesas-scripts/minerva" / "callgraph" /
+               "llvm_ir_to_normalized.py"),
+           "--ir-dir", str(ir_dir),
+           "--out-dir", str(norm),
+           "--config-name", args.config_name,
+           "--target-arch", args.target_arch]
+    if args.llvm_dis:
+        cmd += ["--llvm-dis", args.llvm_dis]
+    _run(cmd)
+    return norm
+
+
+def stage_reachability(xen_root: Path, out_dir: Path, ci_dir: Path | None,
+                       targets: list[str],
+                       backend: str = "gcc-ci",
+                       normalized_dir: Path | None = None) -> dict:
     reach = out_dir / "reachability"
     reach.mkdir(parents=True, exist_ok=True)
-    _run([sys.executable, str(xen_root / "automation/renesas-scripts/minerva" /
-                              "indirect_reachability.py"),
-          "--collector-run", str(out_dir / "collect"),
-          "--ci-dir", str(ci_dir),
-          "--targets", *targets,
-          "--out-dir", str(reach),
-          "--xen-root", str(xen_root)])
+    cmd = [sys.executable, str(xen_root / "automation/renesas-scripts/minerva" /
+                               "indirect_reachability.py"),
+           "--collector-run", str(out_dir / "collect"),
+           "--targets", *targets,
+           "--out-dir", str(reach),
+           "--xen-root", str(xen_root),
+           "--callgraph-backend", backend]
+    if backend == "gcc-ci":
+        cmd += ["--ci-dir", str(ci_dir)]
+    elif backend == "normalized":
+        cmd += ["--normalized-callgraph-dir", str(normalized_dir)]
+    _run(cmd)
     rsum = reach / "reachability-summary.md"
     if not rsum.exists():
         raise SystemExit("PARTIAL: indirect_reachability.py did not "
@@ -412,9 +454,9 @@ def stage_runtime_static(out_dir: Path, status_label: str):
     (rs / "runtime-static-comparison.md").write_text(
         "# Runtime/static comparison\n\n"
         f"Status: **{status_label}**\n\n"
-        "This file is a per-run artifact. No final\n"
-        "runtime-vs-static coverage number is committed. Numbers in\n"
-        "the sibling status.json reflect this CI run only.\n\n"
+        "This file is a per-run artifact. No final runtime-vs-static\n"
+        "coverage number is committed. Numbers in the sibling\n"
+        "status.json reflect this CI run only.\n\n"
         "## Caveats\n\n"
         "- No allocation bound is claimed.\n"
         "- `path_found=no` does not mean impossible.\n"
@@ -434,7 +476,15 @@ def write_status(out_dir: Path, status_label: str, *,
                  defconfig: str | None, extras: list[str],
                  ci_count: int, collector_ok: bool, reachability_ok: bool,
                  direct_static_ok: bool, runtime_ok: bool,
-                 runtime_reason: str, counters: dict, notes: list[str]):
+                 runtime_reason: str, counters: dict, notes: list[str],
+                 callgraph_backend: str = "gcc-ci",
+                 callgraph_artifact_kind: str = "n/a",
+                 llvm_ir_files: int = 0,
+                 llvm_bc_files: int = 0,
+                 llvm_extractor_ok: bool = False,
+                 normalized_graph_ok: bool = False,
+                 jobs: int = 0,
+                 host_cpu_count: int | None = None):
     status = {
         "status": status_label,
         "config_name": config_name,
@@ -448,6 +498,16 @@ def write_status(out_dir: Path, status_label: str, *,
         "direct_static_ok": direct_static_ok,
         "runtime_ok": runtime_ok,
         "runtime_reason": runtime_reason,
+        "callgraph_backend": callgraph_backend,
+        "callgraph_artifact_kind": callgraph_artifact_kind,
+        "callgraph_functions": counters.get("callgraph_functions", 0),
+        "callgraph_edges": counters.get("callgraph_edges", 0),
+        "llvm_ir_files": llvm_ir_files,
+        "llvm_bc_files": llvm_bc_files,
+        "llvm_extractor_ok": llvm_extractor_ok,
+        "normalized_graph_ok": normalized_graph_ok,
+        "jobs": jobs,
+        "host_cpu_count": host_cpu_count,
         "counters": counters,
         "notes": notes,
         "generated_at": _ts(),
@@ -478,8 +538,7 @@ def write_status(out_dir: Path, status_label: str, *,
 
 def main():
     p = argparse.ArgumentParser(
-        description="Minerva indirect-reachability CI driver "
-                    ".")
+        description="Minerva indirect-reachability CI driver.")
     p.add_argument("--xen-root", type=Path, default=Path("."))
     p.add_argument("--out-dir", type=Path, required=True)
     p.add_argument("--config-name", required=True)
@@ -499,8 +558,37 @@ def main():
     p.add_argument("--no-runtime", action="store_true",
                    help="Force STATIC_ONLY: skip runtime parsing even "
                         "if --runtime-log-dir is supplied.")
+    # Default jobs: scale with the runner (`os.cpu_count()`).
+    # Fall back to 2 on hosts where `cpu_count()` returns None.
+    # The wrapper script (`scripts/run_indirect_ci.sh`) supplies
+    # `$XEN_BUILD_JOBS` (default `nproc`) in CI; this default
+    # applies when the driver is invoked directly. The effective
+    # value is recorded in `environment.md` and `status.json` so
+    # the runner host's CPU count is auditable per run.
     p.add_argument("--jobs", type=int, default=(os.cpu_count() or 2))
     p.add_argument("--callgraph-flag", default="-fcallgraph-info=su")
+    p.add_argument("--callgraph-backend",
+                   choices=("gcc-ci", "llvm-ir", "normalized"),
+                   default="gcc-ci",
+                   help="Callgraph backend. `gcc-ci` (default): build "
+                        "with GCC callgraph flag and feed .ci tree to "
+                        "callpath.py. `llvm-ir`: consume textual LLVM "
+                        "IR (.ll/.bc) under --llvm-ir-dir, extract a "
+                        "normalized graph, and run reachability "
+                        "against it. `normalized`: skip extraction; "
+                        "consume an already-prepared normalized graph "
+                        "directory via --normalized-callgraph-dir.")
+    p.add_argument("--llvm-ir-dir", type=Path, default=None,
+                   help="Directory of textual LLVM IR (.ll) and/or "
+                        "bitcode (.bc) files when "
+                        "--callgraph-backend=llvm-ir.")
+    p.add_argument("--llvm-dis", default="",
+                   help="Path to `llvm-dis` for .bc -> .ll conversion. "
+                        "Defaults to the binary on PATH.")
+    p.add_argument("--normalized-callgraph-dir", type=Path, default=None,
+                   help="Prebuilt normalized graph directory. Used "
+                        "when --callgraph-backend=normalized; bypasses "
+                        "extraction.")
     p.add_argument("--status-only", action="store_true",
                    help="Write status.json + ci-summary.md from "
                         "whatever artifacts already exist; do not "
@@ -531,10 +619,47 @@ def main():
             "this is a local-validation artifact, not a fresh CI build."
         )
 
+    callgraph_backend = args.callgraph_backend
+    callgraph_artifact_kind = "n/a"
+    llvm_ir_files = 0
+    llvm_bc_files = 0
+    llvm_extractor_ok = False
+    normalized_graph_ok = False
+    ci_dir: Path | None = None
+
     try:
         config_path, _cfg_info = stage_config(out_dir, args, xen_root)
-        ci_dir, ci_info = stage_ci(out_dir, args, xen_root)
-        ci_count = ci_info["count"]
+        # The gcc-ci backend needs a .ci tree from the build (or
+        # skip-build). The llvm-ir backend needs a .ll tree. The
+        # normalized backend needs nothing but the prebuilt
+        # functions.csv/edges.csv.
+        if callgraph_backend == "gcc-ci":
+            ci_dir, ci_info = stage_ci(out_dir, args, xen_root)
+            ci_count = ci_info["count"]
+            callgraph_artifact_kind = "gcc-ci"
+        elif callgraph_backend == "llvm-ir":
+            if not args.llvm_ir_dir or not args.llvm_ir_dir.exists():
+                raise SystemExit(
+                    "UNSUPPORTED_BACKEND: --callgraph-backend=llvm-ir "
+                    "requires --llvm-ir-dir <existing-path>"
+                )
+            llvm_ir_files = sum(
+                1 for _ in args.llvm_ir_dir.rglob("*.ll"))
+            llvm_bc_files = sum(
+                1 for _ in args.llvm_ir_dir.rglob("*.bc"))
+            if llvm_ir_files + llvm_bc_files == 0:
+                raise SystemExit(
+                    f"UNSUPPORTED_BACKEND: no .ll or .bc files under "
+                    f"{args.llvm_ir_dir}")
+            callgraph_artifact_kind = "llvm-ir"
+        elif callgraph_backend == "normalized":
+            if (not args.normalized_callgraph_dir
+                    or not args.normalized_callgraph_dir.exists()):
+                raise SystemExit(
+                    "UNSUPPORTED_BACKEND: "
+                    "--callgraph-backend=normalized requires "
+                    "--normalized-callgraph-dir <existing-path>")
+            callgraph_artifact_kind = "normalized-prebuilt"
 
         cs = stage_collect(xen_root, out_dir, args, config_path)
         counters.update({
@@ -546,17 +671,110 @@ def main():
         })
         collector_ok = True
 
-        rinfo = stage_reachability(xen_root, out_dir, ci_dir, args.targets)
+        # Produce or reuse a normalized graph, then run reachability
+        # against whichever backend the caller picked.
+        normalized_dir: Path | None = None
+        if callgraph_backend == "gcc-ci":
+            # Archive a normalized view of the gcc-ci graph alongside
+            # the legacy reachability output. This keeps the CI
+            # artifact set backend-neutral even when the build was
+            # GCC-based.
+            try:
+                normalized_dir = stage_normalize_gcc(
+                    xen_root, out_dir, ci_dir, args)
+                normalized_graph_ok = True
+            except subprocess.CalledProcessError as e:
+                notes.append(
+                    f"gcc-ci -> normalized adapter failed: "
+                    f"{(e.stderr or '')[:200]}")
+            rinfo = stage_reachability(
+                xen_root, out_dir, ci_dir, args.targets,
+                backend="gcc-ci")
+        elif callgraph_backend == "llvm-ir":
+            normalized_dir = stage_normalize_llvm(
+                xen_root, out_dir, args.llvm_ir_dir, args)
+            llvm_extractor_ok = True
+            normalized_graph_ok = True
+            rinfo = stage_reachability(
+                xen_root, out_dir, None, args.targets,
+                backend="normalized",
+                normalized_dir=normalized_dir)
+        else:  # normalized
+            normalized_dir = args.normalized_callgraph_dir
+            normalized_graph_ok = True
+            rinfo = stage_reachability(
+                xen_root, out_dir, None, args.targets,
+                backend="normalized",
+                normalized_dir=normalized_dir)
         counters.update(rinfo)
         reachability_ok = True
 
-        dinfo = stage_direct_static(xen_root, out_dir, ci_dir, args.targets)
-        direct_static_ok = bool(dinfo.get("all_ok"))
-        counters.update({k: v for k, v in dinfo.items()
-                         if k.startswith("distinct_functions_")})
+        # Surface callgraph_functions / callgraph_edges from the
+        # archived normalized graph directly so status.json has them
+        # even when the gcc-ci legacy reachability path was taken
+        # (its counters scrape doesn't include those fields).
+        if normalized_dir is not None:
+            try:
+                with (normalized_dir / "functions.csv").open() as fh:
+                    counters["callgraph_functions"] = max(
+                        0, sum(1 for _ in fh) - 1)
+                with (normalized_dir / "edges.csv").open() as fh:
+                    counters["callgraph_edges"] = max(
+                        0, sum(1 for _ in fh) - 1)
+            except OSError:
+                pass
+
+        if ci_dir is not None:
+            dinfo = stage_direct_static(
+                xen_root, out_dir, ci_dir, args.targets)
+            direct_static_ok = bool(dinfo.get("all_ok"))
+            counters.update({k: v for k, v in dinfo.items()
+                             if k.startswith("distinct_functions_")})
+        elif normalized_dir is not None:
+            # Direct-static summary from the normalized graph: how
+            # many distinct functions reach each target.
+            ds = out_dir / "direct-static"
+            ds.mkdir(parents=True, exist_ok=True)
+            ng_mod_path = (xen_root / "automation/renesas-scripts/minerva" / "callgraph"
+                           / "normalized_graph.py")
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "_ng_runtime", str(ng_mod_path))
+            ng_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ng_mod)
+            edges = ng_mod.load_edges(normalized_dir)
+            ds_summary: dict = {"format": "normalized-target-tree",
+                                "targets": {}}
+            md_lines = ["# Direct-static baselines (normalized backend)\n",
+                        f"Source: `{normalized_dir}`\n",
+                        "| Target | Distinct functions reaching target |",
+                        "| --- | ---: |"]
+            for t in args.targets:
+                reach_set = ng_mod.functions_reaching_target(edges, t)
+                (ds / f"{t}.functions").write_text(
+                    "\n".join(sorted(reach_set)) + "\n",
+                    encoding="utf-8")
+                (ds / f"{t}.stderr").write_text("", encoding="utf-8")
+                ds_summary["targets"][t] = {
+                    "distinct_functions": len(reach_set),
+                    "format": "normalized-target-tree",
+                    "ok": True,
+                }
+                counters[f"distinct_functions_{t}"] = len(reach_set)
+                md_lines.append(f"| `{t}` | {len(reach_set)} |")
+            md_lines.append("")
+            (ds / "direct-static-summary.md").write_text(
+                "\n".join(md_lines) + "\n", encoding="utf-8")
+            (ds / "direct-static-summary.json").write_text(
+                json.dumps(ds_summary, indent=2), encoding="utf-8")
+            direct_static_ok = True
     except SystemExit as e:
         notes.append(str(e))
-        status_label = "PARTIAL"
+        msg = str(e)
+        if "UNSUPPORTED_BACKEND" in msg:
+            status_label = "UNSUPPORTED_BACKEND"
+        else:
+            status_label = "PARTIAL"
 
     if status_label != "PARTIAL":
         if args.no_runtime or not args.runtime_log_dir:
@@ -598,7 +816,15 @@ def main():
                  runtime_ok=runtime_ok,
                  runtime_reason=runtime_reason,
                  counters=counters,
-                 notes=notes)
+                 notes=notes,
+                 callgraph_backend=callgraph_backend,
+                 callgraph_artifact_kind=callgraph_artifact_kind,
+                 llvm_ir_files=llvm_ir_files,
+                 llvm_bc_files=llvm_bc_files,
+                 llvm_extractor_ok=llvm_extractor_ok,
+                 normalized_graph_ok=normalized_graph_ok,
+                 jobs=args.jobs,
+                 host_cpu_count=os.cpu_count())
 
     print(f"\nFINAL STATUS: {status_label}", file=sys.stderr)
     if status_label == "PARTIAL":
