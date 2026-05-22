@@ -80,6 +80,14 @@ minerva-indirect-reachability:
     # textual IR from $LLVM_IR_DIR. normalized consumes a
     # prebuilt graph from $NORMALIZED_CALLGRAPH_DIR.
     MINERVA_CALLGRAPH_BACKEND: "gcc-ci"
+    # LLVM IR generation (opt-in static-analysis side-build). When
+    # MINERVA_CALLGRAPH_BACKEND is "llvm-ir" and the flag below is
+    # truthy, the driver generates a `.ll` tree from this run's
+    # expanded .config (analysis compile replay with $LLVM_CC) and
+    # feeds it to llvm_ir_to_normalized.py. Default keeps the GCC
+    # production path; the LLVM backend is never the default.
+    MINERVA_GENERATE_LLVM_IR: "false"
+    LLVM_CC: "clang"
   script:
     - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
   artifacts:

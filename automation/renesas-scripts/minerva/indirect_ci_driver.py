@@ -297,6 +297,38 @@ def stage_normalize_llvm(xen_root: Path, out_dir: Path,
     return norm
 
 
+def stage_generate_llvm_ir(xen_root: Path, out_dir: Path, args
+                           ) -> tuple[Path, dict]:
+    """Generate a `.ll` tree by analysis compile replay.
+
+    Imports scripts/llvm_ir_gen.py by path (the driver is invoked
+    from a checkout that is not necessarily on sys.path) and runs the
+    end-to-end generation. Returns (ir_dir, summary).
+    """
+    import importlib.util
+    import shlex
+    gen_path = xen_root / "automation/renesas-scripts/minerva" / "llvm_ir_gen.py"
+    spec = importlib.util.spec_from_file_location(
+        "_llvm_ir_gen", str(gen_path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    ir_dir = (args.llvm_ir_out_dir if args.llvm_ir_out_dir
+              else out_dir / "llvm-ir")
+    extra = shlex.split(args.llvm_ir_extra_cflags) \
+        if args.llvm_ir_extra_cflags else []
+    summary = mod.generate_llvm_ir(
+        xen_root, ir_out_dir=ir_dir,
+        target_arch=args.target_arch,
+        cross_compile=args.cross_compile,
+        llvm_cc=args.llvm_cc,
+        compile_log=args.compile_log,
+        jobs=args.jobs, extra_cflags=extra,
+        clean_before_capture=args.llvm_ir_clean_before_capture,
+        keep_temp=args.keep_ir_temp)
+    return ir_dir, summary
+
+
 def stage_reachability(xen_root: Path, out_dir: Path, ci_dir: Path | None,
                        targets: list[str],
                        backend: str = "gcc-ci",
@@ -483,6 +515,12 @@ def write_status(out_dir: Path, status_label: str, *,
                  llvm_bc_files: int = 0,
                  llvm_extractor_ok: bool = False,
                  normalized_graph_ok: bool = False,
+                 llvm_ir_generation_requested: bool = False,
+                 llvm_ir_generation_ok: bool = False,
+                 llvm_ir_generation_mode: str = "n/a",
+                 llvm_ir_compiler: str = "n/a",
+                 llvm_ir_compiler_version: str = "n/a",
+                 llvm_ir_failures: int = 0,
                  jobs: int = 0,
                  host_cpu_count: int | None = None):
     status = {
@@ -505,7 +543,16 @@ def write_status(out_dir: Path, status_label: str, *,
         "llvm_ir_files": llvm_ir_files,
         "llvm_bc_files": llvm_bc_files,
         "llvm_extractor_ok": llvm_extractor_ok,
+        "llvm_ir_generation_requested": llvm_ir_generation_requested,
+        "llvm_ir_generation_ok": llvm_ir_generation_ok,
+        "llvm_ir_generation_mode": llvm_ir_generation_mode,
+        "llvm_ir_compiler": llvm_ir_compiler,
+        "llvm_ir_compiler_version": llvm_ir_compiler_version,
+        "llvm_ir_failures": llvm_ir_failures,
         "normalized_graph_ok": normalized_graph_ok,
+        "normalized_graph_functions": counters.get(
+            "callgraph_functions", 0),
+        "normalized_graph_edges": counters.get("callgraph_edges", 0),
         "jobs": jobs,
         "host_cpu_count": host_cpu_count,
         "counters": counters,
@@ -585,6 +632,48 @@ def main():
     p.add_argument("--llvm-dis", default="",
                    help="Path to `llvm-dis` for .bc -> .ll conversion. "
                         "Defaults to the binary on PATH.")
+    # LLVM IR generation (analysis compile replay). Opt-in; only
+    # consulted when --callgraph-backend=llvm-ir. When set, the
+    # driver generates a .ll tree from the same expanded .config and
+    # feeds it to the normalizer, instead of requiring an external
+    # --llvm-ir-dir.
+    p.add_argument("--generate-llvm-ir", action="store_true",
+                   help="Generate LLVM IR artifacts from the "
+                        "configured Xen build (analysis compile "
+                        "replay) and consume them, instead of "
+                        "requiring --llvm-ir-dir. Only meaningful "
+                        "with --callgraph-backend=llvm-ir.")
+    p.add_argument("--llvm-cc", default="clang",
+                   help="Clang executable used for IR generation. "
+                        "Default: clang.")
+    p.add_argument("--llvm-ir-out-dir", type=Path, default=None,
+                   help="Output directory for generated IR. Default: "
+                        "<out-dir>/llvm-ir.")
+    p.add_argument("--compile-log", type=Path, default=None,
+                   help="Pre-captured verbose build log to parse for "
+                        "compile commands. If absent, the driver runs "
+                        "a verbose build to capture them.")
+    p.add_argument("--ir-replay-from-build-log", action="store_true",
+                   help="Explicit selector for build-log replay mode. "
+                        "This is the default when --generate-llvm-ir "
+                        "is set without --compile-log; the flag exists "
+                        "for symmetry and self-documentation.")
+    p.add_argument("--keep-ir-temp", action="store_true",
+                   help="Keep temporary replay state (failed-command "
+                        "argv) in the IR generation summary for "
+                        "debugging.")
+    p.add_argument("--llvm-ir-extra-cflags", default="",
+                   help="Extra flags appended to each IR replay "
+                        "command (whitespace-separated).")
+    p.add_argument("--llvm-ir-clean-before-capture", action="store_true",
+                   help="Run `make -C xen clean` before the verbose "
+                        "capture build (build-log-replay mode) so "
+                        "every C compile is logged. Use in reused "
+                        "workspaces.")
+    p.add_argument("--allow-partial-llvm-ir", action="store_true",
+                   help="Continue when some (but not all) IR replays "
+                        "fail. Default is strict: any replay failure "
+                        "makes the run PARTIAL.")
     p.add_argument("--normalized-callgraph-dir", type=Path, default=None,
                    help="Prebuilt normalized graph directory. Used "
                         "when --callgraph-backend=normalized; bypasses "
@@ -625,6 +714,14 @@ def main():
     llvm_bc_files = 0
     llvm_extractor_ok = False
     normalized_graph_ok = False
+    llvm_ir_generation_requested = bool(
+        args.generate_llvm_ir
+        and callgraph_backend == "llvm-ir")
+    llvm_ir_generation_ok = False
+    llvm_ir_generation_mode = "n/a"
+    llvm_ir_compiler = args.llvm_cc
+    llvm_ir_compiler_version = "n/a"
+    llvm_ir_failures = 0
     ci_dir: Path | None = None
 
     try:
@@ -638,11 +735,45 @@ def main():
             ci_count = ci_info["count"]
             callgraph_artifact_kind = "gcc-ci"
         elif callgraph_backend == "llvm-ir":
+            # Two ways to obtain IR: generate it from this run's
+            # expanded .config (analysis compile replay), or consume
+            # an externally supplied tree via --llvm-ir-dir.
+            if args.generate_llvm_ir:
+                if args.llvm_ir_dir:
+                    notes.append(
+                        "--generate-llvm-ir overrides --llvm-ir-dir; "
+                        "generating IR from this run's build.")
+                ir_dir, gen_summary = stage_generate_llvm_ir(
+                    xen_root, out_dir, args)
+                llvm_ir_generation_mode = gen_summary.get("mode", "n/a")
+                llvm_ir_compiler_version = gen_summary.get(
+                    "compiler_version", "n/a")
+                llvm_ir_failures = gen_summary.get("replay_failed", 0)
+                llvm_ir_files = gen_summary.get("ir_files_generated", 0)
+                if llvm_ir_files == 0:
+                    raise SystemExit(
+                        "PARTIAL: LLVM IR generation produced zero "
+                        ".ll files; see llvm-ir/"
+                        "ir-generation-summary.json")
+                if llvm_ir_failures and not args.allow_partial_llvm_ir:
+                    raise SystemExit(
+                        f"PARTIAL: {llvm_ir_failures} LLVM IR replay "
+                        f"command(s) failed; pass --allow-partial-"
+                        f"llvm-ir to continue on the rest")
+                if llvm_ir_failures and args.allow_partial_llvm_ir:
+                    notes.append(
+                        f"{llvm_ir_failures} IR replay failure(s) "
+                        f"tolerated (--allow-partial-llvm-ir); "
+                        f"continuing on {llvm_ir_files} generated "
+                        f"file(s).")
+                llvm_ir_generation_ok = True
+                # Point the consumer path at the generated tree.
+                args.llvm_ir_dir = ir_dir
             if not args.llvm_ir_dir or not args.llvm_ir_dir.exists():
                 raise SystemExit(
                     "UNSUPPORTED_BACKEND: --callgraph-backend=llvm-ir "
-                    "requires --llvm-ir-dir <existing-path>"
-                )
+                    "requires --llvm-ir-dir <existing-path> or "
+                    "--generate-llvm-ir")
             llvm_ir_files = sum(
                 1 for _ in args.llvm_ir_dir.rglob("*.ll"))
             llvm_bc_files = sum(
@@ -823,6 +954,12 @@ def main():
                  llvm_bc_files=llvm_bc_files,
                  llvm_extractor_ok=llvm_extractor_ok,
                  normalized_graph_ok=normalized_graph_ok,
+                 llvm_ir_generation_requested=llvm_ir_generation_requested,
+                 llvm_ir_generation_ok=llvm_ir_generation_ok,
+                 llvm_ir_generation_mode=llvm_ir_generation_mode,
+                 llvm_ir_compiler=llvm_ir_compiler,
+                 llvm_ir_compiler_version=llvm_ir_compiler_version,
+                 llvm_ir_failures=llvm_ir_failures,
                  jobs=args.jobs,
                  host_cpu_count=os.cpu_count())
 

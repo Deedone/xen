@@ -25,6 +25,8 @@ set -euo pipefail
 : "${XEN_CALLGRAPH_FLAG:=-fcallgraph-info=su}"
 : "${MINERVA_CALLGRAPH_BACKEND:=gcc-ci}"
 : "${XEN_BUILD_JOBS:=$(nproc 2>/dev/null || echo 2)}"
+: "${MINERVA_GENERATE_LLVM_IR:=false}"
+: "${LLVM_CC:=clang}"
 
 args=(
   --xen-root .
@@ -64,6 +66,35 @@ fi
 if [[ -n "${NORMALIZED_CALLGRAPH_DIR:-}" ]]; then
   args+=( --normalized-callgraph-dir "$NORMALIZED_CALLGRAPH_DIR" )
 fi
+
+# LLVM IR generation (opt-in; analysis compile replay). Only acted on
+# when the llvm-ir backend is selected and MINERVA_GENERATE_LLVM_IR is
+# truthy. The driver itself ignores --generate-llvm-ir for other
+# backends, but the wrapper only adds it for llvm-ir to keep the argv
+# minimal and the intent obvious.
+case "${MINERVA_GENERATE_LLVM_IR:-false}" in
+  1 | true | TRUE | yes | YES)
+    if [[ "$MINERVA_CALLGRAPH_BACKEND" == "llvm-ir" ]]; then
+      args+=( --generate-llvm-ir )
+      if [[ -n "${LLVM_CC:-}" ]]; then
+        args+=( --llvm-cc "$LLVM_CC" )
+      fi
+    fi
+    ;;
+esac
+if [[ -n "${LLVM_IR_EXTRA_CFLAGS:-}" ]]; then
+  args+=( --llvm-ir-extra-cflags "$LLVM_IR_EXTRA_CFLAGS" )
+fi
+case "${MINERVA_LLVM_IR_CLEAN_BEFORE_CAPTURE:-false}" in
+  1 | true | TRUE | yes | YES)
+    args+=( --llvm-ir-clean-before-capture )
+    ;;
+esac
+case "${MINERVA_ALLOW_PARTIAL_LLVM_IR:-false}" in
+  1 | true | TRUE | yes | YES)
+    args+=( --allow-partial-llvm-ir )
+    ;;
+esac
 
 # Runtime parser hook. Default (no log dir) yields STATIC_ONLY,
 # the documented success state for the smoke job. The driver
