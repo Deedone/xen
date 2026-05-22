@@ -80,6 +80,61 @@ Bitcode `.bc` inputs are converted to `.ll` via `llvm-dis`
 Inputs without `llvm-dis` available are skipped with a
 warning recorded in `metadata.json::warnings`.
 
+### Generating IR in CI (analysis compile replay)
+
+The LLVM backend can either **consume** externally supplied IR
+(`--llvm-ir-dir`) or **generate** IR through the CI driver's
+analysis replay mode (`--generate-llvm-ir`). Generation is
+opt-in and only acted on when the `llvm-ir` backend is
+selected.
+
+`scripts/llvm_ir_gen.py` produces the IR. It is an analysis
+side-build, **not** the production Xen object build:
+
+- It captures the per-file C compile commands from a verbose
+  (`V=1`) build, or from a log supplied via `--compile-log`.
+- It rewrites each Clang C compile into an `-S -emit-llvm`
+  analysis compile, dropping `-c`, the `-o <object>` pair, and
+  `.d` dependency flags, and preserving include paths,
+  defines, target flags, and warning flags.
+- It mirrors object-relative paths under the IR tree
+  (`xen/common/foo.o` -> `llvm-ir/xen/common/foo.ll`) and
+  disambiguates collisions with a stable numeric suffix.
+- The generated tree is then handed to
+  `llvm_ir_to_normalized.py` exactly as an external tree would
+  be.
+
+`clang -S -emit-llvm` emits `.ll` rather than `.o`, so this
+step does not slot into the normal object-producing build;
+running it as a replay/side-build keeps it independent of
+whether a full Clang object build of Xen links. **No LLVM
+plugin and no DOT output are used.**
+
+IR generation depends on Clang accepting the project's compile
+flags. Cross-compilation, target triples, and GCC-isms in
+CFLAGS may need CI-environment tuning (`--llvm-cc`,
+`--llvm-ir-extra-cflags`). In a reused workspace `make` may
+find objects up to date and emit few or zero compile lines;
+`--llvm-ir-clean-before-capture` (or
+`MINERVA_LLVM_IR_CLEAN_BEFORE_CAPTURE`) runs `make clean`
+first so every C compile is logged. Failure policy:
+
+- zero `.ll` files generated -> status `PARTIAL` (the summary
+  notes that an up-to-date workspace or a log without Clang
+  compile lines is the usual cause);
+- some replays fail (including a missing or invalid
+  `--llvm-cc`, which is recorded, not crashed) -> `PARTIAL` by
+  default; pass `--allow-partial-llvm-ir` (or
+  `MINERVA_ALLOW_PARTIAL_LLVM_IR`) to continue on the files
+  that did generate;
+- backend requested but neither `--llvm-ir-dir` nor
+  `--generate-llvm-ir` supplied -> `UNSUPPORTED_BACKEND`.
+
+Generated `.ll` / `.bc` files and the normalized graph derived
+from them are per-run artifacts; they are **not committed**.
+
+GCC `.ci` remains the default production path.
+
 ### LLVM-specific limits
 
 - Not a complete IR semantic analyser. The extractor walks
@@ -93,13 +148,14 @@ warning recorded in `metadata.json::warnings`.
   that path; the LLVM extractor is the IR-side bridge into
   the normalized form.
 - **Full Xen LLVM build validation is future work.** The
-  extractor has been exercised on hand-crafted synthetic IR
-  that covers every instruction shape it cares about
-  (direct, indirect, bitcast wrappers, intrinsics, aliases,
-  invoke, tail-call). Validation against a complete Xen
-  build with `clang -S -emit-llvm` on a Linux runner is the
-  next step; the extractor itself should not need code
-  changes for that.
+  extractor and the generation replay have been exercised on
+  hand-crafted synthetic IR and on a synthetic C compile
+  (`a -> b -> c -> alloc_domheap_pages`) taken through
+  generation, normalization, and reachability. Validation
+  against a complete Xen build with `clang -S -emit-llvm` on a
+  Linux runner is the next step and depends on runner and
+  toolchain availability; neither the extractor nor the
+  generation module should need code changes for that.
 
 ## Normalized backend
 

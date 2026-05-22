@@ -26,6 +26,20 @@ indirect-reachability/
     edges.csv
     metadata.json
 
+  llvm-ir/                            (optional; only when
+                                      --generate-llvm-ir ran)
+    ir-files.list
+    ir-generation-summary.md
+    ir-generation-summary.json
+    capture-build.log                 (build-log-replay mode)
+    **/*.ll                           (generated IR; not committed)
+
+  normalized/                         (when an llvm-ir or gcc-ci
+                                      run emits a normalized graph)
+    functions.csv
+    edges.csv
+    metadata.json
+
   collect/
     config-scope.md
     ops-inventory.csv
@@ -88,6 +102,12 @@ For each CI run:
    tree.
 6. Runtime artifacts under `runtime/` are optional. Absence
    yields `STATIC_ONLY`.
+7. When `--generate-llvm-ir` ran, the `.ll` tree under
+   `llvm-ir/` was produced from the same expanded `.config` as
+   the run (by replaying that build's compile commands), and
+   the normalized graph under `normalized/` was extracted from
+   that `.ll` tree. Generated `.ll` / `.bc` files are per-run
+   artifacts and are never committed to the repository.
 
 ## Status labels
 

@@ -53,6 +53,13 @@ CI job does not reuse local build artifacts.
 | `MINERVA_RUNTIME_LOG_DIR` | If set, parsed via `log_parser.py`. Absence yields `STATIC_ONLY`. |
 | `MINERVA_INDIRECT_OUT` | Artifact directory; default `indirect-reachability`. |
 | `MINERVA_CI_ALLOW_RUNTIME_FAILURE` | If truthy, runtime parser failure downgrades the run to `STATIC_ONLY` instead of `PARTIAL`. |
+| `MINERVA_CALLGRAPH_BACKEND` | `gcc-ci` (default), `llvm-ir`, or `normalized`. See [callgraph-backends.md](callgraph-backends.md). |
+| `MINERVA_GENERATE_LLVM_IR` | If truthy *and* the backend is `llvm-ir`, generate IR from this run's build (analysis compile replay) instead of requiring `LLVM_IR_DIR`. Default `false`. |
+| `LLVM_CC` | Clang executable used for IR generation. Default `clang`. |
+| `LLVM_IR_DIR` | Externally supplied `.ll` / `.bc` tree for the `llvm-ir` backend. Ignored when `MINERVA_GENERATE_LLVM_IR` is truthy. |
+| `LLVM_IR_EXTRA_CFLAGS` | Extra flags appended to each IR replay compile (whitespace-separated). |
+| `MINERVA_LLVM_IR_CLEAN_BEFORE_CAPTURE` | If truthy, run `make clean` before the verbose capture build so a reused workspace still logs every C compile. |
+| `MINERVA_ALLOW_PARTIAL_LLVM_IR` | If truthy, tolerate some-but-not-all IR replay failures instead of `PARTIAL`. |
 
 ### Smoke defaults
 
@@ -88,6 +95,30 @@ MINERVA_CONFIG_NAME=arm64_safety+ioreq+debuginfo
 The driver records the effective values in
 `indirect-reachability/environment.md`; comparing across
 pipelines is the operator's responsibility, not a baked-in
+constant.
+
+## Enabling LLVM IR generation
+
+To generate LLVM IR in CI instead of building GCC `.ci` files,
+set the backend to `llvm-ir` and turn on generation:
+
+```
+MINERVA_CALLGRAPH_BACKEND=llvm-ir
+MINERVA_GENERATE_LLVM_IR=true
+LLVM_CC=clang
+```
+
+Each run still generates a fresh expanded `.config` exactly as
+in the GCC path; the IR tree is generated from that same
+configuration by analysis compile replay (see
+[callgraph-backends.md](callgraph-backends.md)). The generated
+IR tree is normalized by `llvm_ir_to_normalized.py` and
+archived under `indirect-reachability/llvm-ir/`; the normalized
+graph is archived under `indirect-reachability/normalized/`.
+Both are per-run artifacts and are not committed.
+
+GCC `.ci` remains the default backend. The metric policy below
+applies unchanged: nothing about the IR path is a committed
 constant.
 
 ## Skip-build mode
