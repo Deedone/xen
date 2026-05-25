@@ -56,6 +56,8 @@ struct its_vpe {
         bool idai;
         /* VPE proxy mapping */
         int vpe_proxy_event;
+        /* Number of active v4.1 VMAPP mappings for this VPE. */
+        atomic_t vmapp_count;
     };
     /*
      * Ensure mutual exclusion between affinity setting of the vPE

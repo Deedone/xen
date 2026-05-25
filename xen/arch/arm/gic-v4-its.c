@@ -158,12 +158,24 @@ static int its_send_cmd_vmapp(struct host_its *its, struct its_vpe *vpe,
 {
     uint64_t cmd[4];
     uint16_t vpeid = vpe->vpe_id;
-    uint64_t vpt_addr;
+    uint64_t vpt_addr, vprop_addr;
     int ret;
 
     cmd[0] = GITS_CMD_VMAPP;
     cmd[1] = (uint64_t)vpeid << 32;
     cmd[2] = valid ? GITS_VALID_BIT : 0;
+    cmd[3] = 0;
+
+    if ( its->is_v4_1 )
+    {
+        int count = atomic_read(&vpe->vmapp_count);
+
+        if ( !valid && !count )
+            return -EINVAL;
+
+        if ( valid ? count == 0 : count == 1 )
+            cmd[0] |= GITS_ALLOC_BIT;
+    }
 
     /* Unmap command */
     if ( !valid )
@@ -175,10 +187,29 @@ static int its_send_cmd_vmapp(struct host_its *its, struct its_vpe *vpe,
     cmd[3] = (vpt_addr & GENMASK(51, 16)) |
              ((HOST_LPIS_NRBITS - 1) & GENMASK(4, 0));
 
+    if ( !its->is_v4_1 )
+        goto out;
+
+    vprop_addr = virt_to_maddr(vpe->its_vm->vproptable);
+    cmd[0] |= vprop_addr & GENMASK(51, 16);
+
+    /* The VPT is not guaranteed to be empty, so never advertise PTZ. */
+    cmd[1] |= (uint64_t)vpe->vpe_db_lpi;
+
  out:
     ret = its_send_command(its, cmd);
+    if ( ret )
+        return ret;
 
-    return ret;
+    if ( its->is_v4_1 )
+    {
+        if ( valid )
+            atomic_inc(&vpe->vmapp_count);
+        else
+            (void)atomic_dec_return(&vpe->vmapp_count);
+    }
+
+    return 0;
 }
 
 static int its_send_cmd_vinvall(struct host_its *its, struct its_vpe *vpe)
@@ -245,6 +276,9 @@ static int gicv4_vpe_db_proxy_unmap_locked(struct its_vpe *vpe)
 {
     int ret;
 
+    if ( gic_has_v4_1_extension() )
+        return 0;
+
     /* Already unmapped? */
     if ( vpe->vpe_proxy_event == -1 )
         return 0;
@@ -269,6 +303,9 @@ static int gicv4_vpe_db_proxy_unmap_locked(struct its_vpe *vpe)
 
 static void gicv4_vpe_db_proxy_unmap(struct its_vpe *vpe)
 {
+    if ( gic_has_v4_1_extension() )
+        return;
+
     if ( !gic_support_directLPI() )
     {
         unsigned long flags;
@@ -301,6 +338,9 @@ static int gicv4_vpe_db_proxy_map_locked(struct its_vpe *vpe)
 {
     unsigned int eventid;
     int ret;
+
+    if ( gic_has_v4_1_extension() )
+        return 0;
 
     /* Already mapped? */
     if ( vpe->vpe_proxy_event != -1 )
@@ -427,7 +467,10 @@ static int its_vpe_init(struct its_vpe *vpe)
     rwlock_init(&vpe->lock);
     spin_lock_init(&vpe->vpe_lock);
     vpe->vpendtable = vpendtable;
-    vpe->vpe_proxy_event = -1;
+    if ( gic_has_v4_1_extension() )
+        atomic_set(&vpe->vmapp_count, 0);
+    else
+        vpe->vpe_proxy_event = -1;
     /*
      * We eagerly inform all the v4 ITS and map vPE to the first
      * possible CPU
@@ -465,6 +508,12 @@ static int its_vpe_init(struct its_vpe *vpe)
     return rc;
 }
 
+static void encode_vmovp_v4_1(uint64_t *cmd, uint32_t default_db_pintid)
+{
+    cmd[2] |= GITS_DB_BIT;
+    cmd[3] |= default_db_pintid;
+}
+
 static int its_send_cmd_vmovp(struct its_vpe *vpe)
 {
     uint16_t vpeid = vpe->vpe_id;
@@ -480,6 +529,9 @@ static int its_send_cmd_vmovp(struct its_vpe *vpe)
         cmd[1] = (uint64_t)vpeid << 32;
         cmd[2] = encode_rdbase(hw_its, vpe->col_idx, 0x0);
         cmd[3] = 0x00;
+
+        if ( hw_its->is_v4_1 )
+            encode_vmovp_v4_1(cmd, vpe->vpe_db_lpi);
 
         return its_send_command(hw_its, cmd);
     }
@@ -498,10 +550,16 @@ static int its_send_cmd_vmovp(struct its_vpe *vpe)
     {
         uint64_t cmd[4];
 
+        if ( !hw_its->has_vlpis )
+            continue;
+
         cmd[0] = GITS_CMD_VMOVP | ((uint64_t)vmovp_seq_num << 32);
         cmd[1] = its_list_map | ((uint64_t)vpeid << 32);
         cmd[2] = encode_rdbase(hw_its, vpe->col_idx, 0x0);
         cmd[3] = 0x00;
+
+        if ( hw_its->is_v4_1 )
+            encode_vmovp_v4_1(cmd, vpe->vpe_db_lpi);
 
         ret = its_send_command(hw_its, cmd);
         if ( ret )
