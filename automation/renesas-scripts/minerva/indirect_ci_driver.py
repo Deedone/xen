@@ -258,7 +258,8 @@ def stage_collect(xen_root: Path, out_dir: Path, args: argparse.Namespace,
           "--xen-root", str(xen_root),
           "--config", str(config_path),
           "--config-name", args.config_name,
-          "--out-dir", str(coll)])
+          "--out-dir", str(coll),
+          "--target-arch", args.target_arch])
     summary_path = coll / "collection-summary.json"
     if not summary_path.exists():
         raise SystemExit("PARTIAL: collect.py did not produce "
@@ -332,7 +333,8 @@ def stage_generate_llvm_ir(xen_root: Path, out_dir: Path, args
 def stage_reachability(xen_root: Path, out_dir: Path, ci_dir: Path | None,
                        targets: list[str],
                        backend: str = "gcc-ci",
-                       normalized_dir: Path | None = None) -> dict:
+                       normalized_dir: Path | None = None,
+                       target_arch: str = "") -> dict:
     reach = out_dir / "reachability"
     reach.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, str(xen_root / "automation/renesas-scripts/minerva" /
@@ -342,6 +344,8 @@ def stage_reachability(xen_root: Path, out_dir: Path, ci_dir: Path | None,
            "--out-dir", str(reach),
            "--xen-root", str(xen_root),
            "--callgraph-backend", backend]
+    if target_arch:
+        cmd += ["--target-arch", target_arch]
     if backend == "gcc-ci":
         cmd += ["--ci-dir", str(ci_dir)]
     elif backend == "normalized":
@@ -820,7 +824,7 @@ def main():
                     f"{(e.stderr or '')[:200]}")
             rinfo = stage_reachability(
                 xen_root, out_dir, ci_dir, args.targets,
-                backend="gcc-ci")
+                backend="gcc-ci", target_arch=args.target_arch)
         elif callgraph_backend == "llvm-ir":
             normalized_dir = stage_normalize_llvm(
                 xen_root, out_dir, args.llvm_ir_dir, args)
@@ -829,14 +833,16 @@ def main():
             rinfo = stage_reachability(
                 xen_root, out_dir, None, args.targets,
                 backend="normalized",
-                normalized_dir=normalized_dir)
+                normalized_dir=normalized_dir,
+                target_arch=args.target_arch)
         else:  # normalized
             normalized_dir = args.normalized_callgraph_dir
             normalized_graph_ok = True
             rinfo = stage_reachability(
                 xen_root, out_dir, None, args.targets,
                 backend="normalized",
-                normalized_dir=normalized_dir)
+                normalized_dir=normalized_dir,
+                target_arch=args.target_arch)
         counters.update(rinfo)
         reachability_ok = True
 
