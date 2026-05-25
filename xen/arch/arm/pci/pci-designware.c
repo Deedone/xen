@@ -361,16 +361,22 @@ dw_pcie_host_probe(struct dt_device_node *dev, const void *data,
     paddr_t atu_size;
     int atu_idx, ret;
 
+
+    printk("DEBUGPRINT: %s:%d (after int atu_idx, ret;)\n", __FILE__, __LINE__);
     bridge = pci_host_common_probe(dev, ops, child_ops);
     if ( IS_ERR(bridge) )
         return bridge;
 
+    printk("DEBUGPRINT: %s:%d (after return bridge;)\n", __FILE__, __LINE__);
     priv = xzalloc(struct dw_pcie_priv);
     if ( !priv )
         return ERR_PTR(-ENOMEM);
 
+    printk("DEBUGPRINT: %s:%d (after return ERR_PTR(-ENOMEM);)\n", __FILE__, __LINE__);
+    printk("bridge %p\n", bridge);
     bridge->priv = priv;
 
+    printk("DEBUGPRINT: %s:%d (after bridge->priv = priv;)\n", __FILE__, __LINE__);
     atu_idx = dt_property_match_string(dev, "reg-names", "atu");
     if ( atu_idx < 0 )
     {
@@ -378,6 +384,7 @@ dw_pcie_host_probe(struct dt_device_node *dev, const void *data,
         return ERR_PTR(atu_idx);
     }
     ret = dt_device_get_address(dev, atu_idx, &atu_phys_addr, &atu_size);
+    printk("DEBUGPRINT: %s:%d (after ret = dt_device_get_address(dev, atu_idx…)\n", __FILE__, __LINE__);
     if ( ret )
     {
         printk(XENLOG_ERR "Cannot find \"atu\" range in device tree\n");
@@ -385,13 +392,16 @@ dw_pcie_host_probe(struct dt_device_node *dev, const void *data,
     }
     printk("iATU at [mem 0x%" PRIpaddr "-0x%" PRIpaddr "]\n", atu_phys_addr,
            atu_phys_addr + atu_size - 1);
+    printk("DEBUGPRINT: %s:%d (after atu_phys_addr + atu_size - 1);)\n", __FILE__, __LINE__);
     priv->atu_base = ioremap_nocache(atu_phys_addr, atu_size);
     if ( !priv->atu_base )
     {
         printk(XENLOG_ERR "iATU ioremap failed\n");
+        printk("DEBUGPRINT: %s:%d (after printk(XENLOG_ERR iATU ioremap failedn);)\n", __FILE__, __LINE__);
         return ERR_PTR(ENXIO);
     }
 
+    printk("DEBUGPRINT: %s:%d (after return ERR_PTR(ENXIO);)\n", __FILE__, __LINE__);
     if ( !dt_property_read_u32(dev, "num-viewport", &priv->num_viewport) )
         priv->num_viewport = 2;
 
@@ -400,9 +410,11 @@ dw_pcie_host_probe(struct dt_device_node *dev, const void *data,
      * HW is not yet initialized by Domain-0: leave it for later.
      */
 
+    printk("DEBUGPRINT: %s:%d (after */)\n", __FILE__, __LINE__);
     printk(XENLOG_INFO "%s number of view ports: %d\n", dt_node_full_name(dev),
            priv->num_viewport);
 
+    printk("DEBUGPRINT: %s:%d (after priv->num_viewport);)\n", __FILE__, __LINE__);
     return bridge;
 }
 

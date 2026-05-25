@@ -108,6 +108,7 @@ static const struct pci_ecam_ops rcar4_pcie_child_ops = {
 static const struct dt_device_match __initconstrel rcar4_pcie_dt_match[] = {
     { .compatible = "renesas,r8a779f0-pcie" },
     { .compatible = "renesas,r8a779g0-pcie" },
+    { .compatible = "renesas,rcar-gen5-pcie6" },
     {},
 };
 
@@ -202,46 +203,48 @@ static int __init pci_host_rcar4_probe(struct dt_device_node *dev,
                                        const void *data)
 {
     struct pci_host_bridge *bridge;
-    paddr_t app_phys_addr;
-    paddr_t app_size;
-    int app_idx, ret;
+    // paddr_t app_phys_addr;
+    // paddr_t app_size;
+    // int app_idx, ret;
+    int ret;
 
     struct rcar4_pcie_priv *priv = xzalloc(struct rcar4_pcie_priv);
     if ( !priv )
         return -ENOMEM;
 
+    printk("PROBING RCAR PCI!!!!!!!!!!!!!\n");
     bridge = dw_pcie_host_probe(dev, data, &rcar4_pcie_ops,
                                 &rcar4_pcie_child_ops);
 
-    app_idx = dt_property_match_string(dev, "reg-names", "app");
-    if ( app_idx < 0 )
-    {
-        printk(XENLOG_ERR "Cannot find \"app\" range index in device tree\n");
-        ret = app_idx;
-        goto err;
-    }
-    ret = dt_device_get_address(dev, app_idx, &app_phys_addr, &app_size);
-    if ( ret )
-    {
-        printk(XENLOG_ERR "Cannot find \"app\" range in device tree\n");
-        goto err;
-    }
-
-    priv->app_base = ioremap_nocache(app_phys_addr, app_size);
-    if ( !priv->app_base )
-    {
-        printk(XENLOG_ERR "APP ioremap failed\n");
-        ret = -ENXIO;
-        goto err;
-    }
-    printk("APP at [mem 0x%" PRIpaddr "-0x%" PRIpaddr "]\n", app_phys_addr,
-           app_phys_addr + app_size - 1);
+    // app_idx = dt_property_match_string(dev, "reg-names", "app");
+    // if ( app_idx < 0 )
+    // {
+    //     printk(XENLOG_ERR "Cannot find \"app\" range index in device tree\n");
+    //     ret = app_idx;
+    //     goto err;
+    // }
+    // ret = dt_device_get_address(dev, app_idx, &app_phys_addr, &app_size);
+    // if ( ret )
+    // {
+    //     printk(XENLOG_ERR "Cannot find \"app\" range in device tree\n");
+    //     goto err;
+    // }
+    //
+    // priv->app_base = ioremap_nocache(app_phys_addr, app_size);
+    // if ( !priv->app_base )
+    // {
+    //     printk(XENLOG_ERR "APP ioremap failed\n");
+    //     ret = -ENXIO;
+    //     goto err;
+    // }
+    // printk("APP at [mem 0x%" PRIpaddr "-0x%" PRIpaddr "]\n", app_phys_addr,
+    //        app_phys_addr + app_size - 1);
 
     dw_pcie_set_priv(bridge, priv);
     dw_pcie_set_version(bridge, RCAR4_DWC_VERSION);
 
     return 0;
-err:
+// err:
     xfree(priv);
     return ret;
 }

@@ -279,13 +279,15 @@ pci_host_common_probe(struct dt_device_node *dev,
     int err;
     int domain;
 
-    if ( dt_device_for_passthrough(dev) )
-        return NULL;
+    // if ( dt_device_for_passthrough(dev) )
+    //     return NULL;
 
+    printk("DEBUGPRINT: %s:%d (after //     return NULL;)\n", __FILE__, __LINE__);
     bridge = pci_alloc_host_bridge();
     if ( !bridge )
         return ERR_PTR(-ENOMEM);
 
+    printk("DEBUGPRINT: %s:%d (after return ERR_PTR(-ENOMEM);)\n", __FILE__, __LINE__);
     /* Parse and map our Configuration Space windows */
     cfg = gen_pci_init(dev, bridge, ops);
     if ( !cfg )
@@ -294,16 +296,19 @@ pci_host_common_probe(struct dt_device_node *dev,
         goto err_exit;
     }
 
+    printk("DEBUGPRINT: %s:%d (after goto err_exit;)\n", __FILE__, __LINE__);
     bridge->dt_node = dev;
     bridge->cfg = cfg;
     bridge->ops = &ops->pci_ops;
 
+    printk("DEBUGPRINT: %s:%d (after bridge->ops = &ops->pci_ops;)\n", __FILE__, __LINE__);
     domain = pci_bus_find_domain_nr(dev);
     if ( domain < 0 )
     {
         printk(XENLOG_ERR "Inconsistent \"linux,pci-domain\" property in DT\n");
         BUG();
     }
+    printk("DEBUGPRINT: %s:%d (after BUG();)\n", __FILE__, __LINE__);
     bridge->segment = domain;
 
     if ( child_ops )
@@ -320,10 +325,12 @@ pci_host_common_probe(struct dt_device_node *dev,
         bridge->child_ops = &child_ops->pci_ops;
     }
 
+    printk("DEBUGPRINT: %s:%d (after bridge->child_ops = &child_ops->pci_ops;)\n", __FILE__, __LINE__);
     err = pci_set_msi_base(bridge);
-    if ( err )
+    if ( err && 0 )
         goto err_child2;
 
+    printk("DEBUGPRINT: %s:%d (after goto err_child2;)\n", __FILE__, __LINE__);
     pci_add_host_bridge(bridge);
     pci_add_segment(bridge->segment);
 
@@ -338,12 +345,15 @@ pci_host_common_probe(struct dt_device_node *dev,
     return bridge;
 
  err_child2:
+    printk("DEBUGPRINT: %s:%d (after err_child2:)\n", __FILE__, __LINE__);
     xfree(bridge->child_cfg);
 
 err_child:
+    printk("DEBUGPRINT: %s:%d (after err_child:)\n", __FILE__, __LINE__);
     xfree(bridge->cfg);
 
 err_exit:
+    printk("DEBUGPRINT: %s:%d (after err_exit:)\n", __FILE__, __LINE__);
     xfree(bridge);
 
     return ERR_PTR(err);
