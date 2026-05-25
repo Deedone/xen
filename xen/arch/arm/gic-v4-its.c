@@ -1420,6 +1420,84 @@ int its_send_cmd_vinv(struct host_its *its, struct its_device *dev,
     return gicv3_its_wait_commands(its);
 }
 
+static int its_vpe_invall(struct its_vpe *vpe)
+{
+    unsigned long flags;
+    struct host_its *its;
+    int ret = 0;
+
+    (void)vpe_to_cpuid_lock(vpe, &flags);
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        if ( !its->has_vlpis )
+            continue;
+
+        /*
+         * Sending VINVALL to one v4 ITS is enough, as the command targets
+         * the redistributors that cache the vPE state.
+         */
+        ret = its_send_cmd_vinvall(its, vpe);
+        if ( ret )
+            break;
+
+        ret = its_send_cmd_vsync(its, vpe->vpe_id);
+        if ( ret )
+            break;
+
+        ret = gicv3_its_wait_commands(its);
+        break;
+    }
+
+    vpe_to_cpuid_unlock(vpe, &flags);
+
+    return ret;
+}
+
+static int its_vpe_4_1_invall(struct its_vpe *vpe)
+{
+    void __iomem *rdbase;
+    unsigned long flags;
+    unsigned int cpu;
+    uint64_t val;
+    int ret;
+
+    val = GICR_INVALLR_V;
+    val |= MASK_INSR(vpe->vpe_id, GICR_INVALLR_VPEID);
+
+    cpu = vpe_to_cpuid_lock(vpe, &flags);
+    rdbase = per_cpu(rbase, cpu);
+
+    ret = wait_for_syncr(rdbase, "INVALLR pre-check");
+    if ( ret )
+        goto out;
+
+    writeq_relaxed(val, rdbase + GICR_INVALLR);
+    ret = wait_for_syncr(rdbase, "INVALLR");
+
+ out:
+    vpe_to_cpuid_unlock(vpe, &flags);
+    return ret;
+}
+
+int gicv4_its_handle_invall(struct domain *d, struct vcpu *vcpu)
+{
+    struct its_vm *vm = d->arch.vgic.its_vm;
+    struct its_vpe *vpe;
+
+    if ( !vm || vcpu->vcpu_id >= vm->nr_vpes )
+        return -ENODEV;
+
+    vpe = vm->vpes[vcpu->vcpu_id];
+    if ( !vpe )
+        return -ENODEV;
+
+    if ( !gic_has_v4_1_extension() )
+        return its_vpe_invall(vpe);
+
+    return its_vpe_4_1_invall(vpe);
+}
+
 static uint64_t read_vpend_dirty_clean(void __iomem *vlpi_base,
                                        unsigned int count)
 {

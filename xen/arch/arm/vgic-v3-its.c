@@ -688,6 +688,11 @@ static int its_handle_invall(struct virt_its *its, uint64_t *cmdptr)
     read_unlock(&its->d->arch.vgic.pend_lpi_tree_lock);
     spin_unlock_irqrestore(&vcpu->arch.vgic.lock, flags);
 
+#ifdef CONFIG_GICV4
+    if ( gicv4_supports_vlpis() )
+        return gicv4_its_handle_invall(its->d, vcpu);
+#endif
+
     return ret;
 }
 
