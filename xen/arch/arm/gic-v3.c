@@ -474,9 +474,11 @@ static void gicv3_save_state(struct vcpu *v)
      * are now visible to the system register interface
      */
     dsb(sy);
+
 #ifdef CONFIG_GICV4
-    vgic_v4_put(v, false);
+    vgic_v4_put(v, test_bit(_VPF_blocked, &v->pause_flags));
 #endif
+
     gicv3_save_lrs(v);
     save_aprn_regs(&v->arch.gic);
     v->arch.gic.v3.vmcr = READ_SYSREG(ICH_VMCR_EL2);
