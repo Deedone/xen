@@ -96,11 +96,24 @@ case "${MINERVA_ALLOW_PARTIAL_LLVM_IR:-false}" in
     ;;
 esac
 
-# Runtime parser hook. Default (no log dir) yields STATIC_ONLY,
-# the documented success state for the smoke job. The driver
-# reads MINERVA_CI_ALLOW_RUNTIME_FAILURE directly from the
-# environment, so no CLI translation is needed.
-if [[ -n "${MINERVA_RUNTIME_LOG_DIR:-}" ]]; then
+# Runtime workload hook (Option A: same-job runtime collection).
+# If MINERVA_RUNTIME_COMMAND is set, the driver runs it after the
+# static stages, parses the resulting logs, and compares them with
+# the static artifacts. If neither a command nor a log dir is set,
+# the run stays STATIC_ONLY -- the documented default success state.
+if [[ -n "${MINERVA_RUNTIME_COMMAND:-}" ]]; then
+  args+=( --runtime-command "$MINERVA_RUNTIME_COMMAND" )
+  : "${MINERVA_RUNTIME_LOG_DIR:=${MINERVA_INDIRECT_OUT}/runtime/logs}"
+  args+=( --runtime-log-dir "$MINERVA_RUNTIME_LOG_DIR" )
+  : "${MINERVA_RUNTIME_TIMEOUT:=600}"
+  args+=( --runtime-timeout "$MINERVA_RUNTIME_TIMEOUT" )
+  case "${MINERVA_RUNTIME_REQUIRED:-false}" in
+    1 | true | TRUE | yes | YES) args+=( --runtime-required ) ;;
+  esac
+elif [[ -n "${MINERVA_RUNTIME_LOG_DIR:-}" \
+        && -d "${MINERVA_RUNTIME_LOG_DIR}" \
+        && -n "$(ls -A "${MINERVA_RUNTIME_LOG_DIR}" 2>/dev/null)" ]]; then
+  # External logs already present (and non-empty).
   args+=( --runtime-log-dir "$MINERVA_RUNTIME_LOG_DIR" )
 else
   args+=( --no-runtime )

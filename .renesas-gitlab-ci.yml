@@ -88,6 +88,18 @@ minerva-indirect-reachability:
     # production path; the LLVM backend is never the default.
     MINERVA_GENERATE_LLVM_IR: "false"
     LLVM_CC: "clang"
+    # Runtime workload (Option A: same-job runtime collection). When
+    # MINERVA_RUNTIME_COMMAND is set, the driver runs it after the
+    # static stages, parses the logs it produces under
+    # MINERVA_RUNTIME_LOG_DIR, and compares them with the static
+    # artifacts from the same config and SHA. Empty by default, so
+    # the job stays STATIC_ONLY until a runtime workload is
+    # configured. MINERVA_RUNTIME_REQUIRED=true makes a runtime
+    # failure PARTIAL rather than a STATIC_ONLY downgrade.
+    MINERVA_RUNTIME_COMMAND: ""
+    MINERVA_RUNTIME_LOG_DIR: "indirect-reachability/runtime/logs"
+    MINERVA_RUNTIME_REQUIRED: "false"
+    MINERVA_RUNTIME_TIMEOUT: "600"
   script:
     - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
   artifacts:
