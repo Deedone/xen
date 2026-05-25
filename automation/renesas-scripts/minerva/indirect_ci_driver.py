@@ -456,6 +456,114 @@ def stage_direct_static(xen_root: Path, out_dir: Path, ci_dir: Path,
     return info
 
 
+def stage_runtime_command(xen_root: Path, out_dir: Path, args,
+                          config_path: Path, git_sha: str,
+                          config_sha256: str) -> tuple[bool, str]:
+    """Run the operator's runtime workload command (Option A).
+
+    Runs only after the static stages have succeeded. Sets the
+    MINERVA_* environment the command needs, captures stdout/stderr,
+    tees stdout into a parseable log, and writes runtime-manifest.json
+    recording the config/git/arch this run was produced from so the
+    comparison stage can check alignment.
+    """
+    rt = out_dir / "runtime"
+    logs = (args.runtime_log_dir if args.runtime_log_dir
+            else rt / "logs")
+    logs.mkdir(parents=True, exist_ok=True)
+    rt.mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ)
+    env["MINERVA_RUNTIME_LOG_DIR"] = str(logs)
+    env["MINERVA_CONFIG_PATH"] = str(config_path)
+    env["MINERVA_CONFIG_NAME"] = args.config_name
+    env["MINERVA_GIT_SHA"] = git_sha
+    env["MINERVA_TARGET_ARCH"] = args.target_arch
+    env["MINERVA_DEFCONFIG"] = args.defconfig or ""
+
+    manifest = {
+        "git_sha": git_sha,
+        "config_name": args.config_name,
+        "target_arch": args.target_arch,
+        "defconfig": args.defconfig or "",
+        "config_sha256": config_sha256,
+        "runtime_command": args.runtime_command,
+        "timestamp": _ts(),
+        "status": "started",
+    }
+    (rt / "runtime-manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8")
+
+    ok = False
+    reason = ""
+    try:
+        proc = subprocess.run(
+            ["bash", "-lc", args.runtime_command],
+            cwd=str(xen_root), env=env, capture_output=True,
+            text=True, check=False,
+            timeout=args.runtime_timeout)
+        (rt / "runtime-command.stdout").write_text(
+            proc.stdout or "", encoding="utf-8")
+        (rt / "runtime-command.stderr").write_text(
+            proc.stderr or "", encoding="utf-8")
+        # If the command streamed Xen logs to stdout rather than into
+        # the log dir, tee a parseable copy so the parser has input.
+        if proc.stdout and not any(logs.iterdir()):
+            name = (args.runtime_artifact_name or "runtime") + ".log"
+            (logs / name).write_text(proc.stdout, encoding="utf-8")
+        if proc.returncode == 0:
+            ok = True
+        else:
+            reason = f"runtime command exited {proc.returncode}"
+    except subprocess.TimeoutExpired:
+        reason = f"runtime command timed out after {args.runtime_timeout}s"
+    except OSError as exc:
+        reason = f"{exc.__class__.__name__}: {exc}"
+
+    manifest["status"] = "ok" if ok else "failed"
+    if reason:
+        manifest["failure_reason"] = reason
+    (rt / "runtime-manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8")
+    return ok, reason
+
+
+def runtime_manifest_aligned(out_dir: Path, git_sha: str,
+                             config_sha256: str,
+                             same_job: bool) -> tuple[bool, str]:
+    """Check the runtime manifest matches the current job metadata.
+
+    Returns (aligned, reason).
+
+    same_job=True (the driver ran --runtime-command): a manifest is
+    required. Same-job runs always write one, so a missing manifest is
+    treated as not aligned rather than silently COMPLETE.
+
+    same_job=False (external --runtime-log-dir, no command): a missing
+    manifest leaves the alignment claim with the operator; we return
+    not-aligned so the run is PROXY/PARTIAL unless --allow-proxy is
+    given, rather than silently COMPLETE.
+    """
+    mf = out_dir / "runtime" / "runtime-manifest.json"
+    if not mf.exists():
+        if same_job:
+            return False, ("same-job runtime produced no manifest "
+                           "(unexpected)")
+        return False, ("external runtime logs have no manifest; "
+                       "alignment cannot be verified")
+    try:
+        m = json.loads(mf.read_text())
+    except (ValueError, OSError) as exc:
+        return False, f"manifest unreadable: {exc}"
+    if git_sha and m.get("git_sha") and m["git_sha"] != git_sha:
+        return False, (f"git_sha mismatch: manifest {m['git_sha']} "
+                       f"vs job {git_sha}")
+    if (config_sha256 and m.get("config_sha256")
+            and m["config_sha256"] != config_sha256):
+        return False, "config_sha256 mismatch"
+    return True, "aligned"
+
+
 def stage_runtime(xen_root: Path, out_dir: Path,
                   log_dir: Path) -> tuple[bool, str]:
     rt = out_dir / "runtime"
@@ -484,23 +592,53 @@ def stage_runtime(xen_root: Path, out_dir: Path,
     return True, ""
 
 
-def stage_runtime_static(out_dir: Path, status_label: str):
+def stage_runtime_static(xen_root: Path, out_dir: Path,
+                         config_path: Path, config_name: str,
+                         git_sha: str) -> tuple[bool, dict, str]:
+    """Run scripts/runtime_static_compare.py over this run's artifacts.
+
+    Returns (ok, metrics, reason).
+    """
+    rs = out_dir / "runtime-static"
+    rs.mkdir(parents=True, exist_ok=True)
+    try:
+        _run([sys.executable,
+              str(xen_root / "automation/renesas-scripts/minerva" / "runtime_static_compare.py"),
+              "--runtime-parsed", str(out_dir / "runtime" / "parsed"),
+              "--reachability-dir", str(out_dir / "reachability"),
+              "--direct-static-dir", str(out_dir / "direct-static"),
+              "--collect-dir", str(out_dir / "collect"),
+              "--config", str(config_path),
+              "--config-name", config_name,
+              "--git-sha", git_sha,
+              "--out-dir", str(rs)])
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        reason = f"runtime_static_compare.py failed: {e}"
+        (rs / "runtime-static-comparison.md").write_text(
+            f"# Runtime/static comparison FAILED\n\n{reason}\n",
+            encoding="utf-8")
+        return False, {}, reason
+    metrics = {}
+    mj = rs / "runtime-static-comparison.json"
+    if mj.exists():
+        metrics = json.loads(mj.read_text())
+    return True, metrics, ""
+
+
+def stage_runtime_static_placeholder(out_dir: Path, status_label: str):
+    """Write a static-only runtime-static stub (no runtime logs)."""
     rs = out_dir / "runtime-static"
     rs.mkdir(parents=True, exist_ok=True)
     (rs / "runtime-static-comparison.md").write_text(
         "# Runtime/static comparison\n\n"
         f"Status: **{status_label}**\n\n"
-        "This file is a per-run artifact. No final runtime-vs-static\n"
-        "coverage number is committed. Numbers in the sibling\n"
-        "status.json reflect this CI run only.\n\n"
+        "No runtime logs were collected for this run, so no\n"
+        "comparison was performed. This file is a per-run artifact.\n\n"
         "## Caveats\n\n"
         "- No allocation bound is claimed.\n"
         "- `path_found=no` does not mean impossible.\n"
-        "- 'Not observed at runtime' does not mean impossible.\n"
-        "- Field-name-only candidates are excluded from synthetic-edge\n"
-        "  counts by the table-aware binding pass.\n"
-        "- Runtime-registration rows remain an analyst worklist; they\n"
-        "  are not expanded into per-field reachability queries.\n",
+        "- Static reachability does not mean a path was exercised at\n"
+        "  runtime.\n",
         encoding="utf-8")
     (rs / "runtime-static-comparison.json").write_text(
         json.dumps({"status": status_label}, indent=2),
@@ -540,6 +678,22 @@ def write_status(out_dir: Path, status_label: str, *,
         "direct_static_ok": direct_static_ok,
         "runtime_ok": runtime_ok,
         "runtime_reason": runtime_reason,
+        "runtime_command_ok": counters.get("runtime_command_ok", False),
+        "runtime_parser_ok": counters.get("runtime_parser_ok", False),
+        "runtime_manifest_ok": counters.get("runtime_manifest_ok", False),
+        "runtime_static_compare_ok":
+            counters.get("runtime_static_compare_ok", False),
+        "runtime_paths_total": counters.get("runtime_paths_total", 0),
+        "runtime_paths_direct_static_explained":
+            counters.get("runtime_paths_direct_static_explained", 0),
+        "runtime_paths_indirect_explained":
+            counters.get("runtime_paths_indirect_explained", 0),
+        "runtime_paths_unexplained":
+            counters.get("runtime_paths_unexplained", 0),
+        "indirect_candidates_observed":
+            counters.get("indirect_candidates_observed", 0),
+        "indirect_candidates_not_observed":
+            counters.get("indirect_candidates_not_observed", 0),
         "callgraph_backend": callgraph_backend,
         "callgraph_artifact_kind": callgraph_artifact_kind,
         "callgraph_functions": counters.get("callgraph_functions", 0),
@@ -599,6 +753,31 @@ def main():
     p.add_argument("--defconfig", default="")
     p.add_argument("--extra", action="append", default=[])
     p.add_argument("--runtime-log-dir", type=Path, default=None)
+    p.add_argument("--runtime-command", default="",
+                   help="Command to execute after the static stages "
+                        "to produce runtime logs (Option A, same "
+                        "job). Run with MINERVA_* env set; stdout is "
+                        "teed into the runtime log dir if the command "
+                        "does not write logs there itself.")
+    p.add_argument("--runtime-artifact-name", default="",
+                   help="Prefix for the teed runtime log file.")
+    p.add_argument("--runtime-timeout", type=int, default=600,
+                   help="Timeout in seconds for --runtime-command.")
+    p.add_argument("--runtime-required", action="store_true",
+                   help="If set, a runtime failure makes the run "
+                        "PARTIAL. If not set, a runtime failure may "
+                        "downgrade to STATIC_ONLY only when "
+                        "--allow-runtime-failure (or "
+                        "MINERVA_CI_ALLOW_RUNTIME_FAILURE) is set.")
+    p.add_argument("--allow-runtime-failure", action="store_true",
+                   help="A failed runtime stage records the failure "
+                        "but preserves static artifacts and "
+                        "downgrades to STATIC_ONLY.")
+    p.add_argument("--allow-proxy", action="store_true",
+                   help="If the runtime manifest does not align with "
+                        "this job's git_sha / config hash, label the "
+                        "run PROXY instead of PARTIAL. For Option A "
+                        "(same job) this should not be needed.")
     p.add_argument("--skip-build", action="store_true")
     p.add_argument("--config", type=Path, default=None,
                    help="Required with --skip-build; expanded `.config` "
@@ -913,33 +1092,113 @@ def main():
         else:
             status_label = "PARTIAL"
 
-    if status_label != "PARTIAL":
-        if args.no_runtime or not args.runtime_log_dir:
-            runtime_reason = ("--no-runtime supplied" if args.no_runtime
-                              else "not supplied")
-            status_label = "STATIC_ONLY"
+    # Runtime + comparison (Option A: same-job runtime collection).
+    git_sha = _safe(["git", "-C", str(xen_root), "rev-parse", "HEAD"])
+    config_sha256 = ""
+    if config_path and Path(config_path).exists():
+        import hashlib
+        config_sha256 = hashlib.sha256(
+            Path(config_path).read_bytes()).hexdigest()
+
+    runtime_command_ok = False
+    runtime_parser_ok = False
+    runtime_manifest_ok = False
+    runtime_static_compare_ok = False
+    compare_metrics: dict = {}
+
+    runtime_requested = bool(args.runtime_command or args.runtime_log_dir)
+    allow_rt_fail = (args.allow_runtime_failure
+                     or os.environ.get("MINERVA_CI_ALLOW_RUNTIME_FAILURE",
+                                       "").lower() in ("1", "true", "yes"))
+
+    if status_label == "PARTIAL":
+        pass  # static stages already failed; leave PARTIAL.
+    elif args.no_runtime or not runtime_requested:
+        runtime_reason = ("--no-runtime supplied" if args.no_runtime
+                          else "no runtime command or log dir supplied")
+        status_label = "STATIC_ONLY"
+        stage_runtime_static_placeholder(out_dir, status_label)
+    else:
+        # 1. Optional runtime command (produces logs).
+        if args.runtime_command:
+            runtime_command_ok, cmd_reason = stage_runtime_command(
+                xen_root, out_dir, args, config_path, git_sha,
+                config_sha256)
+            if not runtime_command_ok:
+                runtime_reason = cmd_reason
         else:
-            runtime_ok, runtime_reason = stage_runtime(
-                xen_root, out_dir, args.runtime_log_dir)
-            if runtime_ok:
-                # Operator is responsible for asserting alignment via
-                # the runtime log directory's own provenance. The
-                # driver records COMPLETE pending an explicit mismatch
-                # signal in --notes (future work).
-                status_label = "COMPLETE"
-            else:
-                if os.environ.get("MINERVA_CI_ALLOW_RUNTIME_FAILURE",
-                                  "").lower() in ("1", "true", "yes"):
-                    status_label = "STATIC_ONLY"
-                    notes.append("Runtime parsing failed but "
-                                 "MINERVA_CI_ALLOW_RUNTIME_FAILURE is "
-                                 "set; downgraded to STATIC_ONLY.")
+            runtime_command_ok = True  # external logs path
+
+        # 2. Runtime parser (if command ok, or external logs supplied).
+        log_dir = (args.runtime_log_dir if args.runtime_log_dir
+                   else out_dir / "runtime" / "logs")
+        if runtime_command_ok:
+            runtime_ok, rt_reason = stage_runtime(
+                xen_root, out_dir, log_dir)
+            runtime_parser_ok = runtime_ok
+            if not runtime_ok:
+                runtime_reason = rt_reason
+
+        # 3. Manifest alignment + comparison.
+        if runtime_parser_ok:
+            same_job = bool(args.runtime_command)
+            aligned, align_reason = runtime_manifest_aligned(
+                out_dir, git_sha, config_sha256, same_job)
+            runtime_manifest_ok = aligned
+            notes.append(f"Runtime manifest alignment: {align_reason}.")
+            ok, compare_metrics, cmp_reason = stage_runtime_static(
+                xen_root, out_dir, config_path, args.config_name,
+                git_sha)
+            runtime_static_compare_ok = ok
+            if not ok:
+                runtime_reason = cmp_reason
+                status_label = "PARTIAL"
+            elif not aligned:
+                if args.allow_proxy:
+                    status_label = "PROXY"
+                    notes.append(f"Runtime manifest not aligned "
+                                 f"({align_reason}); labelled PROXY "
+                                 f"per --allow-proxy.")
                 else:
                     status_label = "PARTIAL"
+                    notes.append(f"Runtime manifest not aligned "
+                                 f"({align_reason}); PARTIAL. Pass "
+                                 f"--allow-proxy to accept unaligned "
+                                 f"logs as PROXY.")
+            else:
+                status_label = "COMPLETE"
+        else:
+            # Runtime (command or parser) failed.
+            if args.runtime_required:
+                status_label = "PARTIAL"
+                notes.append("Runtime stage failed and "
+                             "--runtime-required is set; PARTIAL.")
+            elif allow_rt_fail:
+                status_label = "STATIC_ONLY"
+                notes.append(f"Runtime stage failed ({runtime_reason}) "
+                             f"but failure is allowed; downgraded to "
+                             f"STATIC_ONLY.")
+            else:
+                status_label = "PARTIAL"
+                notes.append(f"Runtime stage failed ({runtime_reason}); "
+                             f"PARTIAL. Pass --allow-runtime-failure to "
+                             f"downgrade to STATIC_ONLY.")
+            stage_runtime_static_placeholder(out_dir, status_label)
 
-    stage_runtime_static(out_dir, status_label)
+    # Surface comparison metrics into status counters.
+    for k in ("runtime_paths_total",
+              "runtime_paths_direct_static_explained",
+              "runtime_paths_indirect_explained",
+              "runtime_paths_unexplained",
+              "indirect_candidates_observed",
+              "indirect_candidates_not_observed"):
+        if k in compare_metrics:
+            counters[k] = compare_metrics[k]
+    counters["runtime_command_ok"] = runtime_command_ok
+    counters["runtime_parser_ok"] = runtime_parser_ok
+    counters["runtime_manifest_ok"] = runtime_manifest_ok
+    counters["runtime_static_compare_ok"] = runtime_static_compare_ok
 
-    git_sha = _safe(["git", "-C", str(xen_root), "rev-parse", "HEAD"])
     write_status(out_dir, status_label,
                  config_name=args.config_name,
                  git_sha=git_sha,
