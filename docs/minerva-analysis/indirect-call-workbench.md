@@ -100,6 +100,37 @@ and `total_field_assignments == 0`--  a guard against
 header-only `ops-resolution.csv` produced by a broken
 field-extraction regex.
 
+### Architecture scope
+
+A Xen checkout contains every architecture's `xen/arch/<a>/`
+subtree, but an analysis run targets one architecture
+(`--target-arch`, default `arm64`). Sources under a non-target
+arch tree are not built for the target, so they must not enter
+its resolution or candidate matrices.
+
+`--target-arch` maps onto an arch tree (`arm64`/`arm32`/
+`aarch64` -> `arm`; `x86_64`/`amd64` -> `x86`; `riscv64` ->
+`riscv`; `ppc64` -> `ppc`). Each discovered row is classified:
+
+- `xen/arch/<target>/` and shared trees (`xen/common`,
+  `xen/drivers`, `xen/include`, `xen/lib`, anything outside
+  `xen/arch/`) -> `in_scope`;
+- `xen/arch/<other>/` -> `out_of_scope_arch`.
+
+Rows are never dropped silently. Every inventory CSV
+(`ops-inventory.csv`, `indirect-call-sites.csv`,
+`runtime-ops-registration-sites.csv`) carries an `arch_scope`
+column; out-of-scope ops tables also get
+`config_scope=out_of_scope_arch` (arch precedence over config
+guards, since a non-target tree is not built at all). Only the
+`ops-resolution.csv` matrix omits out-of-scope rows. The
+`collection-summary.json` counters
+`ops_tables_out_of_scope_arch`,
+`indirect_call_sites_out_of_scope_arch`, and
+`runtime_registration_out_of_scope_arch` make the exclusion
+auditable. `target_arch` is recorded in the summary so the
+workbench can reuse it without a second flag.
+
 ### Runtime-registration rows are a separate worklist
 
 `runtime-ops-registration-sites.csv` is a **syntactic seed
@@ -160,16 +191,32 @@ Candidate bindings come from two sources:
    counter. They appear in `synthetic_edges.excluded.yaml`
    so the operator can audit what was dropped.
 
-### Outputs
+### Architecture filtering before candidate generation
 
-```
-<reachability-out>/
-  indirect-allocation-paths.csv
-  synthetic_edges.candidates.yaml
-  synthetic_edges.excluded.yaml
-  reachability-summary.md
-  candidate-binding-summary.md
-```
+`--target-arch` (or the `target_arch` recorded in the
+collector run's `collection-summary.json`) drops indirect call
+sites under a non-target arch tree **before** candidate
+generation, so a RISC-V or x86 site never enters an arm64
+reachability matrix. A site is judged by its recorded
+`arch_scope` column when present, else classified live from its
+`source_file`. When both `--target-arch` and the collector's
+recorded `target_arch` are set they must agree; a mismatch is
+refused, since the recorded `arch_scope` column was computed
+for the collector's target arch. Excluded sites are written to
+`synthetic_edges.excluded.yaml` with
+`candidate_binding=out_of_scope_arch`,
+`candidate_included=false`, and
+`exclusion_reason=out_of_scope_arch`, and counted as
+`indirect_call_sites_excluded_out_of_scope_arch`. With no
+target arch available the filter is inert.
+
+In CI, `scripts/indirect_ci_driver.py` passes its
+`--target-arch` (the architecture it builds Xen for) into both
+`collect.py` and `indirect_reachability.py`, so the
+environment-driven path is scoped to the same architecture as
+the build.
+
+### Outputs
 
 ## What this workbench does not assert
 
@@ -183,6 +230,10 @@ Candidate bindings come from two sources:
 - Field-name-only candidate rows are kept in
   `indirect-allocation-paths.csv` for diagnostics but
   excluded from `synthetic_edges.candidates.yaml`.
+- Sources under a non-target architecture tree are out of
+  scope for the run, not judged unreachable; they are excluded
+  with `exclusion_reason=out_of_scope_arch` and retained in the
+  excluded audit.
 
 ## Verification
 

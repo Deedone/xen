@@ -108,6 +108,18 @@ For each CI run:
    the normalized graph under `normalized/` was extracted from
    that `.ll` tree. Generated `.ll` / `.bc` files are per-run
    artifacts and are never committed to the repository.
+8. Collector and reachability runs are scoped to a single
+   `--target-arch`. Every collector inventory CSV
+   (`ops-inventory.csv`, `indirect-call-sites.csv`,
+   `runtime-ops-registration-sites.csv`) carries an
+   `arch_scope` column, and `ops-resolution.csv` carries one
+   too. Sources under a non-target `xen/arch/<a>/` tree are
+   tagged `out_of_scope_arch` and retained in the inventories
+   for audit, but omitted from `ops-resolution.csv` and from
+   the reachability candidate matrix; reachability records the
+   omitted call sites in `synthetic_edges.excluded.yaml` with
+   `exclusion_reason=out_of_scope_arch`. The run's
+   `target_arch` is recorded in `collection-summary.json`.
 
 ## Status labels
 
