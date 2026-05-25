@@ -538,32 +538,103 @@ static int wait_for_syncr(void __iomem *rdbase, const char *what)
     return 0;
 }
 
-static void direct_lpi_inv(uint32_t db_lpi, unsigned int cpu)
+static struct host_its *find_4_1_its(void)
+{
+    struct host_its *its;
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        if ( its->is_v4_1 )
+            return its;
+    }
+
+    return NULL;
+}
+
+int direct_lpi_inv(struct its_device *dev, uint32_t eventid,
+                   uint32_t db_lpi, unsigned int cpu)
 {
     void __iomem *rdbase;
     uint64_t val;
+    struct its_vpe *vpe = NULL;
+    unsigned long flags = 0;
     int ret;
 
-    /* Register-based LPI invalidation for DB on GICv4.0 */
-    val = MASK_INSR(db_lpi, GICR_INVLPIR_INTID);
+    if ( dev )
+    {
+        struct its_vlpi_map *map = &dev->event_map.vlpi_maps[eventid];
+
+        WARN_ON(!gic_has_v4_1_extension());
+
+        vpe = map->vm->vpes[map->vpe_idx];
+        cpu = vpe_to_cpuid_lock(vpe, &flags);
+
+        val = GICR_INVLPIR_V;
+        val |= MASK_INSR(vpe->vpe_id, GICR_INVLPIR_VPEID);
+        val |= MASK_INSR(map->vintid, GICR_INVLPIR_INTID);
+    }
+    else
+    {
+        /* Register-based LPI invalidation for DB on GICv4.0. */
+        val = MASK_INSR(db_lpi, GICR_INVLPIR_INTID);
+    }
 
     rdbase = per_cpu(rbase, cpu);
 
     ret = wait_for_syncr(rdbase, "INVLPIR pre-check");
     if ( ret )
-        return;
+    {
+        if ( vpe )
+            vpe_to_cpuid_unlock(vpe, &flags);
+        return ret;
+    }
 
     writeq_relaxed(val, rdbase + GICR_INVLPIR);
 
-    (void)wait_for_syncr(rdbase, "INVLPIR");
+    ret = wait_for_syncr(rdbase, "INVLPIR");
+
+    if ( vpe )
+        vpe_to_cpuid_unlock(vpe, &flags);
+
+    return ret;
+}
+
+static int its_vpe_send_4_1_inv_db(struct host_its *its, struct its_vpe *vpe)
+{
+    uint64_t cmd[4];
+    uint16_t vpeid = vpe->vpe_id;
+    int ret;
+
+    cmd[0] = GITS_CMD_INVDB;
+    cmd[1] = (uint64_t)vpeid << 32;
+    cmd[2] = 0;
+    cmd[3] = 0;
+
+    ret = its_send_command(its, cmd);
+    if ( ret )
+        return ret;
+
+    return its_send_cmd_vsync(its, vpeid);
 }
 
 static void its_vpe_inv_db(struct its_vpe *vpe)
 {
-    if ( gic_support_directLPI() )
+    struct host_its *its = find_4_1_its();
+
+    if ( its )
+    {
+        int ret = its_vpe_send_4_1_inv_db(its, vpe);
+
+        if ( ret )
+            printk(XENLOG_WARNING
+                   "ITS: failed to invalidate GICv4.1 VPE doorbell: %d\n",
+                   ret);
+    }
+    else if ( gic_support_directLPI() )
     {
         unsigned long flags;
         unsigned int cpu;
+        int ret;
 
         /*
          * Serialize register-based invalidation against VPE moves. The
@@ -573,9 +644,14 @@ static void its_vpe_inv_db(struct its_vpe *vpe)
          */
         cpu = vpe_to_cpuid_lock(vpe, &flags);
 
-        /* Target the redistributor this VPE is currently known on */
-        direct_lpi_inv(vpe->vpe_db_lpi, cpu);
+        /* Target the redistributor this VPE is currently known on. */
+        ret = direct_lpi_inv(NULL, 0, vpe->vpe_db_lpi, cpu);
         vpe_to_cpuid_unlock(vpe, &flags);
+
+        if ( ret )
+            printk(XENLOG_WARNING
+                   "ITS: failed to invalidate GICv4 VPE doorbell: %d\n",
+                   ret);
     }
     else
     {

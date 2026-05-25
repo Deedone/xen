@@ -85,6 +85,9 @@ struct event_vlpi_map {
 
 void gicv4_its_vpeid_allocator_init(void);
 int gicv4_init_vpe_proxy(void);
+int allocate_vpe_l1_table(void);
+int direct_lpi_inv(struct its_device *dev, uint32_t eventid,
+                   uint32_t db_lpi, unsigned int cpu);
 
 #define GICR_VPROPBASER                              0x0070
 #define GICR_VPENDBASER                              0x0078

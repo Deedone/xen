@@ -23,6 +23,7 @@
 #include <asm/io.h>
 #include <asm/page.h>
 #include <xen/domain-layout.h>
+#include <asm/vgic.h>
 
 #define ITS_CMD_QUEUE_SZ                SZ_1M
 
@@ -933,7 +934,14 @@ int its_inv_lpi(struct host_its *its, struct its_device *dev,
     int ret;
 
     if ( event_is_forwarded_to_vcpu(dev, eventid) )
+    {
+#ifdef CONFIG_GICV4
+        if ( gic_has_v4_1_extension() )
+            return direct_lpi_inv(dev, eventid, 0, cpu);
+#endif
+
         return its_send_cmd_vinv(its, dev, eventid);
+    }
 
     ret = its_send_cmd_inv(its, dev->host_devid, eventid);
     if ( ret )
