@@ -22,11 +22,15 @@
 #include <xen/delay.h>
 #include <xen/err.h>
 #include <xen/errno.h>
+#include <xen/init.h>
+#include <xen/lib.h>
+#include <xen/mm.h>
 #include <xen/sched.h>
 #include <xen/spinlock.h>
 #include <asm/gic_v3_defs.h>
 #include <asm/gic_v3_its.h>
 #include <asm/gic_v4_its.h>
+#include <asm/mm.h>
 #include <asm/vgic.h>
 
 
@@ -52,8 +56,18 @@ static struct {
     int next_victim;
 } vpe_proxy;
 
+/* Per-redistributor GICv4.1 VPE table sharing group. */
+DEFINE_PER_CPU(cpumask_t *, vpe_table_mask);
+#define vpe_table_mask_cpu(cpu) (per_cpu(vpe_table_mask, cpu))
+#define VPE_TABLE_MASK          (this_cpu(vpe_table_mask))
+static cpumask_t *vpe_table_mask_pool;
+
+static void its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu);
+static bool its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
+                                          unsigned int cpu, bool req_db);
 static int vpe_to_cpuid_lock(struct its_vpe *vpe, unsigned long *flags);
 static void vpe_to_cpuid_unlock(struct its_vpe *vpe, unsigned long *flags);
+static void encode_vmovp_v4_1(uint64_t *cmd, uint32_t default_db_pintid);
 
 void __init gicv4_its_vpeid_allocator_init(void)
 {
@@ -62,6 +76,33 @@ void __init gicv4_its_vpeid_allocator_init(void)
 
     if ( !vpeid_mask )
         panic("Could not allocate VPEID bitmap space\n");
+
+    if ( gic_has_v4_1_extension() )
+    {
+        vpe_table_mask_pool = xzalloc_array(cpumask_t, nr_cpu_ids);
+        if ( !vpe_table_mask_pool )
+            panic("Could not allocate VPE table sharing masks\n");
+    }
+}
+
+static cpumask_t *alloc_vpe_table_mask(void)
+{
+    cpumask_t *mask;
+
+    /*
+     * Secondary CPUs initialise their redistributor before local IRQs are
+     * enabled.  Use the preallocated pool there; the boot CPU may reach this
+     * path before gicv4_its_vpeid_allocator_init().
+     */
+    if ( vpe_table_mask_pool )
+        mask = &vpe_table_mask_pool[smp_processor_id()];
+    else
+        mask = xzalloc(cpumask_t);
+
+    if ( mask )
+        cpumask_clear(mask);
+
+    return mask;
 }
 
 static void __iomem *gic_data_rdist_vlpi_base(unsigned int cpu)
@@ -111,9 +152,80 @@ static void its_free_vpeid(uint32_t vpe_id)
     spin_unlock(&vpeid_alloc_lock);
 }
 
+static int allocate_vpe_l2_table(unsigned int cpu, uint32_t id)
+{
+    void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
+    void __iomem *rdbase = per_cpu(rbase, cpu);
+    unsigned int psz, esz, idx, npg, gpsz;
+    uint64_t val;
+    void *buffer;
+    __le64 *table;
+    paddr_t pa;
+
+    if ( !rdbase )
+        return 0;
+
+    val = gits_read_vpropbaser(vlpi_base + GICR_VPROPBASER);
+    if ( !(val & GICR_VPROPBASER_4_1_VALID) )
+        return -ENODEV;
+
+    gpsz = MASK_EXTR(val, GICR_VPROPBASER_4_1_PAGE_SIZE);
+    esz = MASK_EXTR(val, GICR_VPROPBASER_4_1_ENTRY_SIZE) + 1;
+    npg = MASK_EXTR(val, GICR_VPROPBASER_4_1_SIZE) + 1;
+
+    switch ( gpsz )
+    {
+    case GIC_PAGE_SIZE_4K:
+        psz = SZ_4K;
+        break;
+    case GIC_PAGE_SIZE_16K:
+        psz = SZ_16K;
+        break;
+    case GIC_PAGE_SIZE_64K:
+        psz = SZ_64K;
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    if ( !(val & GICR_VPROPBASER_4_1_INDIRECT) )
+        return (id < (npg * psz / (esz * SZ_8))) ? 0 : -ERANGE;
+
+    idx = id / (psz / (esz * SZ_8));
+    if ( idx >= (npg * psz / GITS_LVL1_ENTRY_SIZE) )
+        return -ERANGE;
+
+    pa = MASK_EXTR(val, GICR_VPROPBASER_4_1_ADDR) << 12;
+    table = (__le64 *)maddr_to_virt(pa);
+
+    if ( table[idx] )
+        return 0;
+
+    buffer = alloc_xenheap_pages(get_order_from_bytes(psz),
+                                 gicv3_its_get_memflags());
+    if ( !buffer )
+        return -ENOMEM;
+
+    memset(buffer, 0, psz);
+
+    if ( !(val & GICR_VPROPBASER_SHAREABILITY_MASK) )
+        clean_and_invalidate_dcache_va_range(buffer, psz);
+
+    table[idx] = cpu_to_le64(virt_to_maddr(buffer) | GITS_BASER_VALID);
+
+    if ( !(val & GICR_VPROPBASER_SHAREABILITY_MASK) )
+        clean_and_invalidate_dcache_va_range(table + idx,
+                                             GITS_LVL1_ENTRY_SIZE);
+
+    dsb(sy);
+
+    return 0;
+}
+
 static int its_alloc_vpe_entry(uint32_t vpe_id)
 {
     struct host_its *hw_its;
+    unsigned int cpu;
     int ret;
 
     /*
@@ -134,6 +246,16 @@ static int its_alloc_vpe_entry(uint32_t vpe_id)
             return -ENODEV;
 
         ret = its_alloc_table_entry(baser, vpe_id);
+        if ( ret )
+            return ret;
+    }
+
+    if ( !gic_has_v4_1_extension() )
+        return 0;
+
+    for_each_possible_cpu ( cpu )
+    {
+        ret = allocate_vpe_l2_table(cpu, vpe_id);
         if ( ret )
             return ret;
     }
@@ -1350,6 +1472,39 @@ static bool its_clear_vpend_valid(void __iomem *vlpi_base, uint64_t *val)
     return true;
 }
 
+static bool its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
+                                       uint64_t set, uint64_t *val)
+{
+    void __iomem *vpendbaser = vlpi_base + GICR_VPENDBASER;
+    unsigned int count = GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US;
+    uint64_t tmp;
+
+    tmp = gits_read_vpendbaser(vpendbaser);
+    if ( tmp & GICR_VPENDBASER_Valid )
+    {
+        tmp &= ~clr;
+        tmp |= set;
+        tmp &= ~GICR_VPENDBASER_Valid;
+        writeq_relaxed(tmp, vpendbaser);
+
+        do {
+            if ( !count-- )
+            {
+                printk(XENLOG_WARNING
+                       "GICv4: timeout clearing GICR_VPENDBASER.Valid\n");
+                return false;
+            }
+
+            udelay(1);
+            tmp = gits_read_vpendbaser(vpendbaser);
+        } while ( tmp & GICR_VPENDBASER_Valid );
+    }
+
+    *val = read_vpend_dirty_clean(vlpi_base, count);
+
+    return true;
+}
+
 static void its_make_vpe_resident(struct its_vpe *vpe, unsigned int cpu)
 {
     void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
@@ -1390,6 +1545,251 @@ static bool its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
     write_atomic(&vpe->pending_last, val & GICR_VPENDBASER_PendingLast);
 
     return true;
+}
+
+static void its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu)
+{
+    void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
+    uint64_t old, val = 0;
+
+    (void)its_clear_vpend_valid_bits(vlpi_base, 0, 0, &old);
+
+    val |= GICR_VPENDBASER_Valid;
+    /* PendingLast is RES1 when GICR_VPENDBASER.Valid is written 0->1. */
+    val |= GICR_VPENDBASER_PendingLast;
+    val |= GICR_VPENDBASER_4_1_VGRP1EN;
+    val |= MASK_INSR(vpe->vpe_id, GICR_VPENDBASER_4_1_VPEID);
+
+    gits_write_vpendbaser(val, vlpi_base + GICR_VPENDBASER);
+}
+
+static bool its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
+                                          unsigned int cpu, bool req_db)
+{
+    void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
+    uint64_t val;
+    bool ret;
+
+    if ( req_db )
+    {
+        ret = its_clear_vpend_valid_bits(vlpi_base,
+                                         GICR_VPENDBASER_PendingLast,
+                                         GICR_VPENDBASER_4_1_DB, &val);
+        if ( ret )
+            write_atomic(&vpe->pending_last,
+                         !!(val & GICR_VPENDBASER_PendingLast));
+    }
+    else
+    {
+        /*
+         * We are not arming a default doorbell. Let the implementation
+         * report whether pending enabled vLPIs remain instead of forcing
+         * PendingLast to 1.
+         */
+        ret = its_clear_vpend_valid_bits(vlpi_base, GICR_VPENDBASER_4_1_DB,
+                                         0, &val);
+        if ( ret )
+            write_atomic(&vpe->pending_last,
+                         !!(val & GICR_VPENDBASER_PendingLast));
+    }
+
+    return ret;
+}
+
+static uint64_t inherit_vpe_l1_table_from_rd(void)
+{
+    uint32_t aff;
+    uint64_t val;
+    unsigned int cpu;
+
+    val = readq_relaxed(GICD_RDIST_BASE + GICR_TYPER);
+    aff = compute_common_aff(val);
+
+    for_each_present_cpu ( cpu )
+    {
+        void __iomem *rbase;
+
+        if ( cpu == smp_processor_id() || !cpu_online(cpu) )
+            continue;
+
+        rbase = GICD_RDIST_BASE_CPU(cpu);
+        if ( !rbase )
+            continue;
+
+        val = readq_relaxed(rbase + GICR_TYPER);
+        if ( aff != compute_common_aff(val) )
+            continue;
+
+        val = gits_read_vpropbaser(gic_data_rdist_vlpi_base(cpu) +
+                                   GICR_VPROPBASER);
+        if ( !(val & GICR_VPROPBASER_4_1_VALID) )
+            continue;
+
+        VPE_TABLE_MASK = vpe_table_mask_cpu(cpu);
+        val &= ~GICR_VPROPBASER_4_1_Z;
+
+        return val;
+    }
+
+    return 0;
+}
+
+static uint64_t inherit_vpe_l1_table_from_its(void)
+{
+    struct host_its *its;
+    uint64_t val;
+    uint32_t aff;
+
+    val = readq_relaxed(GICD_RDIST_BASE + GICR_TYPER);
+    aff = compute_common_aff(val);
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        uint64_t typer, baser;
+        paddr_t addr;
+
+        if ( !its->is_v4_1 )
+            continue;
+
+        typer = readq_relaxed(its->its_base + GITS_TYPER);
+        if ( !MASK_EXTR(typer, GITS_TYPER_SVPET) )
+            continue;
+
+        if ( aff != compute_its_aff(its) )
+            continue;
+
+        baser = its->tables[2].val;
+        if ( !(baser & GITS_BASER_VALID) )
+            continue;
+
+        val = GICR_VPROPBASER_4_1_VALID;
+        if ( baser & GITS_BASER_INDIRECT )
+            val |= GICR_VPROPBASER_4_1_INDIRECT;
+
+        val |= MASK_INSR(MASK_EXTR(baser, GITS_BASER_PAGE_SIZE_MASK),
+                         GICR_VPROPBASER_4_1_PAGE_SIZE);
+
+        switch ( MASK_EXTR(baser, GITS_BASER_PAGE_SIZE_MASK) )
+        {
+        case GIC_PAGE_SIZE_64K:
+            addr = GITS_BASER_ADDR_48_to_52(baser);
+            break;
+        default:
+            addr = baser & GENMASK(47, 12);
+            break;
+        }
+
+        val |= MASK_INSR(addr >> 12, GICR_VPROPBASER_4_1_ADDR);
+        val |= MASK_INSR(MASK_EXTR(baser, GITS_BASER_SHAREABILITY_MASK),
+                         GICR_VPROPBASER_SHAREABILITY_MASK);
+        val |= MASK_INSR(
+            MASK_EXTR(baser, GITS_BASER_INNER_CACHEABILITY_MASK),
+            GICR_VPROPBASER_INNER_CACHEABILITY_MASK);
+        val |= MASK_INSR(GITS_BASER_NR_PAGES(baser) - 1,
+                         GICR_VPROPBASER_4_1_SIZE);
+
+        return val;
+    }
+
+    return 0;
+}
+
+int allocate_vpe_l1_table(void)
+{
+    void __iomem *vlpi_base = gic_data_rdist_vlpi_base(smp_processor_id());
+    uint64_t val, gpsz, npg, pa;
+    unsigned int psz = SZ_64K;
+    unsigned int epp, esz;
+    unsigned int order;
+    void *buffer;
+
+    if ( !gic_has_v4_1_extension() )
+        return 0;
+
+    val = gits_read_vpendbaser(vlpi_base + GICR_VPENDBASER);
+    if ( val & GICR_VPENDBASER_Valid )
+        writeq_relaxed((val | GICR_VPENDBASER_PendingLast) &
+                       ~GICR_VPENDBASER_Valid,
+                       vlpi_base + GICR_VPENDBASER);
+
+    val = inherit_vpe_l1_table_from_rd();
+    if ( val & GICR_VPROPBASER_4_1_VALID )
+        goto out;
+
+    VPE_TABLE_MASK = alloc_vpe_table_mask();
+    if ( !VPE_TABLE_MASK )
+        return -ENOMEM;
+
+    val = inherit_vpe_l1_table_from_its();
+    if ( val & GICR_VPROPBASER_4_1_VALID )
+        goto out;
+
+    val = MASK_INSR(GIC_PAGE_SIZE_64K,
+                    GICR_VPROPBASER_4_1_PAGE_SIZE);
+    gits_write_vpropbaser(val, vlpi_base + GICR_VPROPBASER);
+    val = gits_read_vpropbaser(vlpi_base + GICR_VPROPBASER);
+    gpsz = MASK_EXTR(val, GICR_VPROPBASER_4_1_PAGE_SIZE);
+    esz = MASK_EXTR(val, GICR_VPROPBASER_4_1_ENTRY_SIZE) + 1;
+
+    switch ( gpsz )
+    {
+    case GIC_PAGE_SIZE_4K:
+        psz = SZ_4K;
+        break;
+    case GIC_PAGE_SIZE_16K:
+        psz = SZ_16K;
+        break;
+    case GIC_PAGE_SIZE_64K:
+        psz = SZ_64K;
+        break;
+    default:
+        gpsz = GIC_PAGE_SIZE_4K;
+        psz = SZ_4K;
+        break;
+    }
+
+    val = MASK_INSR(gpsz, GICR_VPROPBASER_4_1_PAGE_SIZE);
+    val |= MASK_INSR(esz - 1, GICR_VPROPBASER_4_1_ENTRY_SIZE);
+
+    epp = psz / (esz * SZ_8);
+    if ( epp < MAX_VPEID )
+    {
+        unsigned int nl2;
+
+        val |= GICR_VPROPBASER_4_1_INDIRECT;
+        nl2 = DIV_ROUND_UP(MAX_VPEID, epp);
+        npg = DIV_ROUND_UP(nl2 * SZ_8, psz);
+    }
+    else
+        npg = 1;
+
+    val |= MASK_INSR(npg - 1, GICR_VPROPBASER_4_1_SIZE);
+
+    order = get_order_from_bytes(npg * psz);
+    buffer = alloc_xenheap_pages(order, gicv3_its_get_memflags());
+    if ( !buffer )
+        return -ENOMEM;
+
+    memset(buffer, 0, PAGE_SIZE << order);
+    if ( gicv3_its_get_cacheability() <= GIC_BASER_CACHE_nC )
+        clean_and_invalidate_dcache_va_range(buffer, npg * psz);
+
+    pa = virt_to_maddr(buffer);
+    val |= MASK_INSR(pa >> 12, GICR_VPROPBASER_4_1_ADDR);
+    val |= gicv3_its_get_cacheability() <<
+           GICR_VPROPBASER_INNER_CACHEABILITY_SHIFT;
+    val |= gicv3_its_get_shareability() <<
+           GICR_VPROPBASER_SHAREABILITY_SHIFT;
+    val |= GICR_VPROPBASER_4_1_Z;
+    val |= GICR_VPROPBASER_4_1_VALID;
+
+ out:
+    gits_write_vpropbaser(val, vlpi_base + GICR_VPROPBASER);
+
+    if ( VPE_TABLE_MASK )
+        cpumask_set_cpu(smp_processor_id(), VPE_TABLE_MASK);
+
+    return 0;
 }
 
 static int vpe_to_cpuid_lock(struct its_vpe *vpe, unsigned long *flags)
@@ -1518,6 +1918,13 @@ void vgic_v4_load(struct vcpu *vcpu)
      * corresponding to our current CPU expects us here
      */
     WARN_ON(gicv4_vpe_set_affinity(vcpu));
+    if ( gic_has_v4_1_extension() )
+    {
+        its_make_vpe_4_1_resident(vpe, vcpu->processor);
+        vpe->resident = true;
+        return;
+    }
+
     its_vpe_mask_db(vpe);
     its_make_vpe_resident(vpe, vcpu->processor);
     vpe->resident = true;
@@ -1532,6 +1939,15 @@ void vgic_v4_put(struct vcpu *vcpu, bool need_db)
 
     if ( !vpe->resident )
         return;
+
+    if ( gic_has_v4_1_extension() )
+    {
+        if ( !its_make_vpe_4_1_non_resident(vpe, vcpu->processor, need_db) )
+            return;
+
+        vpe->resident = false;
+        return;
+    }
 
     if ( !its_make_vpe_non_resident(vpe, vcpu->processor) )
         return;

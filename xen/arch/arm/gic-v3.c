@@ -129,6 +129,10 @@ DEFINE_PER_CPU(void __iomem*, rbase);
 #define GICD                   (gicv3.map_dbase)
 #define GICD_RDIST_SGI_BASE    (GICD_RDIST_BASE + SZ_64K)
 
+#ifdef CONFIG_GICV4
+static void gicv4_its_init_nvpeid(void);
+#endif
+
 /*
  * Saves all 16(Max) LR registers. Though number of LRs implemented
  * is implementation specific.
@@ -1079,6 +1083,16 @@ static int gicv3_cpu_init(void)
         ret = gicv3_its_setup_collection(smp_processor_id());
         if ( ret )
             return ret;
+
+#ifdef CONFIG_GICV4
+        if ( gic_has_v4_1_extension() )
+        {
+            gicv4_its_init_nvpeid();
+            ret = allocate_vpe_l1_table();
+            if ( ret )
+                return ret;
+        }
+#endif
     }
 
     /* Set priority on PPI and SGI interrupts */
@@ -2473,10 +2487,20 @@ static void gicv3_resume(void)
 #endif /* CONFIG_SYSTEM_SUSPEND */
 
 #ifdef CONFIG_GICV4
+static void gicv4_its_init_nvpeid(void)
+{
+    uint32_t reg;
+
+    reg = readl_relaxed(GICD + GICD_TYPER2);
+    if ( gic_has_v4_1_extension() && (reg & GICD_TYPER2_VIL) )
+        nvpeid = 1 + MASK_EXTR(reg, GICD_TYPER2_VID);
+}
+
 static int __init gicv4_init(void)
 {
     int ret;
 
+    gicv4_its_init_nvpeid();
     gicv4_its_vpeid_allocator_init();
 
     ret = gicv4_init_vpe_proxy();
