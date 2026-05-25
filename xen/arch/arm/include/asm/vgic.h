@@ -374,11 +374,13 @@ extern void vgic_check_inflight_irqs_pending(struct vcpu *v,
 bool gic_support_vlpis(void);
 bool gic_support_directLPI(void);
 bool gic_support_vptValidDirty(void);
+bool gic_has_v4_1_extension(void);
 bool gicv4_supports_vlpis(void);
 #else
 #define gic_support_vlpis() (false)
 #define gic_support_directLPI() (false)
 #define gic_support_vptValidDirty() (false)
+#define gic_has_v4_1_extension() (false)
 #define gicv4_supports_vlpis() (false)
 #endif
 

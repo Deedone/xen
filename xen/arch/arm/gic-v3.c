@@ -22,6 +22,7 @@
 #include <xen/lib.h>
 #include <xen/libfdt/libfdt.h>
 #include <xen/mm.h>
+#include <xen/param.h>
 #include <xen/sched.h>
 #include <xen/sizes.h>
 
@@ -56,10 +57,17 @@ static struct {
 } gicv4 = { .has_vlpis = true, .has_direct_lpi = true,
             .has_vpend_valid_dirty = true, .has_rvpeid = true, };
 
+/*
+ * This cmdline knob disables Xen's GICv4 direct injection path as a whole.
+ * Keeping only parts of the GICv4/v4.1 flow enabled leads to inconsistent
+ * VPE handling during schedule-in/out.
+ */
+static bool opt_direct_lpi = true;
+boolean_param("gicv4_direct_lpi", opt_direct_lpi);
 
 bool gic_support_directLPI(void)
 {
-    return gicv4.has_direct_lpi;
+    return gicv4.has_direct_lpi && opt_direct_lpi;
 }
 
 bool gic_support_vlpis(void)
@@ -69,7 +77,12 @@ bool gic_support_vlpis(void)
 
 bool gic_support_vptValidDirty(void)
 {
-    return gicv4.has_vpend_valid_dirty;
+    return gicv4.has_vpend_valid_dirty && opt_direct_lpi;
+}
+
+bool gic_has_v4_1_extension(void)
+{
+    return gicv4.has_rvpeid && opt_direct_lpi;
 }
 
 static void gicv4_update_lpi_properties(void __iomem *ptr)
@@ -79,7 +92,6 @@ static void gicv4_update_lpi_properties(void __iomem *ptr)
 
     typer = readq_relaxed(ptr + GICR_TYPER);
     ctlr = readl_relaxed(ptr + GICR_CTLR);
-
     /*
      * GICR_CTLR.IR also mandates the invalidate/sync registers.
      * RVPEID identifies the GICv4.1 vPE model, which implies the same
