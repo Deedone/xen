@@ -69,6 +69,8 @@ PERFCOUNTER(vtimer_virt_inject,   "vtimer: virt expired, injected")
 PERFCOUNTER(ppis,                 "#PPIs")
 PERFCOUNTER(spis,                 "#SPIs")
 PERFCOUNTER(guest_irqs,           "#GUEST-IRQS")
+PERFCOUNTER(lpi_traps,            "LPI: traps")
+PERFCOUNTER(lpi_doorbells,        "LPI: doorbell")
 
 PERFCOUNTER(hyp_timer_irqs,   "Hypervisor timer interrupts")
 PERFCOUNTER(virt_timer_irqs,  "Virtual timer interrupts")
