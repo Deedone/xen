@@ -700,6 +700,66 @@ static int __init its_compute_its_list_map(struct host_its *hw_its)
     return its_number;
 }
 
+uint32_t compute_common_aff(uint64_t val)
+{
+    uint32_t aff, clpiaff;
+
+    aff = MASK_EXTR(val, GICR_TYPER_AFFINITY);
+    clpiaff = MASK_EXTR(val, GICR_TYPER_COMMON_LPI_AFF);
+
+    return aff & ~(GENMASK(31, 0) >> (clpiaff * 8));
+}
+
+uint32_t compute_its_aff(struct host_its *hw_its)
+{
+    uint64_t val, typer;
+    uint32_t svpet;
+
+    typer = readq_relaxed(hw_its->its_base + GITS_TYPER);
+    svpet = MASK_EXTR(typer, GITS_TYPER_SVPET);
+    val = MASK_INSR(svpet, GICR_TYPER_COMMON_LPI_AFF);
+    val |= MASK_INSR(hw_its->mpidr, GICR_TYPER_AFFINITY);
+
+    return compute_common_aff(val);
+}
+
+static struct host_its *find_sibling_its(struct host_its *cur_its)
+{
+    uint64_t cur_typer;
+    struct host_its *its;
+    uint32_t aff;
+
+    cur_typer = readq_relaxed(cur_its->its_base + GITS_TYPER);
+    if ( !MASK_EXTR(cur_typer, GITS_TYPER_SVPET) )
+        return NULL;
+
+    aff = compute_its_aff(cur_its);
+
+    list_for_each_entry(its, &host_its_list, entry)
+    {
+        uint64_t typer, baser;
+
+        if ( !its->is_v4_1 || its == cur_its )
+            continue;
+
+        typer = readq_relaxed(its->its_base + GITS_TYPER);
+        if ( !MASK_EXTR(typer, GITS_TYPER_SVPET) )
+            continue;
+
+        if ( aff != compute_its_aff(its) )
+            continue;
+
+        /* GICv4.1 guarantees that the vPE table is GITS_BASER2. */
+        baser = its->tables[2].val;
+        if ( !(baser & GITS_BASER_VALID) )
+            continue;
+
+        return its;
+    }
+
+    return NULL;
+}
+
 static int gicv3_its_init_single_its(struct host_its *hw_its)
 {
     uint64_t reg;
@@ -722,6 +782,7 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
     hw_its->devid_bits = GITS_TYPER_DEVICE_ID_BITS(reg);
     hw_its->evid_bits = GITS_TYPER_EVENT_ID_BITS(reg);
     hw_its->itte_size = GITS_TYPER_ITT_SIZE(reg);
+    hw_its->is_v4_1 = !!(reg & GITS_TYPER_VMAPP);
     if ( reg & GITS_TYPER_PTA )
         hw_its->flags |= HOST_ITS_USES_PTA;
     if ( hw_its->has_vlpis )
@@ -738,6 +799,14 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
         else
             dprintk(XENLOG_INFO,
                     "ITS@%lx: Single VMOVP capable\n", hw_its->addr);
+    }
+    if ( hw_its->is_v4_1 )
+    {
+        uint32_t svpet = MASK_EXTR(reg, GITS_TYPER_SVPET);
+
+        hw_its->mpidr = readl_relaxed(hw_its->its_base + GITS_MPIDR);
+        printk(XENLOG_INFO "ITS@%lx: using GICv4.1 mode mpidr=%#x svpet=%#x\n",
+               hw_its->addr, hw_its->mpidr, svpet);
     }
     spin_lock_init(&hw_its->cmd_lock);
 
@@ -766,6 +835,19 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
             break;
         /* In case this is a GICv4, provide a (dummy) vPE table as well. */
         case GITS_BASER_TYPE_VCPU:
+            if ( hw_its->is_v4_1 )
+            {
+                struct host_its *sibling = find_sibling_its(hw_its);
+
+                if ( sibling )
+                {
+                    *baser = sibling->tables[2];
+                    writeq_relaxed(baser->val, basereg);
+                    baser->val = readq_relaxed(basereg);
+                    break;
+                }
+            }
+
             ret = its_map_baser(basereg, reg,
                                 GITS_VPE_TABLE_PREALLOC_ENTRIES, baser);
             if ( ret )

@@ -9,12 +9,13 @@
 #ifndef ARM_GIC_V4_ITS_H
 #define ARM_GIC_V4_ITS_H
 
-#include <asm/arm64/io.h>
-
 #include <xen/delay.h>
+#include <xen/atomic.h>
 #include <xen/lib.h>
 #include <xen/spinlock.h>
 #include <xen/types.h>
+
+#include <asm/arm64/io.h>
 
 #define GITS_CMD_VMOVI                   0x21
 #define GITS_CMD_VMOVP                   0x22
@@ -22,6 +23,7 @@
 #define GITS_CMD_VMAPP                   0x29
 #define GITS_CMD_VMAPTI                  0x2a
 #define GITS_CMD_VINVALL                 0x2d
+#define GITS_CMD_INVDB                   0x2e
 
 struct its_device;
 struct pending_irq;
@@ -106,6 +108,29 @@ int gicv4_init_vpe_proxy(void);
 #define GICR_VPENDBASER_INNER_CACHEABILITY_SHIFT          7
 #define GICR_VPENDBASER_POLL_TIMEOUT_US             100000U
 
+/*
+ * GICv4.1 VPENDBASER, used for VPE residency. On top of these fields,
+ * also use the above Valid, PendingLast and Dirty bits.
+ */
+#define GICR_VPENDBASER_4_1_VGRP1EN             (1ULL << 58)
+#define GICR_VPENDBASER_4_1_VPEID               GENMASK_ULL(15, 0)
+#define GICR_VPENDBASER_4_1_DB                  (1ULL << 62)
+
+/*
+ * GICv4.1 VPROPBASER combines old VPROPBASER attributes with ITS_BASER-like
+ * table description fields.
+ */
+#define GICR_VPROPBASER_4_1_VALID               (1ULL << 63)
+#define GICR_VPROPBASER_4_1_ENTRY_SIZE          GENMASK_ULL(61, 59)
+#define GICR_VPROPBASER_4_1_INDIRECT            (1ULL << 55)
+#define GICR_VPROPBASER_4_1_PAGE_SIZE           GENMASK_ULL(54, 53)
+#define GICR_VPROPBASER_4_1_Z                   (1ULL << 52)
+#define GICR_VPROPBASER_4_1_ADDR                GENMASK_ULL(51, 12)
+#define GICR_VPROPBASER_4_1_SIZE                GENMASK_ULL(6, 0)
+
+#define GICR_INVALLR_VPEID                      GENMASK_ULL(47, 32)
+#define GICR_INVALLR_V                          (1ULL << 63)
+
 #define gits_read_vpropbaser(c)         readq_relaxed(c)
 #define gits_write_vpropbaser(v, c)     \
     do { writeq_relaxed(v, c); } while ( 0 )
@@ -147,6 +172,8 @@ static inline void gits_write_vpendbaser(uint64_t val, void __iomem *addr)
 #define gits_read_vpendbaser(c)     readq_relaxed(c)
 
 #define GICR_INVLPIR_INTID                GENMASK_ULL(31, 0)
+#define GICR_INVLPIR_VPEID                GICR_INVALLR_VPEID
+#define GICR_INVLPIR_V                    GICR_INVALLR_V
 
 #endif
 
