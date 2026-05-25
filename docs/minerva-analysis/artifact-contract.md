@@ -67,7 +67,11 @@ indirect-reachability/
     direct-static-summary.md
     direct-static-summary.json
 
-  runtime/                            (optional)
+  runtime/                            (optional; Option A)
+    logs/                             runtime command output / logs
+    runtime-command.stdout
+    runtime-command.stderr
+    runtime-manifest.json             git SHA, config hash, etc.
     parsed/
     runtime-summary.md
     runtime-summary.json
@@ -75,6 +79,9 @@ indirect-reachability/
   runtime-static/
     runtime-static-comparison.md
     runtime-static-comparison.json
+    runtime-unmatched-paths.csv
+    static-only-indirect-paths.csv
+    comparison-summary.csv
 ```
 
 `.paths` is the GCC `.ci`-style nested-tree format produced by
@@ -120,6 +127,14 @@ For each CI run:
    omitted call sites in `synthetic_edges.excluded.yaml` with
    `exclusion_reason=out_of_scope_arch`. The run's
    `target_arch` is recorded in `collection-summary.json`.
+9. When runtime logs are collected in the same job (Option A),
+   `runtime/runtime-manifest.json` records the git SHA,
+   config name, target arch, defconfig, and `config_sha256`
+   the logs were produced from. The driver checks the manifest
+   against the job's git SHA and config hash before labelling
+   the run `COMPLETE`; a mismatch is `PROXY` (with
+   `--allow-proxy`) or `PARTIAL`. Runtime logs and parsed
+   output are per-run artifacts and are not committed.
 
 ## Status labels
 

@@ -9,8 +9,9 @@ only as diagnostic data.
 
 ### COMPLETE
 
-All static inputs and the runtime parser output exist and
-correspond to the same Xen configuration and source revision:
+All static inputs, the runtime parser output, and the
+runtime/static comparison exist and correspond to the same Xen
+configuration and source revision:
 
 - expanded `.config`
 - callgraph artifacts (`.ci` tree and/or normalized graph)
@@ -18,23 +19,28 @@ correspond to the same Xen configuration and source revision:
 - reachability workbench output (`reachability/`)
 - direct-static baselines (`direct-static/`)
 - runtime parser output (`runtime/`)
+- runtime/static comparison (`runtime-static/`)
 
 Operator-visible behaviour:
 
 - `status.json::status` = `"COMPLETE"`.
 - `runtime/runtime-summary.json::ok` = `true`.
+- `status.json::runtime_static_compare_ok` = `true`.
 - The runtime-static-comparison artifact is the per-run
   summary for this configuration; it is not a committed
   coverage number.
 
-**COMPLETE is operator-asserted.** The driver does not yet
-automatically prove that the runtime logs came from the same
-build, configuration, and source revision as the static
-artifacts. Operators must supply aligned runtime logs or
-relabel the run as `PROXY`. A future manifest check could
-compare runtime log metadata against archived `.config`
-symbols and the recorded git SHA; until that exists, the
-operator owns the alignment claim.
+**COMPLETE is tool-checked in Option A (same-job runtime).**
+When the driver runs the runtime workload itself
+(`--runtime-command`), it writes `runtime/runtime-manifest.json`
+recording the git SHA, config name, target arch, defconfig, and
+`config_sha256` the logs were produced from, then checks that
+manifest against the current job's git SHA and config hash
+before labelling the run `COMPLETE`. A mismatch is **not**
+COMPLETE: it becomes `PROXY` (with `--allow-proxy`) or `PARTIAL`.
+For externally supplied logs with no manifest, the alignment
+claim still rests with the operator, but the same-job path no
+longer relies on an unchecked assertion.
 
 ### STATIC_ONLY
 
@@ -46,19 +52,25 @@ When the runner gets `STATIC_ONLY`:
 - `status.json::status` = `"STATIC_ONLY"`.
 - `runtime_ok` = `false`.
 - `runtime_reason` is one of:
-    - `"not supplied"`--  no `--runtime-log-dir`.
+    - `"no runtime command or log dir supplied"`--  neither
+      `--runtime-command` nor `--runtime-log-dir`.
     - `"--no-runtime supplied"`--  operator opted out.
-    - `"log_parser.py failed: ..."`--  runtime stage
-      attempted but failed; only emitted when
-      `MINERVA_CI_ALLOW_RUNTIME_FAILURE` is truthy.
+    - a runtime command / parser failure message, when the
+      failure is allowed (`--allow-runtime-failure` or
+      `MINERVA_CI_ALLOW_RUNTIME_FAILURE`) and
+      `--runtime-required` is not set.
 
 ### PROXY
 
 One or more inputs are from a nearby but not identical
-configuration. **Not** produced automatically by the driver;
-reserved for cases where the operator explicitly supplies
-runtime logs from a different configuration and an analyst
-downgrades the status by hand.
+configuration. In Option A this is produced when the runtime
+manifest does not align with the job's git SHA / config hash
+**and** the operator passed `--allow-proxy`. Without
+`--allow-proxy` a mismatch is `PARTIAL`. It also covers the
+historical case where an operator supplies external runtime
+logs from a different configuration. For same-job runtime
+(Option A) with matching metadata, PROXY should not occur.
+
 
 ### PARTIAL
 
@@ -113,6 +125,63 @@ extraction:
 Generation never silently drops a failed file; every failure is
 listed in `ir-generation-summary.json`.
 
+## Runtime/static comparison (Option A)
+
+When the driver collects runtime logs in the same job
+(`--runtime-command`), it parses them and then runs
+`scripts/runtime_static_compare.py` over this run's
+`runtime/parsed`, `reachability`, `direct-static`, and
+`collect` artifacts. The comparison classifies each runtime
+allocation path:
+
+- `direct_static_explained` -- a non-target frame is in the
+  direct-static reaching set of the path's target;
+- `indirect_candidate_explained` -- a frame matches an
+  indirect reachability / synthetic-edge candidate;
+- `runtime_only_unexplained` -- no static artifact explains it;
+- `boundary_or_parser_artifact` -- empty/degenerate path;
+- `unresolved_normalization_mismatch` -- target known but no
+  frame lined up with a static reaching set.
+
+Static candidates are classified `observed_at_runtime` or
+`not_observed_in_this_workload`. The latter is a workload
+statement, **never** a claim of impossibility. The comparison
+reports the coarsest matching layer it relied on in
+`comparison_confidence` (`exact_stack` / `function_set` /
+`head_function` / `target_only`) so coarse matching is not
+reported as exact.
+
+An indirect candidate explains a runtime path only when it
+actually reaches that path's allocation target (per the
+recorded synthetic-edge `reaches`); a candidate that reaches a
+different target does not explain the path. Only the candidates
+that reach the path's target are counted as
+`observed_at_runtime` -- other indirect frames on the same path
+are not marked observed. A runtime path whose target cannot be
+resolved is `unresolved_normalization_mismatch`, never
+indirect-explained on a coincidental frame match.
+
+The text fallback only emits records whose allocating function
+is a known allocation target (the direct-static targets plus
+the default alloc entry points). A non-allocation report
+section -- a free-path entry, comment, or diagnostic block --
+is not turned into a runtime path.
+
+The comparison tool reports only `comparison_status: COMPARED`
+in its JSON; it does **not** infer the run-level label. A
+comparison over zero observed runtime paths is still a valid
+comparison (`runtime_paths_total: 0`), not `STATIC_ONLY`. The
+driver owns the `COMPLETE` / `STATIC_ONLY` / `PROXY` / `PARTIAL`
+label, decided from runtime-stage success and manifest
+alignment.
+
+The comparison tool reads the runtime parser's output
+defensively: a structured `allocation-paths.json` (or
+`allocation-paths.csv`) is preferred, and the parser's text
+`comments` / report output is read as a fallback so the
+comparison consumes the real parser artifact rather than
+requiring a structured export.
+
 ## Decision rule
 
 ```
@@ -121,15 +190,28 @@ if backend == llvm-ir AND generate requested
   if some replays failed
      AND not allow_partial_llvm_ir            -> PARTIAL
 if static stack OK
-  if runtime requested AND runtime OK        -> COMPLETE
-  if runtime requested AND runtime failed
-     AND MINERVA_CI_ALLOW_RUNTIME_FAILURE    -> STATIC_ONLY
-  if runtime requested AND runtime failed
-     AND not allow_runtime_failure           -> PARTIAL
   if runtime not requested                   -> STATIC_ONLY
+  if runtime OK AND compare OK AND manifest aligned -> COMPLETE
+  if runtime OK AND compare OK AND manifest mismatch
+     AND allow_proxy                          -> PROXY
+     else                                     -> PARTIAL
+  if compare failed                           -> PARTIAL
+  if runtime failed AND runtime_required      -> PARTIAL
+  if runtime failed AND failure allowed       -> STATIC_ONLY
+  if runtime failed otherwise                 -> PARTIAL
 else if backend unavailable                  -> UNSUPPORTED_BACKEND
 else                                         -> PARTIAL
 ```
+
+Manifest alignment compares `runtime/runtime-manifest.json`
+(git SHA, `config_sha256`) against the job's metadata. Same-job
+runtime (Option A) always writes a manifest, so a missing
+manifest there is treated as not aligned. External
+`--runtime-log-dir` logs with no manifest are also treated as
+not aligned (the alignment cannot be verified), so they become
+`PROXY` (with `--allow-proxy`) or `PARTIAL` rather than silently
+`COMPLETE`. The alignment reason is recorded in
+`status.json` notes.
 
 ## Per-run metric policy
 

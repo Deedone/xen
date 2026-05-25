@@ -59,6 +59,10 @@ CI job does not reuse local build artifacts.
 | `LLVM_IR_DIR` | Externally supplied `.ll` / `.bc` tree for the `llvm-ir` backend. Ignored when `MINERVA_GENERATE_LLVM_IR` is truthy. |
 | `LLVM_IR_EXTRA_CFLAGS` | Extra flags appended to each IR replay compile (whitespace-separated). |
 | `MINERVA_LLVM_IR_CLEAN_BEFORE_CAPTURE` | If truthy, run `make clean` before the verbose capture build so a reused workspace still logs every C compile. |
+| `MINERVA_RUNTIME_COMMAND` | Option A: command run after the static stages to produce runtime logs. Empty default keeps the job `STATIC_ONLY`. |
+| `MINERVA_RUNTIME_LOG_DIR` | Where the runtime command writes (or where external logs already sit). Default under the artifact dir. |
+| `MINERVA_RUNTIME_REQUIRED` | If truthy, a runtime failure makes the run `PARTIAL` instead of a `STATIC_ONLY` downgrade. |
+| `MINERVA_RUNTIME_TIMEOUT` | Timeout in seconds for the runtime command. Default 600. |
 | `MINERVA_ALLOW_PARTIAL_LLVM_IR` | If truthy, tolerate some-but-not-all IR replay failures instead of `PARTIAL`. |
 
 ### Smoke defaults
@@ -120,6 +124,40 @@ Both are per-run artifacts and are not committed.
 GCC `.ci` remains the default backend. The metric policy below
 applies unchanged: nothing about the IR path is a committed
 constant.
+
+## Aligned runtime/static comparison (Option A)
+
+To collect runtime allocation logs and compare them against the
+static artifacts in the **same job**, set a runtime command:
+
+```
+MINERVA_RUNTIME_COMMAND=./automation/run-minerva-runtime-smoke.sh
+MINERVA_RUNTIME_LOG_DIR=indirect-reachability/runtime/logs
+MINERVA_RUNTIME_REQUIRED=false
+MINERVA_RUNTIME_TIMEOUT=600
+```
+
+Option A is the preferred alignment mode: the runtime logs come
+from the same job, the same expanded `.config`, and the same
+git SHA as the static analysis, so no cross-job provenance
+guessing is needed. The driver runs the command only after the
+static stages succeed, exports the `MINERVA_*` environment
+(log dir, config path/name, git SHA, target arch, defconfig),
+parses the resulting logs, writes `runtime/runtime-manifest.json`,
+and runs `scripts/runtime_static_compare.py`.
+
+The runtime command is optional. With it unset the run stays
+`STATIC_ONLY` -- the default success state. With it set and the
+comparison succeeding against an aligned manifest, the run is
+`COMPLETE`. `COMPLETE` is tool-checked: the driver verifies the
+manifest's git SHA and config hash against the job before
+applying the label (see
+[runtime-static-status.md](runtime-static-status.md)).
+
+Runtime non-observation of a static candidate does not mean the
+path is impossible, and static reachability does not mean a path
+was exercised at runtime. All comparison metrics are per-run
+artifacts.
 
 ## Skip-build mode
 
