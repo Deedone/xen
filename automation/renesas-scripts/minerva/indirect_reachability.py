@@ -80,6 +80,15 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+# Shared architecture-scope classifier (single source of truth, also
+# used by the collector). Imported by path so the workbench runs from
+# outside an installed package.
+import importlib.util as _ilu
+_arch_scope_spec = _ilu.spec_from_file_location(
+    "arch_scope", str(Path(__file__).resolve().parent / "arch_scope.py"))
+arch_scope = _ilu.module_from_spec(_arch_scope_spec)
+_arch_scope_spec.loader.exec_module(arch_scope)
+
 
 DEFAULT_TARGETS = ["alloc_domheap_pages", "alloc_xenheap_pages", "_xmalloc"]
 
@@ -637,6 +646,9 @@ def write_synthetic_edges_yaml(out_dir: Path, config_name: str,
         lines.append(f"    confidence: {e['confidence']}")
         if "candidate_binding" in e:
             lines.append(f"    candidate_binding: {e['candidate_binding']}")
+        if "candidate_included" in e:
+            lines.append(
+                f"    candidate_included: {e['candidate_included']}")
         if "binding_basis" in e:
             lines.append(f"    binding_basis: \"{e['binding_basis']}\"")
         if "exclusion_reason" in e:
@@ -701,6 +713,17 @@ def main():
     p.add_argument("--xen-root", type=Path, default=Path("."),
                    help="Used only to locate callpath.py if --ci-dir "
                         "is supplied.")
+    p.add_argument("--target-arch", default="",
+                   help="Target architecture. Indirect call sites "
+                        "under a non-target xen/arch/<a>/ tree are "
+                        "excluded from candidate generation "
+                        "(exclusion_reason=out_of_scope_arch) and "
+                        "retained in the excluded audit. If omitted, "
+                        "the collector run's recorded target_arch is "
+                        "used. If neither is available, no "
+                        "architecture filtering is applied. Must "
+                        "match the collector's target_arch when both "
+                        "are set.")
     args = p.parse_args()
 
     # Resolve callgraph backend.
@@ -732,6 +755,43 @@ def main():
     runtime_reg = read_csv_rows(
         collector / "runtime-ops-registration-sites.csv"
     )
+
+    # Architecture-scope filter. Sources under a non-target arch tree
+    # are excluded from candidate generation so RISC-V/x86 rows do not
+    # pollute the (e.g.) arm64 reachability matrix. Excluded sites are
+    # retained in arch_excluded_sites for the audit, never dropped.
+    # The target arch comes from --target-arch, else the collector
+    # run's recorded target_arch, else (empty) no filtering. When both
+    # are present they must agree: the recorded arch_scope column was
+    # computed for the collector's target arch, so a differing
+    # workbench --target-arch would silently trust mislabelled rows.
+    summary_arch = str(summary.get("target_arch", "")).strip()
+    cli_arch = (args.target_arch or "").strip()
+    if cli_arch and summary_arch and cli_arch != summary_arch:
+        print(f"ERROR: --target-arch {cli_arch} differs from the "
+              f"collector run's target_arch {summary_arch}. The "
+              f"collector and workbench must operate over the same "
+              f"target architecture; re-run the collector with "
+              f"--target-arch {cli_arch} or drop the workbench "
+              f"override.", file=sys.stderr)
+        return 2
+    target_arch = cli_arch or summary_arch
+    arch_excluded_sites: list[dict] = []
+    if target_arch:
+        kept: list[dict] = []
+        for s in indirect_sites:
+            recorded = (s.get("arch_scope") or "").strip()
+            if recorded:
+                oos = (recorded == arch_scope.OUT_OF_SCOPE_ARCH)
+            else:
+                oos = (arch_scope.classify_arch_scope(
+                    s.get("source_file", ""), target_arch)[0]
+                    == arch_scope.OUT_OF_SCOPE_ARCH)
+            if oos:
+                arch_excluded_sites.append(s)
+            else:
+                kept.append(s)
+        indirect_sites = kept
 
     impls_by_field = build_implementations(ops_resolution)
     runtime_registration_worklist = build_runtime_registration_worklist(
@@ -943,8 +1003,10 @@ def main():
                         "reaches": [target],
                     }
                     if included:
+                        edge["candidate_included"] = "true"
                         candidate_edges.append(edge)
                     else:
+                        edge["candidate_included"] = "false"
                         edge["exclusion_reason"] = excl_reason
                         excluded_edges.append(edge)
                 elif path_found == "no" and len(no_path_examples) < 20:
@@ -1024,8 +1086,10 @@ def main():
                     "reaches": [],
                 }
                 if included:
+                    edge["candidate_included"] = "true"
                     candidate_edges.append(edge)
                 else:
+                    edge["candidate_included"] = "false"
                     edge["exclusion_reason"] = excl_reason
                     excluded_edges.append(edge)
 
@@ -1046,6 +1110,31 @@ def main():
             else:
                 idx[k] = dict(e, reaches=list(e["reaches"]))
         return list(idx.values())
+
+    # Record architecture-excluded sites in the excluded audit so the
+    # exclusion is visible alongside binding-based exclusions. These
+    # were filtered before candidate generation, so they carry no
+    # (impl, target) pairing -- one audit row per excluded site.
+    for s in arch_excluded_sites:
+        src = s.get("source_file", "")
+        line_no = s.get("line_or_context", "")
+        recv = s.get("receiver_expression", "")
+        field = s.get("field_name", "")
+        excluded_edges.append({
+            "call_site_function": s.get("call_site_function",
+                                        "(unresolved)") or "(unresolved)",
+            "source": f"{src}:{line_no}",
+            "dispatch": f"{recv}.{field}",
+            "implementation": "",
+            "basis": "site under non-target architecture tree",
+            "confidence": "n/a",
+            "candidate_binding": "out_of_scope_arch",
+            "candidate_included": "false",
+            "binding_basis": arch_scope.classify_arch_scope(
+                src, target_arch)[1] if target_arch else "",
+            "reaches": [],
+            "exclusion_reason": arch_scope.EXCLUSION_REASON,
+        })
 
     unique_edges = _dedup_edges(candidate_edges)
     unique_excluded_edges = _dedup_edges(excluded_edges)
@@ -1083,6 +1172,8 @@ def main():
         "candidate_rows_excluded": excluded_rows,
         "candidate_rows_field_name_only_excluded":
             sum(1 for r in rows if r["candidate_binding"] == "field_name_only"),
+        "indirect_call_sites_excluded_out_of_scope_arch":
+            len(arch_excluded_sites),
         "path_found_yes": sum(1 for r in rows if r["path_found"] == "yes"),
         "path_found_no": sum(1 for r in rows if r["path_found"] == "no"),
         "path_found_UNKNOWN":
