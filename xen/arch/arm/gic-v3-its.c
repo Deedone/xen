@@ -163,11 +163,9 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
     s_time_t deadline = NOW() + MILLISECS(1);
     uint64_t readp, writep;
     int ret = -EBUSY;
+    unsigned long flags;
 
-    /* No ITS commands from an interrupt handler (at the moment). */
-    ASSERT(!in_irq());
-
-    spin_lock(&hw_its->cmd_lock);
+    spin_lock_irqsave(&hw_its->cmd_lock, flags);
 
     do {
         readp = readq_relaxed(hw_its->its_base + GITS_CREADR) & BUFPTR_MASK;
@@ -183,15 +181,15 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
          * If the command queue is full, wait for a bit in the hope it drains
          * before giving up.
          */
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
         cpu_relax();
         udelay(1);
-        spin_lock(&hw_its->cmd_lock);
+        spin_lock_irqsave(&hw_its->cmd_lock, flags);
     } while ( NOW() <= deadline );
 
     if ( ret )
     {
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
         if ( printk_ratelimit() )
             printk(XENLOG_WARNING "host ITS: command queue full.\n");
         return ret;
@@ -207,7 +205,7 @@ int its_send_command(struct host_its *hw_its, const void *its_cmd)
     writep = (writep + ITS_CMD_SIZE) % ITS_CMD_QUEUE_SZ;
     writeq_relaxed(writep & BUFPTR_MASK, hw_its->its_base + GITS_CWRITER);
 
-    spin_unlock(&hw_its->cmd_lock);
+    spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
 
     return 0;
 }
