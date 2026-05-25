@@ -47,6 +47,15 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from collections import defaultdict
 
+# Shared architecture-scope classifier (single source of truth, also
+# used by the reachability workbench). Imported by path so the
+# collector runs from outside an installed package.
+import importlib.util as _ilu
+_arch_scope_spec = _ilu.spec_from_file_location(
+    "arch_scope", str(Path(__file__).resolve().parent / "arch_scope.py"))
+arch_scope = _ilu.module_from_spec(_arch_scope_spec)
+_arch_scope_spec.loader.exec_module(arch_scope)
+
 
 CONFIG_LINE_SET = re.compile(r"^CONFIG_(?P<name>\w+)=(?P<val>.+)$")
 CONFIG_LINE_UNSET = re.compile(r"^# CONFIG_(?P<name>\w+) is not set$")
@@ -141,6 +150,7 @@ class OpsTable:
     fields: dict[str, str]  # field_name -> implementation_function
     subsystem: str
     config_guards: list[str]
+    arch_scope: str = arch_scope.IN_SCOPE
 
 
 OPS_DEF_PATTERN = re.compile(
@@ -155,7 +165,8 @@ FIELD_ASSIGN_PATTERN = re.compile(
 )
 
 
-def discover_ops_tables(xen_root: Path, paths: list[str]) -> list[OpsTable]:
+def discover_ops_tables(xen_root: Path, paths: list[str],
+                        target_arch: str = "arm64") -> list[OpsTable]:
     """Scan source directories for ops-table definitions.
 
     A definition has the shape:
@@ -165,7 +176,10 @@ def discover_ops_tables(xen_root: Path, paths: list[str]) -> list[OpsTable]:
        };
 
     Annotations like __initconstrel are tolerated. Field assignments
-    are extracted on a best-effort basis.
+    are extracted on a best-effort basis. Each table is tagged with
+    its architecture scope against target_arch; tables under a
+    non-target arch tree are retained (never dropped) and marked
+    out_of_scope_arch.
     """
     tables: list[OpsTable] = []
     for rel in paths:
@@ -175,6 +189,9 @@ def discover_ops_tables(xen_root: Path, paths: list[str]) -> list[OpsTable]:
         for p in root.rglob("*.c"):
             text = p.read_text(errors="replace")
             lines = text.splitlines()
+            rel_p = str(p.relative_to(xen_root)).replace("\\", "/")
+            ascope = arch_scope.classify_arch_scope(
+                rel_p, target_arch)[0]
             for m in OPS_DEF_PATTERN.finditer(text):
                 ty = m.group("type")
                 name = m.group("name")
@@ -204,11 +221,12 @@ def discover_ops_tables(xen_root: Path, paths: list[str]) -> list[OpsTable]:
                     OpsTable(
                         table_type=f"struct {ty}",
                         table_instance=name,
-                        source_file=str(p.relative_to(xen_root)).replace("\\", "/"),
+                        source_file=rel_p,
                         line=line_num,
                         fields=fields,
                         subsystem=subsystem,
                         config_guards=guards,
+                        arch_scope=ascope,
                     )
                 )
     return tables
@@ -306,7 +324,14 @@ def resolve_scope(table: OpsTable, config: dict[str, str]) -> tuple[str, str]:
     """Decide an in/out-of-scope verdict for one ops table under the config.
 
     Returns (verdict, basis).
+
+    Architecture scope takes precedence: a table under a non-target
+    arch tree is out_of_scope_arch regardless of its config guards,
+    because it is not built for the target architecture at all.
     """
+    if table.arch_scope == arch_scope.OUT_OF_SCOPE_ARCH:
+        return ("out_of_scope_arch",
+                "source under a non-target architecture tree")
     # Direct file-local guards take precedence.
     for g in table.config_guards:
         v = config.get(g, None)
@@ -545,7 +570,8 @@ def _classify_candidate(candidate: str,
 def discover_runtime_registration(xen_root: Path,
                                   paths: list[str],
                                   tables: list["OpsTable"],
-                                  config: dict[str, str]) -> list[dict]:
+                                  config: dict[str, str],
+                                  target_arch: str = "arm64") -> list[dict]:
     """Discover runtime ops-registration sites under the given subdirs.
 
     The pass scans for four syntactic shapes:
@@ -630,18 +656,23 @@ def discover_runtime_registration(xen_root: Path,
                         "table_or_field_if_obvious": table_hint,
                         "config_guard_summary": config_guard_summary,
                         "classification": classification,
+                        "arch_scope": arch_scope.classify_arch_scope(
+                            rel_p, target_arch)[0],
                         "notes": notes,
                     })
     return sites
 
 
-def discover_call_sites(xen_root: Path, paths: list[str]) -> list[dict]:
+def discover_call_sites(xen_root: Path, paths: list[str],
+                        target_arch: str = "arm64") -> list[dict]:
     """Discover indirect-dispatch call sites under the given subdirs.
 
     Each emitted site carries a best-effort containing-function name.
     Sites whose enclosing function cannot be identified by the scanner
     are emitted with call_site_function="(unresolved)" rather than
-    being dropped.
+    being dropped. Each site is tagged with its architecture scope
+    against target_arch; non-target arch sites are retained and marked
+    out_of_scope_arch.
     """
     sites: list[dict] = []
     field_filter = {
@@ -661,6 +692,9 @@ def discover_call_sites(xen_root: Path, paths: list[str]) -> list[dict]:
         for p in root.rglob("*.c"):
             text = p.read_text(errors="replace")
             funcs = find_top_level_functions(text)
+            rel_p = str(p.relative_to(xen_root)).replace("\\", "/")
+            ascope = arch_scope.classify_arch_scope(
+                rel_p, target_arch)[0]
             for pattern in DISPATCH_PATTERNS:
                 for m in pattern.finditer(text):
                     field = m.group("field")
@@ -670,10 +704,11 @@ def discover_call_sites(xen_root: Path, paths: list[str]) -> list[dict]:
                     fname = containing_function(funcs, line_num) or "(unresolved)"
                     sites.append({
                         "call_site_function": fname,
-                        "source_file": str(p.relative_to(xen_root)).replace("\\", "/"),
+                        "source_file": rel_p,
                         "line_or_context": line_num,
                         "receiver_expression": m.group("obj").strip(),
                         "field_name": field,
+                        "arch_scope": ascope,
                     })
     return sites
 
@@ -707,7 +742,8 @@ def write_ops_inventory(out: Path, tables: list[OpsTable], config: dict[str, str
         w = csv.writer(fh)
         w.writerow([
             "table_type", "table_instance", "source_file", "line",
-            "subsystem", "config_guards", "config_scope", "basis", "fields_summary"
+            "subsystem", "config_guards", "config_scope", "arch_scope",
+            "basis", "fields_summary"
         ])
         for t in tables:
             verdict, basis = resolve_scope(t, config)
@@ -718,7 +754,7 @@ def write_ops_inventory(out: Path, tables: list[OpsTable], config: dict[str, str
                 t.table_type, t.table_instance, t.source_file, t.line,
                 t.subsystem,
                 "|".join(t.config_guards) if t.config_guards else "",
-                verdict, basis, fields_summary,
+                verdict, t.arch_scope, basis, fields_summary,
             ])
 
 
@@ -729,16 +765,19 @@ def write_ops_resolution(out: Path, tables: list[OpsTable], config: dict[str, st
         w = csv.writer(fh)
         w.writerow([
             "config_name", "table_type", "table_instance", "field_name",
-            "implementation_function", "config_scope", "basis", "source_file", "line"
+            "implementation_function", "config_scope", "arch_scope",
+            "basis", "source_file", "line"
         ])
         for t in tables:
             verdict, basis = resolve_scope(t, config)
-            if verdict == "out_of_scope_config":
+            # Out-of-scope rows (config or arch) are not emitted to the
+            # resolution matrix; the inventory retains them for audit.
+            if verdict in ("out_of_scope_config", "out_of_scope_arch"):
                 continue
             for field, impl in sorted(t.fields.items()):
                 w.writerow([
                     config_name, t.table_type, t.table_instance, field,
-                    impl, verdict, basis, t.source_file, t.line,
+                    impl, verdict, t.arch_scope, basis, t.source_file, t.line,
                 ])
 
 
@@ -746,7 +785,7 @@ RUNTIME_REGISTRATION_COLUMNS = [
     "source_file", "line", "containing_function",
     "pattern", "expression",
     "candidate_impl", "table_or_field_if_obvious", "config_guard_summary",
-    "classification", "notes",
+    "classification", "arch_scope", "notes",
 ]
 
 
@@ -809,25 +848,28 @@ def write_call_sites(out: Path, sites: list[dict]):
         w = csv.writer(fh)
         w.writerow([
             "source_file", "line_or_context", "receiver_expression",
-            "field_name", "call_site_function",
+            "field_name", "call_site_function", "arch_scope",
         ])
         for s in sites:
             w.writerow([
                 s["source_file"], s["line_or_context"],
                 s["receiver_expression"], s["field_name"],
-                s["call_site_function"],
+                s["call_site_function"], s.get("arch_scope",
+                                               arch_scope.IN_SCOPE),
             ])
 
 
 def write_summary(out: Path, config_name: str, config_path: Path,
                   tables: list[OpsTable], sites: list[dict],
-                  reg_sites: list[dict], config: dict[str, str]):
+                  reg_sites: list[dict], config: dict[str, str],
+                  target_arch: str = "arm64"):
     f = out / "collection-summary.json"
     total_field_assignments = sum(len(t.fields) for t in tables)
     tables_with_fields = sum(1 for t in tables if t.fields)
     ops_resolution_rows = sum(
         len(t.fields) for t in tables
-        if resolve_scope(t, config)[0] != "out_of_scope_config"
+        if resolve_scope(t, config)[0]
+        not in ("out_of_scope_config", "out_of_scope_arch")
     )
     sites_with_function = sum(
         1 for s in sites if s["call_site_function"] != "(unresolved)"
@@ -835,22 +877,35 @@ def write_summary(out: Path, config_name: str, config_path: Path,
     reg_with_function = sum(
         1 for s in reg_sites if s["containing_function"] != "(unresolved)"
     )
+    OOSA = arch_scope.OUT_OF_SCOPE_ARCH
+    ops_tables_out_of_scope_arch = sum(
+        1 for t in tables if t.arch_scope == OOSA)
+    call_sites_out_of_scope_arch = sum(
+        1 for s in sites if s.get("arch_scope") == OOSA)
+    reg_sites_out_of_scope_arch = sum(
+        1 for s in reg_sites if s.get("arch_scope") == OOSA)
     from collections import Counter
     reg_by_class = Counter(s["classification"] for s in reg_sites)
     summary = {
         "config_name": config_name,
         "config_path": str(config_path),
+        "target_arch": target_arch,
         "config_symbol_count": len(config),
         "ops_tables_discovered": len(tables),
         "ops_tables_with_fields": tables_with_fields,
         "total_field_assignments": total_field_assignments,
         "ops_resolution_rows": ops_resolution_rows,
+        "ops_tables_out_of_scope_arch": ops_tables_out_of_scope_arch,
         "indirect_call_sites": len(sites),
         "indirect_call_sites_with_function": sites_with_function,
         "indirect_call_sites_without_function": len(sites) - sites_with_function,
+        "indirect_call_sites_out_of_scope_arch":
+            call_sites_out_of_scope_arch,
         "runtime_registration_sites": len(reg_sites),
         "runtime_registration_sites_found": len(reg_sites),
         "runtime_registration_sites_with_function": reg_with_function,
+        "runtime_registration_out_of_scope_arch":
+            reg_sites_out_of_scope_arch,
         "runtime_registration_static_impl_obvious":
             reg_by_class.get("static_impl_obvious", 0),
         "runtime_registration_static_impl_config_guarded":
@@ -899,6 +954,12 @@ def main():
                    help="Output directory for the generated artifacts")
     p.add_argument("--scan-paths", default="xen/arch,xen/common,xen/drivers",
                    help="Comma-separated tree-relative paths to scan")
+    p.add_argument("--target-arch", default="arm64",
+                   help="Target architecture for the analysis run. "
+                        "Sources under a non-target xen/arch/<a>/ tree "
+                        "are tagged out_of_scope_arch (retained for "
+                        "audit, excluded from the resolution and "
+                        "candidate matrices). Default: arm64.")
     args = p.parse_args()
 
     # Resolve the default config relative to --xen-root, not the current
@@ -915,10 +976,11 @@ def main():
     config_name = args.config_name or config_path.name
 
     paths = args.scan_paths.split(",")
-    tables = discover_ops_tables(args.xen_root, paths)
-    sites = discover_call_sites(args.xen_root, paths)
+    tables = discover_ops_tables(args.xen_root, paths, args.target_arch)
+    sites = discover_call_sites(args.xen_root, paths, args.target_arch)
     reg_sites = discover_runtime_registration(args.xen_root, paths,
-                                              tables, config)
+                                              tables, config,
+                                              args.target_arch)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     write_config_scope(args.out_dir, config_path, config, extras)
@@ -928,7 +990,8 @@ def main():
     write_runtime_registration(args.out_dir, reg_sites)
     write_runtime_registration_summary(args.out_dir, reg_sites, config_name)
     summary = write_summary(args.out_dir, config_name, config_path,
-                            tables, sites, reg_sites, config)
+                            tables, sites, reg_sites, config,
+                            args.target_arch)
 
     print(f"OK: wrote artifacts to {args.out_dir}", file=sys.stderr)
     print(f"  config symbols           : {summary['config_symbol_count']}",
