@@ -8,14 +8,26 @@
     BASE_XEN_CONFIG: |
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG_INFO=y
-    UBSAN_CONFIG: ""
-    COVERAGE_CONFIG: ""
+    CUSTOM_XEN_CONFIG: ""
   before_script:
-  - |
-    export EXTRA_XEN_CONFIG="${BASE_XEN_CONFIG}
-    ${UBSAN_CONFIG}
-    ${COVERAGE_CONFIG}
-    ${EXTRA_XEN_CONFIG}"
+    - |
+      UBSAN_CONFIG=""
+      COVERAGE_CONFIG=""
+
+      if [ "$RUN_UBSAN" == "true" ]; then
+        UBSAN_CONFIG=$'CONFIG_UBSAN=y\nCONFIG_UBSAN_FATAL=y'
+      fi
+
+      if [ "$RUN_COVERAGE" == "true" ]; then
+        COVERAGE_CONFIG="CONFIG_NO_OPTIMIZE=y"
+      fi
+
+      EXTRA_XEN_CONFIG="${BASE_XEN_CONFIG}"$'\n'
+      EXTRA_XEN_CONFIG+="${UBSAN_CONFIG}"$'\n'
+      EXTRA_XEN_CONFIG+="${COVERAGE_CONFIG}"$'\n'
+      EXTRA_XEN_CONFIG+="${CUSTOM_XEN_CONFIG}"
+
+      export EXTRA_XEN_CONFIG
   script:
     - mkdir -p binaries
     - ./automation/renesas-scripts/build 2>&1 | tee build.log
@@ -98,7 +110,7 @@ xen-atfe-arm64:
 xen-atfe-arm64-earlyprintk:
   extends: .atfe-arm64-build
   variables:
-    EXTRA_XEN_CONFIG: |
+    CUSTOM_XEN_CONFIG: |
       CONFIG_EARLY_UART_CHOICE_PL011=y
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
   rules:
