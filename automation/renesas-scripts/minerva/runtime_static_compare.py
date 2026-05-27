@@ -62,6 +62,35 @@ from pathlib import Path
 
 DEFAULT_TARGETS = ["alloc_domheap_pages", "alloc_xenheap_pages", "_xmalloc"]
 
+# Allocator-layer aliases: runtime label observed -> canonical static
+# target the analysis trees are framed around.
+#
+# The CONFIG_MINERVA_ANALYSIS instrumentation in the Xen allocator
+# emits a debug line whose label is taken from the inner helper being
+# invoked, while the static target trees are keyed on the enclosing
+# allocation entry point. In particular the WARN inside _xmalloc()
+# (xen/common/xmalloc_tlsf.c) prints "xmem_pool_alloc - size ..."
+# because that is the helper _xmalloc is about to call, so the runtime
+# head frame is "xmem_pool_alloc" while the static target is
+# "_xmalloc". They are the same allocation site, named at different
+# layers.
+#
+# This map is intentionally explicit and small: it is NOT fuzzy
+# matching. Each entry corresponds to a known instrumentation label
+# whose enclosing function differs from the printed name. Frames or
+# targets not listed here are left unchanged. When the analysis adds a
+# new instrumented allocator whose label differs from its target,
+# add the pair here with a source reference.
+ALLOCATOR_ALIASES = {
+    # runtime label        : canonical static target
+    "xmem_pool_alloc": "_xmalloc",   # WARN inside _xmalloc(), tlsf.c
+}
+
+
+def _canonical_alloc(fn: str) -> str:
+    """Map an allocator-layer label to its canonical static target."""
+    return ALLOCATOR_ALIASES.get(fn, fn)
+
 
 def _coerce_path_record(obj: dict) -> dict | None:
     """Normalize one parsed runtime allocation record."""
@@ -74,8 +103,11 @@ def _coerce_path_record(obj: dict) -> dict | None:
         frames = [f.strip() for f in frames.split(sep) if f.strip()]
     if not isinstance(frames, list):
         return None
-    frames = [str(f).strip() for f in frames if str(f).strip()]
+    frames = [_canonical_alloc(str(f).strip())
+              for f in frames if str(f).strip()]
     target = obj.get("target") or obj.get("allocation_target")
+    if target:
+        target = _canonical_alloc(str(target).strip())
     if not target and frames:
         # Innermost frame that looks like an allocation entry point.
         for f in reversed(frames):
@@ -184,14 +216,16 @@ _REPORT_PATH_FRAME_RE = re.compile(
 
 
 def _frame_func(token: str) -> str:
-    """Normalize a frame token to a bare function name.
+    """Normalize a frame token to a bare, canonical function name.
 
-    `strtoull.c#_xmalloc` -> `_xmalloc`; `foo` -> `foo`.
+    Strips a `file.c#` qualifier (`strtoull.c#_xmalloc` -> `_xmalloc`)
+    and maps an allocator-layer label to its canonical static target
+    (`xmem_pool_alloc` -> `_xmalloc`; see ALLOCATOR_ALIASES).
     """
     t = token.strip()
     if "#" in t:
         t = t.split("#", 1)[1]
-    return t
+    return _canonical_alloc(t)
 
 
 def _iter_report_files(parsed_dir: Path):
@@ -217,12 +251,19 @@ def _iter_report_files(parsed_dir: Path):
 
 
 def _resolve_target(header_fn: str, frames: list[str], known: set) -> str:
-    """Pick a record's allocation target from its header or frames."""
-    if header_fn in known:
-        return header_fn
+    """Pick a record's allocation target from its header or frames.
+
+    Header and frames are canonicalized through the allocator-alias
+    map first, so an allocator-layer label (e.g. xmem_pool_alloc)
+    resolves to its static target (_xmalloc).
+    """
+    h = _canonical_alloc(header_fn)
+    if h in known:
+        return h
     for f in frames:
-        if f in known:
-            return f
+        cf = _canonical_alloc(f)
+        if cf in known:
+            return cf
     return ""
 
 
@@ -452,6 +493,19 @@ def classify_runtime_path(rec: dict, direct_static: dict[str, set],
     # must rely on a non-target frame being in the reaching set.
     non_target_frames = {f for f in frames if f != target}
 
+    # 0. Target observed with no caller context. After allocator-alias
+    #    canonicalization a trace can collapse to just the target
+    #    itself (e.g. the _xmalloc WARN logs only "xmem_pool_alloc",
+    #    which aliases to _xmalloc, with no caller frame). The target
+    #    was genuinely observed at runtime, but there is no caller frame
+    #    to tie to a direct-static or indirect path, so neither an
+    #    explanation nor an unexplained verdict is warranted. Reported
+    #    distinctly, and counted as observing the target.
+    if target and not non_target_frames:
+        return ("target_observed_no_caller_context", "target_only",
+                f"target {target} observed at runtime with no caller "
+                f"frame (allocator entry point only)", set())
+
     # 1. Direct-static explanation: a non-target frame of the path is
     #    in the direct-static reaching set of the path's target.
     ds_target = target if target in direct_static else None
@@ -532,6 +586,7 @@ def classify_runtime_path(rec: dict, direct_static: dict[str, set],
 RUNTIME_CLASSES = [
     "direct_static_explained",
     "indirect_candidate_explained",
+    "target_observed_no_caller_context",
     "runtime_only_unexplained",
     "boundary_or_parser_artifact",
     "unresolved_normalization_mismatch",
@@ -659,6 +714,8 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
             counts["direct_static_explained"],
         "runtime_paths_indirect_explained":
             counts["indirect_candidate_explained"],
+        "runtime_paths_target_observed_no_caller_context":
+            counts["target_observed_no_caller_context"],
         "runtime_paths_unexplained":
             counts["runtime_only_unexplained"],
         "runtime_paths_boundary_or_parser_artifact":
