@@ -106,3 +106,140 @@ minerva-indirect-reachability:
     when: always
     paths:
       - indirect-reachability/
+
+# --- Separated producer/consumer cycle (Series 10) -------------------
+#
+# The corpus assurance workflow consumes SEPARATED static-analysis and
+# runtime artifacts. These three jobs express that cycle:
+#
+#   minerva-static-analysis        once per config/backend/build ->
+#                                  static-analysis/
+#   minerva-runtime-qemu-arm64     a runtime test               ->
+#                                  runtime-artifacts/<test>/
+#   minerva-allocation-assurance-corpus  joins both              ->
+#                                  corpus-analysis/
+#
+# The producers reuse the existing driver and repackage its output
+# into the contract trees via package_artifacts.sh, so no previous
+# job's behaviour changes. The static job does no runtime; the runtime
+# job does no static callgraph build (it pulls the static tree from the
+# static job for the comparator inputs and runs only the workload +
+# parse). The corpus job rebuilds nothing.
+
+# Static-analysis producer: run once per config/backend/build. Runs the
+# static stages only (--no-runtime via empty MINERVA_RUNTIME_COMMAND)
+# and emits static-analysis/.
+minerva-static-analysis:
+  stage: build
+  image: xentroops/xen_rel
+  allow_failure: true
+  when: manual
+  tags:
+    - arm64
+  variables:
+    MINERVA_CALLGRAPH_BACKEND: "llvm-ir"
+    MINERVA_GENERATE_LLVM_IR: "true"
+    LLVM_CC: "clang"
+    MINERVA_RUNTIME_COMMAND: ""        # static only; no runtime here
+    MINERVA_INDIRECT_OUT: "indirect-reachability"
+  script:
+    - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
+    - bash automation/renesas-scripts/minerva/package_artifacts.sh
+        static indirect-reachability static-analysis
+  artifacts:
+    when: always
+    paths:
+      - static-analysis/
+
+# Runtime producer: one per runtime test, FULLY INDEPENDENT of the
+# static-analysis job. It runs the workload, collects logs, parses them
+# into allocation observations, and emits runtime-artifacts/<test>/. It
+# performs NO static callgraph build and NO runtime/static comparison:
+# the static/runtime matching and comparison are done later by the
+# corpus job. The job supplies its own identity (git_sha / arch /
+# config) so the corpus join can match it to a static artifact without
+# this job ever depending on the static job.
+minerva-runtime-qemu-arm64:
+  stage: test
+  image: xentroops/xen_rel
+  allow_failure: true
+  when: manual
+  tags:
+    - arm64
+  variables:
+    MINERVA_TEST_NAME: "qemu-smoke-arm64"
+    MINERVA_TARGET_ARCH: "arm64"
+    # The workload command that boots Xen and exercises it; its console
+    # log is collected under MINERVA_RUNTIME_LOG_DIR. Empty by default
+    # (template); set to the qemu smoke invocation for this target.
+    MINERVA_RUNTIME_COMMAND: ""
+    MINERVA_RUNTIME_LOG_DIR: "runtime-logs"
+    # Identity for the corpus join key. git_sha defaults to the CI
+    # commit; config_sha256 is derived from the booted .config so it
+    # matches the static job's value for the same config.
+    MINERVA_GIT_SHA: "$CI_COMMIT_SHA"
+    MINERVA_CONFIG_NAME: "arm64_defconfig+debug-info"
+    MINERVA_CONFIG_FILE: ".config"
+  script:
+    - mkdir -p "$MINERVA_RUNTIME_LOG_DIR"
+    # Run the runtime workload, teeing its console output into a log the
+    # parser can read. With no command set this is a no-op (the job
+    # produces an empty runtime artifact until a workload is wired in).
+    - |
+      if [ -n "$MINERVA_RUNTIME_COMMAND" ]; then
+        sh -c "$MINERVA_RUNTIME_COMMAND" \
+          | tee "$MINERVA_RUNTIME_LOG_DIR/$MINERVA_TEST_NAME.log"
+      fi
+    # Package the logs into runtime-artifacts/<test>/, parsing them
+    # standalone. No static input, no comparison.
+    - bash automation/renesas-scripts/minerva/package_artifacts.sh
+        runtime . runtime-artifacts "$MINERVA_TEST_NAME"
+  artifacts:
+    when: always
+    paths:
+      - runtime-artifacts/
+
+# Corpus-level dynamic-allocation assurance aggregation (Series 10).
+# Consumes the SEPARATED static-analysis and runtime artifacts produced
+# by the jobs above (via needs:), joins them by manifest identity, runs
+# or reuses runtime/static comparison for matched pairs, performs
+# scenario analysis, ingests optional structural coverage evidence, and
+# emits one bounded assurance verdict. It rebuilds no static callgraphs
+# and re-runs no per-test static analysis. It also supports manifest
+# mode (--manifest artifact-index.json).
+minerva-allocation-assurance-corpus:
+  stage: analyze
+  image: xentroops/xen_rel
+  allow_failure: true
+  when: manual
+  needs:
+    - job: minerva-static-analysis
+      artifacts: true
+    - job: minerva-runtime-qemu-arm64
+      artifacts: true
+  tags:
+    - arm64
+  variables:
+    # When true, the job exits non-zero if the bounded assurance claim
+    # is NOT_SUPPORTED. Off by default so the report is produced for
+    # inspection without failing the pipeline.
+    MINERVA_ASSURANCE_FAIL_ON_NOT_SUPPORTED: "false"
+  script:
+    - |
+      args=(
+        --static-root static-analysis/
+        --runtime-root runtime-artifacts/
+        --policy docs/minerva-analysis/assurance-policy.example.yaml
+        --out-dir corpus-analysis/
+      )
+      if [ -d coverage-artifacts ]; then
+        args+=( --coverage-root coverage-artifacts/ )
+      fi
+      if [ "${MINERVA_ASSURANCE_FAIL_ON_NOT_SUPPORTED}" = "true" ]; then
+        args+=( --fail-on-not-supported )
+      fi
+      python3 automation/renesas-scripts/minerva/analyze_reachability_corpus.py "${args[@]}"
+  artifacts:
+    when: always
+    paths:
+      - corpus-analysis/
