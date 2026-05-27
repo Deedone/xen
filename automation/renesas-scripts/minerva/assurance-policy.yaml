@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: GPL-2.0
+# Corpus dynamic-allocation assurance policy (Series 10).
+#
+# This policy controls how matched runtime/static comparisons,
+# allocation scenarios, and structural coverage evidence combine into
+# exactly one bounded verdict: SUPPORTED or NOT_SUPPORTED.
+#
+# The verdict is a bounded assurance claim over the analysed corpus
+# and the supplied coverage evidence. It is NOT an absolute claim
+# about all possible Xen executions. The policy never asserts that Xen
+# has no dynamic allocations, that runtime coverage is exhaustive, or
+# that static reachability proves execution.
+
+version: 1
+
+# Backend disambiguation when several static artifacts share a join
+# key. "any" takes the single match or fails if ambiguous.
+preferred_callgraph_backend: llvm-ir   # llvm-ir | gcc-ci | normalized | any
+
+# Scenario acceptance uses a cause/effect safety model, not a global
+# aggressiveness dial: a scenario is accepted automatically when its
+# cause has a quantifiable upper boundary (bounded by boot, per-domain
+# limit, per-device/hardware table, ...) OR its effect is bracketed
+# (the allocation is immediately, sequentially freed with no
+# allocation permitted in between, so it cannot accumulate). It is
+# rejected only when the cause is unbounded AND the effect is not
+# bracketed; otherwise it is needs_manual_review. Acceptance requires
+# positive evidence on at least one axis, never the absence of
+# disproof. This key is retained for compatibility and does not change
+# the decision.
+auto_accept_confidence: medium
+
+# Whether a runtime artifact with no matching static artifact is a
+# blocker. When true, an unmatched required runtime artifact forces
+# NOT_SUPPORTED.
+runtime_required: true
+
+# PROXY (comparing across a differing join key) is never the default.
+allow_proxy: false
+
+# Structural coverage evidence policy. Coverage supports workload
+# adequacy; it never replaces scenario analysis.
+coverage:
+  required: false           # when true, missing evidence is a blocker
+  line_threshold: 100.0
+  branch_threshold: 100.0
+  mcdc_threshold: 100.0
+  # When required and a config group's coverage is below threshold
+  # with no accepted exclusion, that is a blocker.
+
+# Scenario verdict gate.
+#
+# The bounded claim is SUPPORTED only if every runtime-observed
+# allocation scenario is classified without unresolved ambiguity:
+# every scenario must be either an accepted_* safety class, or carry
+# an accepted exception in the annotations. A scenario that is
+# rejected_*, needs_manual_review (without accepted exception), or
+# whose observations are unexplained / mismatched / parser-artifact
+# blocks the verdict.
+scenario_gate:
+  # Safety classes that are acceptable without an explicit exception.
+  accepted_classes:
+    - accepted_boot_time
+    - accepted_dom0_or_hwdom_controlled
+    - accepted_domain_creation_bounded
+    - accepted_hardware_firmware_controlled
+    - accepted_runtime_bounded
+  # Any scenario in these classes blocks SUPPORTED unless an accepted
+  # exception in --annotations covers its scenario_id.
+  blocking_classes:
+    - needs_manual_review
+    - rejected_unbounded_guest_controlled
+    - rejected_unexplained_static_gap
+    - rejected_normalization_gap
+    - rejected_config_mismatch
+    - rejected_parser_artifact
+
+# Comparison-level blockers independent of scenario classification.
+comparison_gate:
+  block_on_comparison_blocked: true   # unmatched required runtime
+  block_on_config_mismatch: true
