@@ -573,7 +573,8 @@ def stage_runtime(xen_root: Path, out_dir: Path,
     try:
         _run([sys.executable,
               str(xen_root / "automation/renesas-scripts/minerva" / "log_parser.py"),
-              str(log_dir)],
+              str(log_dir),
+              "--parsed-output-dir", str(parsed)],
              timeout=900)
     except subprocess.CalledProcessError as e:
         (rt / "runtime-summary.md").write_text(
@@ -1111,12 +1112,30 @@ def main():
                      or os.environ.get("MINERVA_CI_ALLOW_RUNTIME_FAILURE",
                                        "").lower() in ("1", "true", "yes"))
 
+    # A trivial runtime command (true / : / /bin/true and the like) is
+    # a placeholder, not a real workload. It "succeeds" and may even
+    # produce an aligned manifest, but it exercises nothing, so the run
+    # must not be labelled COMPLETE on its basis. Treat it as runtime
+    # not attempted.
+    def _is_trivial_command(cmd: str) -> bool:
+        c = (cmd or "").strip()
+        return c in ("", "true", ":", "/bin/true", "/usr/bin/true")
+
     if status_label == "PARTIAL":
         pass  # static stages already failed; leave PARTIAL.
     elif args.no_runtime or not runtime_requested:
         runtime_reason = ("--no-runtime supplied" if args.no_runtime
                           else "no runtime command or log dir supplied")
         status_label = "STATIC_ONLY"
+        stage_runtime_static_placeholder(out_dir, status_label)
+    elif (args.runtime_command and not args.runtime_log_dir
+          and _is_trivial_command(args.runtime_command)):
+        # Trivial command and no external logs to fall back on: nothing
+        # was meaningfully run.
+        runtime_reason = (f"runtime command {args.runtime_command!r} is "
+                          f"a no-op; runtime not attempted")
+        status_label = "STATIC_ONLY"
+        notes.append(runtime_reason + "; STATIC_ONLY.")
         stage_runtime_static_placeholder(out_dir, status_label)
     else:
         # 1. Optional runtime command (produces logs).
@@ -1150,6 +1169,8 @@ def main():
                 xen_root, out_dir, config_path, args.config_name,
                 git_sha)
             runtime_static_compare_ok = ok
+            paths_total = int(compare_metrics.get(
+                "runtime_paths_total", 0) or 0)
             if not ok:
                 runtime_reason = cmp_reason
                 status_label = "PARTIAL"
@@ -1165,6 +1186,20 @@ def main():
                                  f"({align_reason}); PARTIAL. Pass "
                                  f"--allow-proxy to accept unaligned "
                                  f"logs as PROXY.")
+            elif paths_total == 0:
+                # Runtime ran and the comparison succeeded, but no
+                # allocation paths were observed, so there was nothing
+                # to compare against the static set. That is not a
+                # COMPLETE runtime/static comparison.
+                runtime_reason = ("runtime produced no parseable "
+                                  "allocation paths")
+                status_label = "STATIC_ONLY"
+                notes.append("Runtime/static comparison ran but "
+                             "observed 0 runtime allocation paths; "
+                             "STATIC_ONLY (nothing to compare). Check "
+                             "that the workload exercises allocations "
+                             "and that the parser output is under "
+                             "runtime/parsed/.")
             else:
                 status_label = "COMPLETE"
         else:

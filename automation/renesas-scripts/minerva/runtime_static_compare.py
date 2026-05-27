@@ -129,7 +129,13 @@ def load_runtime_paths(parsed_dir: Path,
                     paths.append(rec)
         return paths
 
-    for jf in sorted(parsed_dir.glob("*.json")):
+    # Recurse for structured per-path JSON. Skip manifest files and
+    # anything that is not valid JSON (a text report mislabelled .json
+    # raises and is ignored, never treated as a record).
+    for jf in sorted(parsed_dir.rglob("*.json")):
+        if jf.name in ("runtime-manifest.json", "runtime-summary.json",
+                       "runtime-static-comparison.json"):
+            continue
         try:
             data = json.loads(jf.read_text())
         except (ValueError, OSError):
@@ -143,82 +149,185 @@ def load_runtime_paths(parsed_dir: Path,
     if paths:
         return paths
 
-    # Fallback: the runtime log parser's text output. The parser emits
-    # a `comments` report (and per-domain text reports) where each
-    # allocation record is a header line naming the allocating
-    # function followed by an indented call-path. We read those rather
-    # than require a structured export, so the comparator consumes the
-    # real parser artifact. A structured allocation-paths.json (when
-    # the parser or driver provides one) is always preferred above.
+    # Fallback: the runtime log parser's text output, read recursively
+    # (the parser shards reports by arch under parsed/<arch>/). We read
+    # the real parser artifact rather than require a structured export;
+    # a structured allocation-paths.json, when present, is preferred
+    # above.
     paths.extend(_load_parser_text_reports(parsed_dir, known_targets))
     return paths
 
 
-# Parser text-report shapes. A record header names the allocating
-# function and optionally a domain; following indented lines are the
-# call-path frames (outermost first), each an identifier optionally
-# followed by `@ file:line`.
+# Parser text-report shapes. Two shapes are recognized:
+#
+# 1. A flat `comments`-style record: a header line at column 0 naming
+#    the allocating function (`fn()` optionally with a domain), then
+#    indented call-path frames.
+#
+# 2. The per-arch parser report (e.g. parsed/<arch>/<job>.log), where
+#    each non-freed-allocation record is introduced by a
+#    `[dN] <fn>:` line and the call path appears under a
+#    `max size path:` sub-block as indented frames.
+#
+# Frames may be `file.c#func`; only the function part is kept so a
+# frame like `strtoull.c#_xmalloc` matches the known target `_xmalloc`.
 _TEXT_HEADER_RE = re.compile(
     r"^(?P<fn>[A-Za-z_][A-Za-z0-9_]*)\(\)"
     r"(?:.*\bdom(?:ain)?[ =:]+(?P<dom>\S+))?")
 _TEXT_FRAME_RE = re.compile(
-    r"^\s+(?P<fn>[A-Za-z_][A-Za-z0-9_]*)\b")
+    r"^\s+(?P<fn>[A-Za-z_][A-Za-z0-9_.#]*)\b")
+_REPORT_REC_RE = re.compile(
+    r"^\s*\[(?P<dom>[^\]]+)\]\s+(?P<fn>[A-Za-z_][A-Za-z0-9_]*)\s*:")
+_REPORT_PATH_HDR_RE = re.compile(r"^\s*max size path:\s*$")
+_REPORT_PATH_FRAME_RE = re.compile(
+    r"^\s+(?P<fn>[A-Za-z_][A-Za-z0-9_.#]*)\s*(?:\(|\[|$)")
+
+
+def _frame_func(token: str) -> str:
+    """Normalize a frame token to a bare function name.
+
+    `strtoull.c#_xmalloc` -> `_xmalloc`; `foo` -> `foo`.
+    """
+    t = token.strip()
+    if "#" in t:
+        t = t.split("#", 1)[1]
+    return t
+
+
+def _iter_report_files(parsed_dir: Path):
+    """Yield candidate parser text files anywhere under parsed_dir.
+
+    Recurses, because the parser shards reports by arch
+    (parsed/<arch>/<job>.log) and may nest a verbose/ variant. Skips
+    .json files (handled elsewhere) so a mislabelled or text-bearing
+    .json is never parsed as a report here.
+    """
+    seen: set = set()
+    for name in ("comments", "comments.txt"):
+        p = parsed_dir / name
+        if p.exists():
+            seen.add(p.resolve())
+            yield p
+    for pat in ("*.txt", "*.report", "*.log"):
+        for p in sorted(parsed_dir.rglob(pat)):
+            rp = p.resolve()
+            if rp not in seen:
+                seen.add(rp)
+                yield p
+
+
+def _resolve_target(header_fn: str, frames: list[str], known: set) -> str:
+    """Pick a record's allocation target from its header or frames."""
+    if header_fn in known:
+        return header_fn
+    for f in frames:
+        if f in known:
+            return f
+    return ""
+
+
+def _parse_report_text(text: str, known: set) -> list[dict]:
+    out: list[dict] = []
+
+    def flush(header_fn, dom, frames):
+        if not frames:
+            return
+        norm = [_frame_func(f) for f in frames]
+        # Collapse consecutive duplicate frames (the parser may print
+        # the head frame twice at increasing indent).
+        collapsed: list[str] = []
+        for f in norm:
+            if not collapsed or collapsed[-1] != f:
+                collapsed.append(f)
+        norm = collapsed
+        target = _resolve_target(_frame_func(header_fn), norm, known)
+        if not target:
+            return  # resolves to no known allocation target -> skip
+        if norm[-1] != target:
+            norm = norm + [target]
+        out.append({"frames": norm, "target": target,
+                    "domain": dom or "", "raw": header_fn})
+
+    lines = text.splitlines()
+    i, n = 0, len(lines)
+    while i < n:
+        raw = lines[i]
+        rec = _REPORT_REC_RE.match(raw)
+        flat = _TEXT_HEADER_RE.match(raw)
+        if rec:
+            header_fn = rec.group("fn")
+            dom = rec.group("dom")
+            frames: list[str] = []
+            j = i + 1
+            in_path = False
+            while j < n:
+                lj = lines[j]
+                if _REPORT_REC_RE.match(lj):
+                    break
+                if _REPORT_PATH_HDR_RE.match(lj):
+                    if frames:
+                        # Already collected the first path block; a
+                        # second "max size path:" belongs to a trailing
+                        # summary block for the same record -- stop so
+                        # its frames are not appended twice.
+                        break
+                    in_path = True
+                    j += 1
+                    continue
+                if in_path:
+                    mf = _REPORT_PATH_FRAME_RE.match(lj)
+                    if mf:
+                        frames.append(mf.group("fn"))
+                    elif lj.strip():
+                        # Any non-frame, non-blank line ends the path
+                        # block (e.g. "[d0] total non-freed ...").
+                        in_path = False
+                j += 1
+            flush(header_fn, dom, frames)
+            i = j
+            continue
+        if flat and not raw[:1].isspace():
+            header_fn = flat.group("fn")
+            dom = flat.group("dom") or ""
+            frames = []
+            j = i + 1
+            while j < n:
+                lj = lines[j]
+                if (_TEXT_HEADER_RE.match(lj) and not lj[:1].isspace()) \
+                        or _REPORT_REC_RE.match(lj):
+                    break
+                mf = _TEXT_FRAME_RE.match(lj)
+                if mf:
+                    frames.append(mf.group("fn"))
+                j += 1
+            flush(header_fn, dom, frames)
+            i = j
+            continue
+        i += 1
+    return out
 
 
 def _load_parser_text_reports(parsed_dir: Path,
                               known_targets: set | None = None
                               ) -> list[dict]:
-    """Read the parser's text `comments`/report output into records.
+    """Read the parser's text reports (recursively) into records.
 
-    Only records whose header (allocating) function is a known
-    allocation target are emitted. A header that is not an allocation
-    target -- a free-path entry like `free_domheap_pages()`, a comment,
-    or a diagnostic section -- is skipped, so non-allocation report
-    sections do not become phantom runtime paths with unknown targets.
+    Only records that resolve to a known allocation target are
+    emitted -- either the header function is a known target, or one of
+    the path frames is (covering the parser report shape where the
+    header is e.g. `xmem_pool_alloc` but the path reaches `_xmalloc`).
+    A free-path entry, comment, or diagnostic section that resolves to
+    no known target is skipped, so non-allocation sections do not
+    become phantom runtime paths.
     """
     known = set(known_targets) if known_targets else set(DEFAULT_TARGETS)
     out: list[dict] = []
-    candidates: list[Path] = []
-    for name in ("comments", "comments.txt"):
-        p = parsed_dir / name
-        if p.exists():
-            candidates.append(p)
-    candidates += sorted(parsed_dir.glob("*.txt"))
-    candidates += sorted(parsed_dir.glob("*.report"))
-    for rep in candidates:
+    for rep in _iter_report_files(parsed_dir):
         try:
             text = rep.read_text(errors="replace")
         except OSError:
             continue
-        cur: dict | None = None
-        for raw in text.splitlines():
-            if not raw.strip():
-                continue
-            mh = _TEXT_HEADER_RE.match(raw)
-            mf = _TEXT_FRAME_RE.match(raw)
-            # A header line starts at column 0; frame lines are
-            # indented. Prefer the header interpretation at column 0.
-            if mh and not raw[:1].isspace():
-                if cur and cur["frames"]:
-                    out.append(cur)
-                fn = mh.group("fn")
-                if fn not in known:
-                    # Not an allocation target -- skip this record and
-                    # its frames entirely.
-                    cur = None
-                    continue
-                dom = mh.group("dom") or ""
-                cur = {"frames": [], "target": fn, "domain": dom,
-                       "raw": raw, "_head": fn}
-            elif mf and cur is not None:
-                cur["frames"].append(mf.group("fn"))
-        if cur and cur["frames"]:
-            out.append(cur)
-    # Ensure the allocating function is the last (innermost) frame.
-    for rec in out:
-        head = rec.pop("_head", "")
-        if head and (not rec["frames"] or rec["frames"][-1] != head):
-            rec["frames"].append(head)
+        out.extend(_parse_report_text(text, known))
     return out
 
 

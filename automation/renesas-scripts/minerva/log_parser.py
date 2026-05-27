@@ -383,15 +383,20 @@ def parse_pipeline(log_paths: list[Path], comments: dict[CallPath, str], output_
             print("-" * 60)
 
 def run(pipeline_id: str, project_id: str, force_download: bool, verbose: bool, exclude: list[str],
-        comments_path: Path | None = None, legacy_null_is_d0: bool = False):
+        comments_path: Path | None = None, legacy_null_is_d0: bool = False,
+        parsed_output_dir: Path | None = None):
     pipeline_dir = Path(pipeline_id)
     if not pipeline_dir.exists() or force_download:
         download_job_logs(project_id, pipeline_id)
     else:
         print("Pipeline dir already exists. Use --force-download to force the download of the logs")
     log_paths = [file for file in pipeline_dir.glob("*") if file.is_file()]
-    parsed_dir = pipeline_dir/ "parsed"
-    parsed_dir.mkdir(exist_ok=True)
+    # The parsed output directory defaults to <pipeline_id>/parsed, but
+    # a caller (e.g. the indirect-reachability CI driver) may direct it
+    # elsewhere so the parsed reports land where the consumer reads
+    # them.
+    parsed_dir = Path(parsed_output_dir) if parsed_output_dir else pipeline_dir / "parsed"
+    parsed_dir.mkdir(parents=True, exist_ok=True)
     if not comments_path:
         comments_path = parsed_dir / "comments"
     comments = update_comments(log_paths, comments_path, exclude,
@@ -410,6 +415,11 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--exclude", nargs="+", metavar="FUNCTION", default=[],
                         help="Set of functions to be excluded from parsing")
     parser.add_argument("--comments-path", type=Path)
+    parser.add_argument("--parsed-output-dir", type=Path,
+                        help="Directory to write parsed reports into. "
+                             "Defaults to <pipeline_id>/parsed. Lets a "
+                             "caller direct output to a consumer's "
+                             "expected location.")
     parser.add_argument("--legacy-null-is-d0", action="store_true",
                         help="Map a NULL domain label to d0 in parsed output. Required "
                              "only for analysis of pre-92b4198cea logs where the kernel "
