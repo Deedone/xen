@@ -54,77 +54,25 @@ include:
     rules:
       - if: '$RUN_FUZZER == "true"'
 
-# Indirect-call reachability per-run artifact pipeline.
-#
-# Target Xen configuration is taken from CI environment variables; the
-# defaults below are smoke-validation only and must not be treated as
-# the only supported config. Each pipeline run generates a fresh
-# expanded .config and fresh callgraph artifacts inside its own job
-# workspace. Numbers in indirect-reachability/status.json are per-run
-# artifact values; they are NOT committed constants.
-#
-# Runtime logs are optional. Absence yields STATIC_ONLY (a valid
-# success state). COMPLETE requires a matching runtime workload that
-# the operator has aligned to the same .config and source revision.
-minerva-indirect-reachability:
-  stage: build
-  image: xentroops/xen_rel
-  allow_failure: true
-  when: manual
-  tags:
-    - arm64
-  variables:
-    XEN_DEFCONFIG: "arm64_defconfig"
-    # Callgraph backend selector. gcc-ci (default) keeps the
-    # existing GCC `.ci` path. llvm-ir consumes Clang/LLVM
-    # textual IR from $LLVM_IR_DIR. normalized consumes a
-    # prebuilt graph from $NORMALIZED_CALLGRAPH_DIR.
-    MINERVA_CALLGRAPH_BACKEND: "gcc-ci"
-    # LLVM IR generation (opt-in static-analysis side-build). When
-    # MINERVA_CALLGRAPH_BACKEND is "llvm-ir" and the flag below is
-    # truthy, the driver generates a `.ll` tree from this run's
-    # expanded .config (analysis compile replay with $LLVM_CC) and
-    # feeds it to llvm_ir_to_normalized.py. Default keeps the GCC
-    # production path; the LLVM backend is never the default.
-    MINERVA_GENERATE_LLVM_IR: "false"
-    LLVM_CC: "clang"
-    # Runtime workload (Option A: same-job runtime collection). When
-    # MINERVA_RUNTIME_COMMAND is set, the driver runs it after the
-    # static stages, parses the logs it produces under
-    # MINERVA_RUNTIME_LOG_DIR, and compares them with the static
-    # artifacts from the same config and SHA. Empty by default, so
-    # the job stays STATIC_ONLY until a runtime workload is
-    # configured. MINERVA_RUNTIME_REQUIRED=true makes a runtime
-    # failure PARTIAL rather than a STATIC_ONLY downgrade.
-    MINERVA_RUNTIME_COMMAND: ""
-    MINERVA_RUNTIME_LOG_DIR: "indirect-reachability/runtime/logs"
-    MINERVA_RUNTIME_REQUIRED: "false"
-    MINERVA_RUNTIME_TIMEOUT: "600"
-  script:
-    - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
-  artifacts:
-    when: always
-    paths:
-      - indirect-reachability/
-
 # --- Separated producer/consumer cycle (Series 10) -------------------
 #
 # The corpus assurance workflow consumes SEPARATED static-analysis and
-# runtime artifacts. These three jobs express that cycle:
+# runtime artifacts. The three roles are:
 #
-#   minerva-static-analysis        once per config/backend/build ->
-#                                  static-analysis/
-#   minerva-runtime-qemu-arm64     a runtime test               ->
-#                                  runtime-artifacts/<test>/
-#   minerva-allocation-assurance-corpus  joins both              ->
-#                                  corpus-analysis/
+#   minerva-static-analysis              once per config/backend/build,
+#                                          emits static-analysis/
+#   minerva-qemu-{xtf,smoke}-*           runtime tests, each emits
+#                                          runtime-artifacts/<test>/
+#                                          (see test/xtf.yaml,
+#                                          test/smoke.yaml)
+#   minerva-allocation-assurance-corpus  joins both, emits
+#                                          corpus-analysis/
 #
-# The producers reuse the existing driver and repackage its output
-# into the contract trees via package_artifacts.sh, so no previous
-# job's behaviour changes. The static job does no runtime; the runtime
-# job does no static callgraph build (it pulls the static tree from the
-# static job for the comparator inputs and runs only the workload +
-# parse). The corpus job rebuilds nothing.
+# The static and runtime jobs are FULLY INDEPENDENT (neither needs the
+# other; a runtime test never triggers or repeats static analysis).
+# Only the corpus job needs: both and matches them by manifest identity
+# (git_sha/target_arch/config_sha256). The runtime jobs all use the
+# LLVM-based xen-atfe-arm64-minerva build.
 
 # Static-analysis producer: run once per config/backend/build. Runs the
 # static stages only (--no-runtime via empty MINERVA_RUNTIME_COMMAND)
