@@ -125,3 +125,4 @@ xen-atfe-arm64-minerva:
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG_INFO=y
       CONFIG_MINERVA_ANALYSIS=y
+      CONFIG_FRAME_POINTER=y
