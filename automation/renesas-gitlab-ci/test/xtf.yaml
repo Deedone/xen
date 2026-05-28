@@ -26,24 +26,31 @@
   extends: .qemu-arm64
   when: manual
   variables:
-    XEN_DEFCONFIG: "rel_arm64_defconfig"
-    MINERVA_CALLGRAPH_BACKEND: "llvm-ir"
-    MINERVA_GENERATE_LLVM_IR: "true"
-    LLVM_CC: "clang"
-    MINERVA_RUNTIME_COMMAND: "true"
-    MINERVA_RUNTIME_LOG_DIR: "indirect-reachability/runtime"
-    MINERVA_RUNTIME_REQUIRED: "false"
-    MINERVA_RUNTIME_TIMEOUT: "600"
+    # Identity for the corpus join key. config_sha256 is derived from
+    # the booted .config so it matches the static job's value for the
+    # same config; git_sha defaults to the CI commit.
+    MINERVA_GIT_SHA: "$CI_COMMIT_SHA"
+    MINERVA_TARGET_ARCH: "arm64"
+    MINERVA_CONFIG_NAME: "rel_arm64_defconfig+debug-info"
+    MINERVA_CONFIG_FILE: ".config"
+    MINERVA_RUNTIME_LOG_DIR: "$CI_PROJECT_DIR"
+  # Pure runtime: the inherited script: runs the qemu workload and
+  # tees its console output into ${LOGFILE}. The after_script packages
+  # the log into a runtime artifact (parsing it standalone) without
+  # any static analysis. The static-analysis tree is produced
+  # independently by minerva-static-analysis; the corpus job joins
+  # them later.
   after_script:
-    - mkdir -p indirect-reachability/runtime
-    - cp ${LOGFILE} indirect-reachability/runtime
-    - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
+    - bash automation/renesas-scripts/minerva/package_artifacts.sh
+        runtime . runtime-artifacts "$CI_JOB_NAME"
   needs:
     - *arm64-xtf-test-needs
     - xen-atfe-arm64-minerva
   artifacts:
     paths:
-      - indirect-reachability/
+      - runtime-artifacts/
+      - '*.log'
+      - '*.serial'
     when: always
 
 # Test jobs
@@ -201,3 +208,8 @@ minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-extratime 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-xtf-test-needs
+
+minerva-qemu-xtf-dom0-arm64-gcc-hyp-xen-version:
+  extends: .minerva-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-xen-version 2>&1 | tee ${LOGFILE}

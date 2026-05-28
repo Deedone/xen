@@ -151,53 +151,6 @@ minerva-static-analysis:
     paths:
       - static-analysis/
 
-# Runtime producer: one per runtime test, FULLY INDEPENDENT of the
-# static-analysis job. It runs the workload, collects logs, parses them
-# into allocation observations, and emits runtime-artifacts/<test>/. It
-# performs NO static callgraph build and NO runtime/static comparison:
-# the static/runtime matching and comparison are done later by the
-# corpus job. The job supplies its own identity (git_sha / arch /
-# config) so the corpus join can match it to a static artifact without
-# this job ever depending on the static job.
-minerva-runtime-qemu-arm64:
-  stage: test
-  image: xentroops/xen_rel
-  allow_failure: true
-  when: manual
-  tags:
-    - arm64
-  variables:
-    MINERVA_TEST_NAME: "qemu-smoke-arm64"
-    MINERVA_TARGET_ARCH: "arm64"
-    # The workload command that boots Xen and exercises it; its console
-    # log is collected under MINERVA_RUNTIME_LOG_DIR. Empty by default
-    # (template); set to the qemu smoke invocation for this target.
-    MINERVA_RUNTIME_COMMAND: ""
-    MINERVA_RUNTIME_LOG_DIR: "runtime-logs"
-    # Identity for the corpus join key. git_sha defaults to the CI
-    # commit; config_sha256 is derived from the booted .config so it
-    # matches the static job's value for the same config.
-    MINERVA_GIT_SHA: "$CI_COMMIT_SHA"
-    MINERVA_CONFIG_NAME: "arm64_defconfig+debug-info"
-    MINERVA_CONFIG_FILE: ".config"
-  script:
-    - mkdir -p "$MINERVA_RUNTIME_LOG_DIR"
-    # Run the runtime workload, teeing its console output into a log the
-    # parser can read. With no command set this is a no-op (the job
-    # produces an empty runtime artifact until a workload is wired in).
-    - |
-      if [ -n "$MINERVA_RUNTIME_COMMAND" ]; then
-        sh -c "$MINERVA_RUNTIME_COMMAND" \
-          | tee "$MINERVA_RUNTIME_LOG_DIR/$MINERVA_TEST_NAME.log"
-      fi
-    # Package the logs into runtime-artifacts/<test>/, parsing them
-    # standalone. No static input, no comparison.
-    - bash automation/renesas-scripts/minerva/package_artifacts.sh
-        runtime . runtime-artifacts "$MINERVA_TEST_NAME"
-  artifacts:
-    when: always
-    paths:
-      - runtime-artifacts/
 
 # Corpus-level dynamic-allocation assurance aggregation (Series 10).
 # Consumes the SEPARATED static-analysis and runtime artifacts produced
@@ -215,7 +168,57 @@ minerva-allocation-assurance-corpus:
   needs:
     - job: minerva-static-analysis
       artifacts: true
-    - job: minerva-runtime-qemu-arm64
+    - job: minerva-qemu-smoke-dom0-arm64-gcc
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0-arm64-gcc-debug
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-boot-cpupools
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-earlyprintk
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-gicv3
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-static-shared-mem
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-staticheap
+      artifacts: true
+    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-staticmem
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-cacheflush
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-createdomain
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-destroydomain
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-get-paging-mempool-size
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-getdomaininfo
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-max-mem
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-pausedomain
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-set-paging-mempool-size
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-unpausedomain
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-getdomaininfolist
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-physinfo
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-xen-version
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-gcc-hyp-xen-version
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-cmdline
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-edf
+      artifacts: true
+    - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime
       artifacts: true
   tags:
     - arm64
