@@ -11,9 +11,9 @@ workflow" at the end of this document):
 
 - `minerva-static-analysis` runs the static stages once per
   config/backend/build and emits `static-analysis/`;
-- the per-test `minerva-qemu-xtf-*` and `minerva-qemu-smoke-*`
-  jobs each run a runtime workload and emit
-  `runtime-artifacts/<test>/`, with no static analysis;
+- the per-test `minerva-qemu-xtf-*` jobs each run a runtime
+  workload and emit `runtime-artifacts/<test>/`, with no static
+  analysis;
 - `minerva-allocation-assurance-corpus` joins the two by
   manifest identity and emits `corpus-analysis/`.
 
@@ -212,16 +212,15 @@ pipeline:
 | Role | Job(s) | Emits | needs |
 | --- | --- | --- | --- |
 | Static producer | `minerva-static-analysis` | `static-analysis/` | none (independent) |
-| Runtime producers | `minerva-qemu-xtf-*` (16), `minerva-qemu-smoke-*` (10) | `runtime-artifacts/<test>/` | `xen-atfe-arm64-minerva` (the LLVM-based build) |
-| Corpus consumer | `minerva-allocation-assurance-corpus` | `corpus-analysis/` | the static job + every runtime test job |
+| Runtime producers | `minerva-qemu-xtf-*` (16) | `runtime-artifacts/<test>/` | `xen-atfe-arm64-minerva` (the LLVM-based build) |
+| Corpus consumer | `minerva-allocation-assurance-corpus` | `corpus-analysis/` | static + the xtf test jobs (all `optional: true`) |
 
 The static job and the runtime test jobs are fully independent:
 neither needs the other, and a runtime test never triggers or
-repeats static analysis. Each runtime test job extends a
-pure-runtime template (`.minerva-arm64` / `.minerva-smoke-arm64`)
-that runs the workload and packages the console log into
-`runtime-artifacts/<test>/` via `package_artifacts.sh` -- it runs
-no static stages.
+repeats static analysis. Each xtf test job extends the pure-runtime template
+(`.minerva-arm64`) that runs the workload and packages the console
+log into `runtime-artifacts/<test>/` via `package_artifacts.sh` -- it
+runs no static stages.
 
 Only the corpus job joins static and runtime, matching by manifest
 identity (`git_sha` / `target_arch` / `config_sha256`). The one
@@ -235,3 +234,16 @@ groups, or every discovered artifact was quarantined (for example a
 runtime manifest missing `config_sha256`), the corpus verdict is
 forced to `NOT_SUPPORTED` with an explicit blocker. Absence of
 evidence is not evidence of support.
+
+The corpus `needs:` are marked `optional: true`: the corpus depends on
+each producer only if it exists and ran in this pipeline. The xtf jobs
+are `when: manual`, so an operator can run any subset and still get a
+corpus verdict over what ran.
+
+The smoke tests are intentionally not part of the runtime corpus:
+`smoke.yaml` is included only under `$RUN_UBSAN` (see `test.yaml`), so
+its jobs are absent from normal pipelines -- an unconditional `needs:`
+on them fails pipeline creation with "undefined need" -- and
+UBSAN-instrumented runtime behaviour is not representative of production
+allocation patterns. The unconditionally-included xtf tests are the
+runtime corpus.
