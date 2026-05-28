@@ -792,6 +792,7 @@ def write_reports(out_dir, status, qualifier, pairs, config_groups,
                         scen_counts)
     _write_review_reduction_md(sdir / "manual-review-reduction.md",
                                scenarios)
+    _write_target_only_report(sdir, scenarios, pairs, out)
     for s in scenarios:
         _write_scenario_group_md(
             sdir / "scenario-groups" / f"{s['scenario_id']}.md", s)
@@ -914,6 +915,145 @@ def _write_review_reduction_md(path, scenarios):
         L.append("No scenarios remain in manual review.")
         L.append("")
     Path(path).write_text("\n".join(L))
+
+
+def _target_only_subtype(frames, targets):
+    """Classify a target-only path's capture-failure shape.
+
+    target_only_no_frames : a single allocation-target frame survived
+                            (e.g. just `_xmalloc`).
+    allocator_chain_only  : multiple frames survived but they are all
+                            allocation targets -- an allocator chain
+                            (e.g. `_xmalloc -> alloc_xenheap_pages ->
+                            alloc_domheap_pages`) with no external caller.
+    target_only_with_residual_frames : a non-allocator frame survived
+                            (should not occur for a genuinely caller-less
+                            path; reported honestly rather than mislabel).
+    """
+    distinct = [f for f in dict.fromkeys(frames)]  # de-dup, keep order
+    non_target = [f for f in distinct if f not in targets]
+    if non_target:
+        return "target_only_with_residual_frames"
+    # All frames are allocation targets. One distinct target frame is a
+    # bare target-only capture; more than one is an allocator chain.
+    if len(distinct) <= 1:
+        return "target_only_no_frames"
+    return "allocator_chain_only"
+
+
+def _write_target_only_report(sdir, scenarios, pairs, out_dir):
+    """Diagnostic split of target-only (caller-less) runtime paths.
+
+    For each target_observed_no_caller_context runtime path, record its
+    capture-failure subtype, the scenario it belongs to, whether that
+    scenario also carries deeper (direct-static-explained) evidence, and
+    a recovery action. This invents NO caller provenance and accepts
+    nothing: it turns a flat count into a precise, auditable explanation
+    of why each path is caller-less, so review focuses on the affected
+    scenarios rather than the raw paths.
+    """
+    targets = {"alloc_domheap_pages", "alloc_xenheap_pages", "_xmalloc"}
+    # Map a canonical target/stack signature to its scenario for the join.
+    by_sig = {}
+    for s in scenarios:
+        by_sig[(s["allocation_target"], s.get("canonical_stack", ""))] = s
+    # Scenarios that carry target-only evidence, and whether mixed.
+    sc_mixed = {}
+    for s in scenarios:
+        classes = s.get("comparison_classes_seen") or []
+        if isinstance(classes, str):
+            classes = [c for c in classes.replace(";", ",").split(",") if c]
+        if "target_observed_no_caller_context" in classes:
+            sc_mixed[s["scenario_id"]] = (
+                "direct_static_explained" in classes
+                or "indirect_candidate_explained" in classes)
+
+    rows = []
+    pid = 0
+    for rec in pairs:
+        rt = rec.get("runtime", {}).get("manifest", {})
+        test_name = rt.get("test_name", "")
+        comp_dir = Path(out_dir) / "comparisons" / test_name
+        upj = comp_dir / "runtime-unmatched-paths.json"
+        paths = cs.try_read_json(upj)
+        if not paths:
+            continue
+        for p in paths:
+            if p.get("classification") != "target_observed_no_caller_context":
+                continue
+            frames = p.get("frames") or []
+            target = p.get("target", "")
+            subtype = _target_only_subtype(frames, targets)
+            # Find the owning scenario by target + canonical stack.
+            stack = " -> ".join(frames)
+            sc = by_sig.get((target, stack))
+            sid = sc["scenario_id"] if sc else ""
+            mixed = sc_mixed.get(sid, False) if sid else False
+            scene_kind = ("target_only_mixed_scenario" if mixed
+                          else "pure_target_only_scenario" if sid
+                          else "unjoined")
+            if subtype == "allocator_chain_only":
+                recovery = "requires_better_instrumentation"
+            elif mixed:
+                recovery = "covered_by_deeper_observation_in_same_scenario"
+            else:
+                recovery = "no_auto_merge_many_possible_callers"
+            pid += 1
+            rows.append({
+                "runtime_path_id": f"TOP-{pid:04d}",
+                "scenario_id": sid,
+                "allocation_target": target,
+                "target_only_subtype": subtype,
+                "scenario_kind": scene_kind,
+                "raw_frames": stack,
+                "test_name": test_name,
+                "domain": p.get("domain", ""),
+                "size": "unknown",  # not carried in the unmatched-path record
+                "mixed_with_explained_evidence": "yes" if mixed else "no",
+                "recovery_action": recovery,
+            })
+
+    cols = ["runtime_path_id", "scenario_id", "allocation_target",
+            "target_only_subtype", "scenario_kind", "raw_frames",
+            "test_name", "domain", "size",
+            "mixed_with_explained_evidence", "recovery_action"]
+    _write_csv(sdir / "target-only-capture-report.csv", cols, rows)
+
+    # Markdown summary with the subtype/shape tallies.
+    from collections import Counter
+    sub = Counter(r["target_only_subtype"] for r in rows)
+    tgt = Counter(r["allocation_target"] for r in rows)
+    rec = Counter(r["recovery_action"] for r in rows)
+    scset = {r["scenario_id"] for r in rows if r["scenario_id"]}
+    mixed_n = sum(1 for sid in scset if sc_mixed.get(sid))
+    pure_n = len(scset) - mixed_n
+    L = ["# Target-only (caller-less) capture report", "",
+         "Runtime paths where an allocation target was observed but no "
+         "external caller frame survived. This is a capture-fidelity "
+         "limitation, not an unexplained allocation. No caller provenance "
+         "is inferred and nothing is accepted here: each path is given a "
+         "precise reason, and the review surface remains the affected "
+         "scenarios.", "",
+         f"- Target-only runtime paths: {len(rows)}"]
+    for k in sorted(tgt):
+        L.append(f"  - `{k}`-bearing: {tgt[k]}")
+    L.append("")
+    L.append("By capture-failure subtype:")
+    for k in sorted(sub):
+        L.append(f"  - {k}: {sub[k]}")
+    L.append("")
+    L.append(f"Scenarios carrying target-only evidence: {len(scset)}")
+    L.append(f"  - mixed with explained evidence: {mixed_n}")
+    L.append(f"  - pure target-only: {pure_n}")
+    L.append("")
+    L.append("Recovery action distribution:")
+    for k in sorted(rec):
+        L.append(f"  - {k}: {rec[k]}")
+    L.append("")
+    L.append("Policy: target-only evidence alone must not accept a "
+             "scenario, and must not create caller provenance by merge.")
+    L.append("")
+    (sdir / "target-only-capture-report.md").write_text("\n".join(L))
 
 
 def _scenario_counts(scenarios):
@@ -1974,6 +2114,24 @@ def _self_test() -> int:
         "    _xmalloc\n", {"_xmalloc"})
     check("mixed plumbing/real path still parses",
           bool(_mixed) and "xfree" not in _mixed[0]["frames"])
+
+    # Target-only capture subtypes (Series 24). The diagnostic split must
+    # distinguish a bare target from an allocator chain, and must never
+    # invent a caller or accept anything.
+    _t = {"alloc_domheap_pages", "alloc_xenheap_pages", "_xmalloc"}
+    check("target-only: bare target -> target_only_no_frames",
+          _target_only_subtype(["_xmalloc"], _t) == "target_only_no_frames")
+    check("target-only: allocator chain -> allocator_chain_only",
+          _target_only_subtype(["_xmalloc", "alloc_xenheap_pages",
+                       "alloc_domheap_pages"], _t)
+          == "allocator_chain_only")
+    check("target-only: chain with duplicate target -> chain",
+          _target_only_subtype(["alloc_domheap_pages", "_xmalloc",
+                       "alloc_domheap_pages"], _t)
+          == "allocator_chain_only")
+    check("target-only: real caller present -> residual (not caller-less)",
+          _target_only_subtype(["avc_audit", "_xmalloc"], _t)
+          == "target_only_with_residual_frames")
 
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
