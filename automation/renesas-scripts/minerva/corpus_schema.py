@@ -144,6 +144,8 @@ COMPARISON_METRIC_TO_AGG = {
     "runtime_paths_indirect_explained": "indirect_candidate_explained",
     "runtime_paths_target_observed_no_caller_context":
         "target_observed_no_caller_context",
+    "runtime_paths_target_observed_in_deferred_context":
+        "target_observed_in_deferred_context",
     "runtime_paths_unexplained": "runtime_only_unexplained",
     "runtime_paths_unresolved_normalization_mismatch":
         "unresolved_normalization_mismatch",
@@ -166,6 +168,7 @@ AGG_RUNTIME_CLASSES = (
     "direct_static_explained",
     "indirect_candidate_explained",
     "target_observed_no_caller_context",
+    "target_observed_in_deferred_context",
     "runtime_only_unexplained",
     "unresolved_normalization_mismatch",
     "parser_artifact",
@@ -177,6 +180,7 @@ EXPLAINED_CLASSES = frozenset({
     "direct_static_explained",
     "indirect_candidate_explained",
     "target_observed_no_caller_context",
+    "target_observed_in_deferred_context",
 })
 UNRESOLVED_CLASSES = frozenset({
     "runtime_only_unexplained",

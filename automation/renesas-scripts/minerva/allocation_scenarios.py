@@ -365,6 +365,14 @@ def classify_scenario(sc: dict, confidence_mode: str = "medium") -> dict:
     if "target_observed_no_caller_context" in classes:
         return _set(sc, "needs_manual_review", "machine_classified",
                     phase, actor)
+    # target_observed_in_deferred_context: the caller chain is real but
+    # rooted in softirq/RCU deferred-callback machinery, which the static
+    # reaching sets do not root. This is a recognised execution context,
+    # not a normalization defect, so it is reviewed (like the caller-less
+    # case) rather than rejected as a gap.
+    if "target_observed_in_deferred_context" in classes:
+        return _set(sc, "needs_manual_review", "machine_classified",
+                    phase, actor)
     if not (classes & cs.EXPLAINED_CLASSES):
         return _set(sc, "needs_manual_review", "machine_classified",
                     phase, actor)

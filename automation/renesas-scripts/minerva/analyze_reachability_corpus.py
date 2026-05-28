@@ -2133,6 +2133,55 @@ def _self_test() -> int:
           _target_only_subtype(["avc_audit", "_xmalloc"], _t)
           == "target_only_with_residual_frames")
 
+    # Normalization-gap fixes (Series 25).
+    # 1. The phantom "domain" parser token is dropped, so
+    #    _xmalloc -> domain -> _xmalloc is not a rejected mismatch.
+    _dom = _rsc._coerce_path_record(
+        {"target": "_xmalloc", "frames": ["_xmalloc", "domain", "_xmalloc"]})
+    check("parser-noise 'domain' token dropped",
+          "domain" not in _dom["frames"])
+    _ds_n = {"_xmalloc": {"avc_alloc_node", "do_domctl"}}
+    _tln = ["_xmalloc", "alloc_domheap_pages", "alloc_xenheap_pages"]
+    _dc = _rsc.classify_runtime_path(
+        {"target": "_xmalloc", "domain": "", "frames": ["_xmalloc"]},
+        _ds_n, set(), {}, _tln)[0]
+    check("domain-only path -> caller-less, not mismatch",
+          _dc == "target_observed_no_caller_context")
+    # 2. A softirq/RCU deferred-callback path is its own context, not a
+    #    normalization gap.
+    _def = _rsc.classify_runtime_path(
+        {"target": "_xmalloc", "domain": "",
+         "frames": ["leave_hypervisor_to_guest", "do_softirq",
+                    "rcu_process_callbacks", "avc_node_free", "_xmalloc"]},
+        _ds_n, set(), {}, _tln)[0]
+    check("softirq/RCU path -> deferred context, not mismatch",
+          _def == "target_observed_in_deferred_context")
+    # 3. No over-broadening: a genuine unknown caller still flags.
+    _gen = _rsc.classify_runtime_path(
+        {"target": "_xmalloc", "domain": "",
+         "frames": ["some_unknown_fn", "_xmalloc"]},
+        _ds_n, set(), {}, _tln)[0]
+    check("genuine unknown caller still flags as mismatch",
+          _gen == "unresolved_normalization_mismatch")
+    # 4. Explanation still wins over the deferred relabel.
+    _winexp = _rsc.classify_runtime_path(
+        {"target": "_xmalloc", "domain": "",
+         "frames": ["do_softirq", "avc_alloc_node", "_xmalloc"]},
+        _ds_n, set(), {}, _tln)[0]
+    check("deferred frame w/ caller in reaching set -> explained",
+          _winexp == "direct_static_explained")
+    # A deferred-context scenario classifies to review, not rejected.
+    _sc_def = {"scenario_id": "D1", "allocation_target": "_xmalloc",
+               "canonical_stack": "do_softirq -> _xmalloc",
+               "_canonical_frames": ["do_softirq", "_xmalloc"],
+               "comparison_classes_seen":
+                   ["target_observed_in_deferred_context"],
+               "raw_stack_variants": 1, "domains_seen": "",
+               "max_size_observed": 0}
+    asc.classify_scenario(_sc_def, "medium")
+    check("deferred-context scenario -> needs_manual_review (not rejected)",
+          _sc_def["review_status"] == "needs_manual_review")
+
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
 

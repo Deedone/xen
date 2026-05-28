@@ -107,6 +107,38 @@ ALLOCATOR_PLUMBING = {
     "free_domheap_pages",
 }
 
+# Parser-noise tokens: words that the indented-frame regex can match but
+# which are not Xen functions. The parser annotates allocation records
+# with domain markers (e.g. a wrapped "[domain: dN]" / "domain: dN"
+# line), and the frame regex can capture the bare word "domain" as a
+# phantom frame. Such a token never appears in any static reaching set
+# and is structurally impossible as a real call frame (e.g. the observed
+# `_xmalloc -> domain -> _xmalloc`), so it would otherwise force a
+# spurious unresolved_normalization_mismatch. Dropped during frame
+# canonicalization, like ALLOCATOR_PLUMBING. Kept explicit and small:
+# only tokens proven to be parser annotation noise belong here.
+PARSER_NOISE_FRAMES = {
+    "domain",
+}
+
+# Deferred-callback execution context. The static reaching sets are
+# rooted at hypercall / boot / domain-lifecycle entry points. An
+# allocation that occurs in a softirq or RCU deferred callback (e.g.
+# rcu_process_callbacks running an avc_node_free callback that allocates)
+# has a real, captured caller chain, but that chain is rooted in the
+# softirq/RCU machinery, not in any per-target reaching set -- so it can
+# never match by reaching-set membership. This is NOT a normalization
+# defect and must not be reported as one (rejected_normalization_gap);
+# it is a recognised execution context the static model does not root.
+# These frames are matched conservatively (exact membership) and only
+# used to relabel an otherwise-unmatched path, never to explain one.
+DEFERRED_CONTEXT_FRAMES = {
+    "do_softirq",
+    "rcu_process_callbacks",
+    "__rcu_process_callbacks",
+    "softirq_handler",
+}
+
 
 def _canonical_alloc(fn: str) -> str:
     """Map an allocator-layer label to its canonical static target."""
@@ -129,6 +161,8 @@ def _coerce_path_record(obj: dict) -> dict | None:
     # Drop allocator plumbing (interleaved frees): a free between two
     # allocations is not a call frame on the allocation's path.
     frames = [f for f in frames if f not in ALLOCATOR_PLUMBING]
+    # Drop parser-noise tokens (e.g. a phantom "domain" frame).
+    frames = [f for f in frames if f not in PARSER_NOISE_FRAMES]
     target = obj.get("target") or obj.get("allocation_target")
     if target:
         target = _canonical_alloc(str(target).strip())
@@ -303,6 +337,10 @@ def _parse_report_text(text: str, known: set) -> list[dict]:
         # loader produced the frames. A free between two allocations is
         # not a call frame on the allocation's path.
         norm = [f for f in norm if f not in ALLOCATOR_PLUMBING]
+        # Drop parser-noise tokens (e.g. a phantom "domain" frame) here
+        # too, so the drop applies regardless of which loader produced
+        # the frames.
+        norm = [f for f in norm if f not in PARSER_NOISE_FRAMES]
         if not norm:
             # Every frame was allocator plumbing (e.g. a path of only
             # frees): this is not an allocation path, so there is
@@ -662,6 +700,19 @@ def classify_runtime_path(rec: dict, direct_static: dict[str, set],
 
     # 3. Target known but no reaching explanation lined up.
     if target and target in targets:
+        # Deferred-callback context: if the path runs through softirq/RCU
+        # deferred-callback frames, its caller chain is real but rooted
+        # in the softirq/RCU machinery, which the per-target reaching
+        # sets (rooted at hypercall/boot/domain-lifecycle) do not cover.
+        # Report this as its own context rather than a normalization gap,
+        # so it is reviewed like a caller-context-limited observation
+        # instead of being rejected as a defect. Scoped to exact
+        # deferred-context frame membership.
+        if fnset & DEFERRED_CONTEXT_FRAMES:
+            return ("target_observed_in_deferred_context", "target_only",
+                    f"target {target} observed in a softirq/RCU deferred "
+                    f"callback; caller chain is not rooted in any static "
+                    f"reaching set", set())
         return ("unresolved_normalization_mismatch", "target_only",
                 f"target {target} known but no frame matched a static "
                 f"reaching set", set())
@@ -679,6 +730,7 @@ RUNTIME_CLASSES = [
     "direct_static_explained",
     "indirect_candidate_explained",
     "target_observed_no_caller_context",
+    "target_observed_in_deferred_context",
     "runtime_only_unexplained",
     "boundary_or_parser_artifact",
     "unresolved_normalization_mismatch",
@@ -796,6 +848,7 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
         "runtime_only_unexplained",
         "unresolved_normalization_mismatch",
         "target_observed_no_caller_context",
+        "target_observed_in_deferred_context",
     )
     unmatched = [r for r in runtime_rows
                  if r["classification"] in unmatched_classes]
@@ -872,6 +925,8 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
             counts["indirect_candidate_explained"],
         "runtime_paths_target_observed_no_caller_context":
             counts["target_observed_no_caller_context"],
+        "runtime_paths_target_observed_in_deferred_context":
+            counts["target_observed_in_deferred_context"],
         "runtime_paths_unexplained":
             counts["runtime_only_unexplained"],
         "runtime_paths_boundary_or_parser_artifact":
