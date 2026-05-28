@@ -390,6 +390,26 @@ scenario, and a bare target is never auto-merged into a deeper scenario
 (it has many possible callers and no key to disambiguate). The review
 surface remains the affected scenarios.
 
+### Normalization-gap classes (parser noise and deferred context)
+
+Two runtime-path shapes that previously forced a
+`unresolved_normalization_mismatch` (and a rejected scenario) are now
+classified honestly:
+
+- A phantom `domain` frame -- a parser-annotation token the indented-frame
+  regex over-matches -- is dropped during canonicalisation
+  (`PARSER_NOISE_FRAMES`), like allocator plumbing. The path collapses to
+  its real allocator frame and is caller-less, not a mismatch.
+- A path running through a softirq/RCU deferred callback
+  (`do_softirq`, `rcu_process_callbacks`) has a real caller chain rooted
+  in the softirq/RCU machinery, which the per-target static reaching sets
+  do not root. It is classified `target_observed_in_deferred_context` -- a
+  recognised execution context reviewed like a caller-context-limited
+  observation, not rejected as a defect. The recognition is scoped to
+  exact deferred-context frame membership and applied only as a last
+  resort before the mismatch verdict, so it never masks a real
+  explanation or a genuine mismatch.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
