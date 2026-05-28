@@ -648,14 +648,40 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
         # target) count as observed -- never every indirect frame.
         if cls == "indirect_candidate_explained":
             observed_impls |= matched
+        # Diagnostic detail for unmatched-path triage. Recomputed here
+        # (not in the classifier, whose return contract is unchanged)
+        # from the same inputs the classifier used. This makes a
+        # normalization residual diagnosable straight from the artifact:
+        # the full canonicalised frame list, the non-target frames the
+        # matcher actually had to work with, and the static reaching set
+        # of the path's target that it was checked against. The gap
+        # between non_target_frames and reaching_set_checked is exactly
+        # what a fix would need to close.
+        frames = rec["frames"]
+        target = rec["target"]
+        non_target = [f for f in frames if f != target]
+        reaching = sorted(direct_static.get(target, set())) if target else []
+        # Frames that DID land in the reaching set (empty for a
+        # mismatch -- that emptiness is the finding) vs those that did
+        # not, to point straight at the offending tokens.
+        reaching_set = set(reaching)
+        nt_in_reaching = [f for f in non_target if f in reaching_set]
+        nt_not_in_reaching = [f for f in non_target if f not in reaching_set]
         runtime_rows.append({
             "classification": cls,
             "confidence": conf,
-            "target": rec["target"],
+            "target": target,
             "domain": rec["domain"],
-            "head_function": rec["frames"][-1] if rec["frames"] else "",
-            "frame_count": len(rec["frames"]),
+            "head_function": frames[-1] if frames else "",
+            "frame_count": len(frames),
             "basis": basis,
+            # Diagnostic-only fields (do not affect classification).
+            "frames": " -> ".join(frames),
+            "non_target_frames": " -> ".join(non_target),
+            "non_target_in_reaching": " -> ".join(nt_in_reaching),
+            "non_target_not_in_reaching": " -> ".join(nt_not_in_reaching),
+            "reaching_set_checked": " ".join(reaching),
+            "reaching_set_size": len(reaching),
         })
 
     counts = {c: sum(1 for r in runtime_rows
@@ -666,14 +692,51 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
     candidates_observed = sorted(observed_impls)
     candidates_not_observed = sorted(indirect_impls - observed_impls)
 
-    # Write per-path audit CSVs.
+    # Write per-path audit CSVs. Include target_observed_no_caller_context
+    # alongside the unexplained/mismatch classes: all three are the
+    # "did not resolve to a static path" residue we triage. The extra
+    # columns expose the full canonicalised frames, the non-target frames
+    # split by whether they landed in the reaching set, and the reaching
+    # set itself -- enough to classify a residual as an alias-map gap, a
+    # symbol-naming mismatch, or a missing static edge without the raw log.
+    unmatched_classes = (
+        "runtime_only_unexplained",
+        "unresolved_normalization_mismatch",
+        "target_observed_no_caller_context",
+    )
     unmatched = [r for r in runtime_rows
-                 if r["classification"] in
-                 ("runtime_only_unexplained",
-                  "unresolved_normalization_mismatch")]
+                 if r["classification"] in unmatched_classes]
+    unmatched_columns = [
+        "classification", "confidence", "target", "domain",
+        "head_function", "frame_count", "basis",
+        "frames", "non_target_frames",
+        "non_target_in_reaching", "non_target_not_in_reaching",
+        "reaching_set_size", "reaching_set_checked",
+    ]
     _write_csv(out_dir / "runtime-unmatched-paths.csv",
-               ["classification", "confidence", "target", "domain",
-                "head_function", "frame_count", "basis"], unmatched)
+               unmatched_columns, unmatched)
+    # JSON sidecar: same rows, but frame lists as arrays rather than
+    # arrow-joined strings, which is far easier to read and diff for the
+    # longer stacks.
+    unmatched_json = []
+    for r in unmatched:
+        unmatched_json.append({
+            "classification": r["classification"],
+            "target": r["target"],
+            "domain": r["domain"],
+            "frame_count": r["frame_count"],
+            "frames": r["frames"].split(" -> ") if r["frames"] else [],
+            "non_target_frames": (r["non_target_frames"].split(" -> ")
+                                  if r["non_target_frames"] else []),
+            "non_target_not_in_reaching": (
+                r["non_target_not_in_reaching"].split(" -> ")
+                if r["non_target_not_in_reaching"] else []),
+            "reaching_set_checked": (r["reaching_set_checked"].split(" ")
+                                     if r["reaching_set_checked"] else []),
+            "basis": r["basis"],
+        })
+    (out_dir / "runtime-unmatched-paths.json").write_text(
+        json.dumps(unmatched_json, indent=2) + "\n")
 
     static_only_rows = [{"implementation": i,
                          "status": "not_observed_in_this_workload"}

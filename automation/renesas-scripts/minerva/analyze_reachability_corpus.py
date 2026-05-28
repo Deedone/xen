@@ -301,8 +301,13 @@ def run_or_reuse_compare(rt, static, out_dir, warnings):
     existing = _find_existing_comparison(rt["root"])
     if existing is not None:
         comp_out.mkdir(parents=True, exist_ok=True)
-        (comp_out / "runtime-static-comparison.json").write_text(
-            (existing.parent / existing.name).read_text())
+        # Copy the whole comparison directory, not just the summary
+        # JSON, so the per-path audit files (runtime-unmatched-paths.csv
+        # / .json, comparison-summary.csv, the .md) ride along when the
+        # comparison was produced upstream rather than here.
+        for f in sorted(existing.parent.iterdir()):
+            if f.is_file():
+                (comp_out / f.name).write_bytes(f.read_bytes())
         m = cs.try_read_json(existing) or {}
         return "COMPARED", m
     # Invoke the comparator.
@@ -1722,6 +1727,48 @@ def _self_test() -> int:
         summ = _verdict(str(t / "static"), str(t / "runtime"))
         check("valid matched pair, accepted scenario -> SUPPORTED",
               summ["assurance_status"] == "SUPPORTED")
+
+    # Unmatched-path diagnostics: an allocator-internal stack that does
+    # not reach a static caller must emit the new per-path frame detail
+    # (full frames, the non-target frames not in the reaching set, and
+    # the reaching set checked) so a residual is diagnosable from the
+    # artifact alone.
+    import runtime_static_compare as _rsc
+    import json as _json
+    with tempfile.TemporaryDirectory() as d:
+        dd = Path(d)
+        (dd / "parsed").mkdir()
+        (dd / "static").mkdir()
+        (dd / "reach").mkdir()
+        (dd / "out").mkdir()
+        (dd / "static" / "alloc_domheap_pages.functions").write_text(
+            "do_domctl\ndomain_create\n")
+        (dd / "parsed" / "allocation-paths.json").write_text(_json.dumps([
+            {"target": "alloc_domheap_pages", "domain": "d1",
+             "frames": ["_xmalloc", "alloc_xenheap_pages",
+                        "alloc_domheap_pages"]}]))
+        _rsc.compare(
+            runtime_parsed=dd / "parsed",
+            reachability_dir=dd / "reach",
+            direct_static_dir=dd / "static",
+            collect_dir=dd / "out",
+            config_path=None,
+            out_dir=dd / "out",
+            config_name="", git_sha="",
+            targets=["alloc_domheap_pages", "_xmalloc"])
+        um = _json.loads((dd / "out" / "runtime-unmatched-paths.json")
+                        .read_text())
+        check("unmatched diagnostics emitted", len(um) == 1)
+        if um:
+            r = um[0]
+            check("diag carries full frames",
+                  r["frames"] == ["_xmalloc", "alloc_xenheap_pages",
+                                  "alloc_domheap_pages"])
+            check("diag flags allocator frames not in reaching set",
+                  set(r["non_target_not_in_reaching"])
+                  == {"_xmalloc", "alloc_xenheap_pages"})
+            check("diag records the reaching set checked",
+                  "do_domctl" in r["reaching_set_checked"])
 
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
