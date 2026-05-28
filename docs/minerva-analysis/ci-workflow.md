@@ -351,6 +351,20 @@ accepted by a justified annotation, rejected, or still need review. It
 lists the remaining queue with each scenario's actor/phase/stack, so the
 reviewer sees exactly what is left and why the rest left the queue.
 
+### Curated scenario annotations
+
+`scenario-annotations.yaml` carries curated entries for the recurring
+subsystem clusters (XSM/AVC cache, grant-table growth, event-channel
+FIFO control, IOMMU device assignment, per-domain creation). Each entry
+matches by frames and refines a scenario's evidence fields, and may
+accept it -- but only with a non-empty `justification`. The file ships
+with empty justifications on purpose: the engine ignores an acceptance
+whose justification is empty, so an entry refines fields but does not
+accept until a reviewer writes and owns the safety reasoning and
+confirms the cited bound. Acceptance is therefore always a human
+assertion. The corpus job passes `--annotations` when the file is
+present.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
