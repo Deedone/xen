@@ -341,6 +341,16 @@ guest-driven paths receive an accurate actor/phase but stay in review,
 because their bound (AVC cache size, per-domain grant limit) is a design
 fact asserted by annotation, never inferred from the stack.
 
+### Manual-review reduction report
+
+`scenario-analysis/manual-review-reduction.md` records the funnel from
+raw runtime allocation observations to the residual manual-review queue:
+raw stack variants, duplicates collapsed, distinct scenarios, and how
+many were accepted by a machine rule (positive cause/effect proof),
+accepted by a justified annotation, rejected, or still need review. It
+lists the remaining queue with each scenario's actor/phase/stack, so the
+reviewer sees exactly what is left and why the rest left the queue.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
