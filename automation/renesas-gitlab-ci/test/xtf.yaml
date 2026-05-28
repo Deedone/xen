@@ -27,12 +27,14 @@
   when: manual
   variables:
     # Identity for the corpus join key. config_sha256 is derived from
-    # the booted .config so it matches the static job's value for the
-    # same config; git_sha defaults to the CI commit.
+    # xen-config, the expanded config the instrumented build exports and
+    # which arrives here via needs: xen-atfe-arm64-minerva. The static
+    # job consumes the SAME xen-config, so the two sides match by
+    # construction. git_sha defaults to the CI commit.
     MINERVA_GIT_SHA: "$CI_COMMIT_SHA"
     MINERVA_TARGET_ARCH: "arm64"
     MINERVA_CONFIG_NAME: "rel_arm64_defconfig+debug-info"
-    MINERVA_CONFIG_FILE: ".config"
+    MINERVA_CONFIG_FILE: "xen-config"
     MINERVA_RUNTIME_LOG_DIR: "$CI_PROJECT_DIR"
   # Pure runtime: the inherited script: runs the qemu workload and
   # tees its console output into ${LOGFILE}. The after_script packages
@@ -43,8 +45,14 @@
   after_script:
     - bash automation/renesas-scripts/minerva/package_artifacts.sh
         runtime . runtime-artifacts "$CI_JOB_NAME"
+  # Boot the instrumented Xen (CONFIG_MINERVA_ANALYSIS=y) ONLY. The plain
+  # xen-atfe-arm64 build (pulled by *arm64-xtf-test-needs) is excluded:
+  # both builds emit binaries/xen, so depending on both overwrites the
+  # instrumented binary with the uninstrumented one and the runtime
+  # emits no allocation traces. List the image/rootfs deps explicitly.
   needs:
-    - *arm64-xtf-test-needs
+    - linux-6.6.86-image-export
+    - alpine-3.18-xen-tools-export
     - xen-atfe-arm64-minerva
   artifacts:
     paths:

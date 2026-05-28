@@ -84,12 +84,23 @@ minerva-static-analysis:
   when: manual
   tags:
     - arm64
+  # Consume the instrumented build's expanded config as the single
+  # source of truth for the corpus join key. xen-atfe-arm64-minerva
+  # exports xen-config; with it as MINERVA_CONFIG_INPUT the driver
+  # derives config_sha256 from the exact same file the runtime side
+  # hashes, so the two match by construction (no separate expansion to
+  # keep byte-aligned). The callgraph is still built here from that
+  # config; only the config expansion is shared.
+  needs:
+    - xen-atfe-arm64-minerva
   variables:
     MINERVA_CALLGRAPH_BACKEND: "llvm-ir"
     MINERVA_GENERATE_LLVM_IR: "true"
     LLVM_CC: "clang"
     MINERVA_RUNTIME_COMMAND: ""        # static only; no runtime here
     MINERVA_INDIRECT_OUT: "indirect-reachability"
+    MINERVA_CONFIG_INPUT: "xen-config" # the build's exported expanded config
+    MINERVA_CONFIG_NAME: "rel_arm64_defconfig+debug-info"
   script:
     - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
     - bash automation/renesas-scripts/minerva/package_artifacts.sh

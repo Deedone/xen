@@ -45,10 +45,21 @@ args=(
   --jobs "$XEN_BUILD_JOBS"
 )
 
+# Optional single-source config. When MINERVA_CONFIG_INPUT points at an
+# externally produced expanded .config (e.g. the xen-config the
+# instrumented build exports), pass it as --config: the driver consumes
+# it verbatim instead of expanding its own, so the static and runtime
+# sides derive an identical config_sha256 by construction. The callgraph
+# is still built from this config (this is not --skip-build).
+if [[ -n "${MINERVA_CONFIG_INPUT:-}" ]]; then
+  args+=( --config "$MINERVA_CONFIG_INPUT" )
+fi
+
 # Optional `--extra CONFIG_FOO=y` symbols. The variable holds
 # whitespace-separated entries; each becomes a separate
 # `--extra` argument so Kconfig sees them as discrete requests.
-if [[ -n "${XEN_EXTRA_CONFIG:-}" ]]; then
+# Ignored when MINERVA_CONFIG_INPUT supplies a complete config.
+if [[ -z "${MINERVA_CONFIG_INPUT:-}" && -n "${XEN_EXTRA_CONFIG:-}" ]]; then
   # shellcheck disable=SC2206
   extras=( $XEN_EXTRA_CONFIG )
   for e in "${extras[@]}"; do

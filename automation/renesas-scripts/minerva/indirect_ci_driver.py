@@ -137,20 +137,39 @@ def write_environment_md(out_dir: Path, args: argparse.Namespace,
 
 def stage_config(out_dir: Path, args: argparse.Namespace,
                  xen_root: Path) -> tuple[Path, dict]:
-    """Produce the post-expansion .config. Returns (path, info)."""
+    """Produce the post-expansion .config. Returns (path, info).
+
+    A supplied ``--config`` is consumed verbatim as the expanded
+    ``.config``, independently of ``--skip-build``. This lets a job
+    use an externally produced config (e.g. the ``xen-config`` the
+    instrumented build exports) as the single source of truth for the
+    corpus join key, while still building its own callgraph/.ci tree.
+    Without ``--config``, build mode expands the config from
+    ``--defconfig`` + ``--extra`` as before.
+    """
     info: dict = {"mode": "skip-build" if args.skip_build else "build"}
     cfg_dir = out_dir / "config"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     target = cfg_dir / ".config"
 
-    if args.skip_build:
-        if not args.config or not args.config.exists():
+    if args.config:
+        # Supplied config wins over expansion, in any mode. The corpus
+        # join key (config_sha256) is derived from this exact file, so
+        # consuming the build's xen-config here makes it match the
+        # runtime side by construction rather than by replication.
+        if not args.config.exists():
             raise SystemExit(
-                "PARTIAL: --skip-build requires --config <expanded-.config>"
+                f"PARTIAL: --config {args.config} does not exist"
             )
         shutil.copy2(args.config, target)
         info["source"] = str(args.config)
         info["copied_from"] = str(args.config)
+        if not args.skip_build:
+            info["config_source"] = "supplied (build mode; callgraph still built)"
+    elif args.skip_build:
+        raise SystemExit(
+            "PARTIAL: --skip-build requires --config <expanded-.config>"
+        )
     else:
         # Build mode: invoke Xen kbuild to expand defconfig.
         if not args.defconfig:
