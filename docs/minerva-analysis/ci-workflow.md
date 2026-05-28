@@ -293,6 +293,21 @@ the trace retain the caller of `_xmalloc`/`alloc_domheap_pages`, which is
 the non-target context the runtime/static comparison needs to explain the
 path.
 
+### Triaging unmatched runtime paths
+
+When a runtime path does not resolve to a static reaching set it is
+recorded in `comparisons/<test>/runtime-unmatched-paths.csv` and a
+`.json` sidecar with, per path: the full canonicalised `frames`, the
+`non_target_frames` split into those that did and did not fall in the
+target's direct-static reaching set, and the `reaching_set_checked`
+itself. The classes captured are `unresolved_normalization_mismatch`,
+`runtime_only_unexplained`, and `target_observed_no_caller_context`. The
+shape of the gap says which fix applies: allocator-layer tokens in
+`non_target_not_in_reaching` indicate an alias/normalization gap,
+near-miss spellings a symbol-naming mismatch, and an empty
+`reaching_set_checked` a missing static edge. These fields are
+diagnostic only and do not affect classification.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
