@@ -24,7 +24,12 @@
 
 .minerva-arm64:
   extends: .qemu-arm64
-  when: manual
+  when: on_success
+  # Auto-running runtime producers: a single qemu boot failure should not
+  # redden the pipeline. A missing/failed producer just yields less
+  # runtime evidence; the corpus tolerates partial input and the
+  # empty-corpus gate covers the all-failed case.
+  allow_failure: true
   variables:
     # Identity for the corpus join key. config_sha256 is derived from
     # xen-config, the expanded config the instrumented build exports and
@@ -123,99 +128,71 @@ minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-physinfo:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-physinfo 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-cacheflush:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-cacheflush 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-destroydomain:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-destroydomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-pausedomain:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-pausedomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-set-paging-mempool-size:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-set-paging-mempool-size 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-unpausedomain:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-unpausedomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-getdomaininfolist:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-getdomaininfolist 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-getdomaininfo:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-getdomaininfo 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-createdomain:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-createdomain 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-get-paging-mempool-size:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-get-paging-mempool-size 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-max-mem:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-max-mem 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-cmdline:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-cmdline 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-edf:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-edf 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-sysctl-sched-rtds-extratime 2>&1 | tee ${LOGFILE}
-  needs:
-    - *arm64-xtf-test-needs
 
 minerva-qemu-xtf-dom0-arm64-gcc-hyp-xen-version:
   extends: .minerva-arm64

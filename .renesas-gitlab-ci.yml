@@ -81,7 +81,7 @@ minerva-static-analysis:
   stage: build
   image: xentroops/xen_rel
   allow_failure: true
-  when: manual
+  when: on_success
   tags:
     - arm64
   # Consume the instrumented build's expanded config as the single
@@ -123,7 +123,7 @@ minerva-allocation-assurance-corpus:
   stage: analyze
   image: xentroops/xen_rel
   allow_failure: true
-  when: manual
+  when: on_success
   needs:
     - job: minerva-static-analysis
       artifacts: true
