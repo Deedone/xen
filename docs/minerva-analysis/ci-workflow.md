@@ -375,6 +375,21 @@ malformed report is skipped with a note in the comparison `notes` rather
 than aborting the job. This mirrors the JSON/CSV loaders, which already
 ignore malformed input.
 
+### Target-only capture-fidelity report
+
+`scenario-analysis/target-only-capture-report.{csv,md}` give each
+caller-less runtime path (`target_observed_no_caller_context`) a precise
+reason rather than leaving it in a flat bucket. Each path is labelled by
+capture-failure subtype -- `target_only_no_frames` (a single allocation
+target survived), `allocator_chain_only` (an allocator chain survived but
+no external caller), or `target_only_with_residual_frames` -- and joined
+to its scenario, with whether that scenario also carries deeper explained
+evidence and a recovery action. The report invents no caller provenance
+and accepts nothing: target-only evidence alone must not accept a
+scenario, and a bare target is never auto-merged into a deeper scenario
+(it has many possible callers and no key to disambiguate). The review
+surface remains the affected scenarios.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
