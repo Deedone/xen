@@ -254,6 +254,25 @@ config. Because both sides hash the identical file, their
 expansion to keep byte-aligned. The static job still builds its own
 callgraph from that config; only the config expansion is shared.
 
+### All test jobs inherit the instrumented template; the chain auto-runs
+
+Every `minerva-qemu-xtf-*` job inherits `.minerva-arm64` with no
+per-job `needs:` override, so all of them boot `xen-atfe-arm64-minerva`
+(the instrumented build) rather than the plain `xen-atfe-arm64`. A
+per-job `needs:` would replace the template's and silently reintroduce
+the uninstrumented build, so the test jobs deliberately carry no
+`needs:` of their own.
+
+The chain runs automatically: the instrumented build runs on every
+pipeline, and `minerva-static-analysis`, the `minerva-qemu-xtf-*`
+producers, and `minerva-allocation-assurance-corpus` are all
+`when: on_success`, so they flow without manual play steps. The corpus
+`needs:` stay `optional: true`; because the producers now run
+automatically they are satisfied by real runs. The producers carry
+`allow_failure: true` so one qemu boot failure does not redden the
+pipeline -- a missing producer just yields less runtime evidence, and
+the empty-corpus gate covers the all-failed case.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
