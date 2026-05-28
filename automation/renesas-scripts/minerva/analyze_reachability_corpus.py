@@ -1770,6 +1770,39 @@ def _self_test() -> int:
             check("diag records the reaching set checked",
                   "do_domctl" in r["reaching_set_checked"])
 
+    # Allocator-chain matcher (Series 18). A path attributed to the
+    # innermost allocator whose real caller reaches an OUTER allocator
+    # in the same chain must still be explained.
+    _ds_chain = {
+        "alloc_domheap_pages": {"construct_domain"},      # no avc_audit
+        "_xmalloc": {"avc_audit", "do_domctl"},           # has avc_audit
+        "alloc_xenheap_pages": {"_xmalloc"},
+    }
+    _tl = ["alloc_domheap_pages", "_xmalloc", "alloc_xenheap_pages"]
+
+    def _cls(frames, target):
+        return _rsc.classify_runtime_path(
+            {"target": target, "domain": "", "frames": frames},
+            _ds_chain, set(), {}, _tl)[0]
+
+    check("allocator-chain: caller in outer allocator's set explains path",
+          _cls(["avc_audit", "_xmalloc", "alloc_xenheap_pages",
+                "alloc_domheap_pages"], "alloc_domheap_pages")
+          == "direct_static_explained")
+    check("allocator-chain: only chain-links -> no_caller_context",
+          _cls(["alloc_domheap_pages", "alloc_xenheap_pages",
+                "alloc_domheap_pages"], "alloc_domheap_pages")
+          == "target_observed_no_caller_context")
+    check("allocator-chain: genuinely unknown caller still not explained",
+          _cls(["mystery_fn", "alloc_domheap_pages"], "alloc_domheap_pages")
+          == "unresolved_normalization_mismatch")
+    # xfree plumbing is dropped during canonicalisation, so
+    # _xmalloc -> xfree -> _xmalloc reduces to a caller-less path.
+    _rec = _rsc._coerce_path_record(
+        {"target": "_xmalloc", "frames": ["_xmalloc", "xfree", "_xmalloc"]})
+    check("xfree dropped as allocator plumbing",
+          "xfree" not in _rec["frames"])
+
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
 

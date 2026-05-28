@@ -86,6 +86,21 @@ ALLOCATOR_ALIASES = {
     "xmem_pool_alloc": "_xmalloc",   # WARN inside _xmalloc(), tlsf.c
 }
 
+# Allocator-layer plumbing that is not a caller. A free running between
+# two allocations (e.g. _xmalloc -> xfree -> _xmalloc) is interleaved
+# deallocation, not a call frame on the allocation's path, so it must
+# not be treated as a non-target frame to match against a reaching set
+# (it never appears in any caller reaching set, and its presence
+# otherwise forces a spurious unresolved_normalization_mismatch). These
+# tokens are dropped during frame canonicalization. Kept explicit and
+# small, like ALLOCATOR_ALIASES -- only deallocation helpers that are
+# known allocator plumbing belong here.
+ALLOCATOR_PLUMBING = {
+    "xfree",
+    "free_xenheap_pages",
+    "free_domheap_pages",
+}
+
 
 def _canonical_alloc(fn: str) -> str:
     """Map an allocator-layer label to its canonical static target."""
@@ -105,6 +120,9 @@ def _coerce_path_record(obj: dict) -> dict | None:
         return None
     frames = [_canonical_alloc(str(f).strip())
               for f in frames if str(f).strip()]
+    # Drop allocator plumbing (interleaved frees): a free between two
+    # allocations is not a call frame on the allocation's path.
+    frames = [f for f in frames if f not in ALLOCATOR_PLUMBING]
     target = obj.get("target") or obj.get("allocation_target")
     if target:
         target = _canonical_alloc(str(target).strip())
@@ -506,10 +524,51 @@ def classify_runtime_path(rec: dict, direct_static: dict[str, set],
                 f"target {target} observed at runtime with no caller "
                 f"frame (allocator entry point only)", set())
 
+    # 0b. Only allocator chain-links above the target. If every
+    #     non-target frame is itself an allocation target (the path
+    #     traversed only the allocator chain, e.g.
+    #     alloc_domheap_pages -> alloc_xenheap_pages ->
+    #     alloc_domheap_pages, or _xmalloc -> _xmalloc after plumbing
+    #     was dropped), there is no external caller captured. This is the
+    #     no-caller case, not a normalization mismatch.
+    target_set = set(targets)
+    if target and non_target_frames and non_target_frames <= target_set:
+        return ("target_observed_no_caller_context", "target_only",
+                f"target {target} observed via allocator chain "
+                f"({'->'.join(f for f in frames if f != target) or 'self'}) "
+                f"with no external caller frame", set())
+
     # 1. Direct-static explanation: a non-target frame of the path is
-    #    in the direct-static reaching set of the path's target.
-    ds_target = target if target in direct_static else None
-    if ds_target is None:
+    #    in the direct-static reaching set of an allocation target the
+    #    path actually traversed.
+    #
+    #    The path is attributed to its innermost allocator (`target`),
+    #    but an allocation can cross an allocator chain -- e.g.
+    #    `avc_audit -> _xmalloc -> alloc_xenheap_pages ->
+    #    alloc_domheap_pages`, where the real caller (avc_audit) reaches
+    #    _xmalloc, not the innermost alloc_domheap_pages. So consider, in
+    #    order: the path's own target first, then any OTHER allocation
+    #    target that appears as a frame in this path (i.e. an allocator
+    #    the path genuinely went through). This is strictly scoped to
+    #    allocator targets present in the path -- it does not try
+    #    unrelated targets -- so it only widens matching for real
+    #    allocator-chain traversals. The first candidate whose reaching
+    #    set contains a non-target frame explains the path.
+    chain_targets = [t for t in targets
+                     if t != target and t in fnset and t in direct_static]
+    candidate_targets = []
+    if target in direct_static:
+        candidate_targets.append(target)
+    candidate_targets.extend(chain_targets)
+    # Fall back to the original "any target with a matching frame" scan
+    # when the path's own target is unknown to direct_static and no
+    # in-path allocator matched, preserving prior behaviour.
+    ds_target = None
+    for t in candidate_targets:
+        if non_target_frames & direct_static[t]:
+            ds_target = t
+            break
+    if ds_target is None and target not in direct_static:
         for t in targets:
             if t in direct_static and (non_target_frames
                                        & direct_static[t]):
@@ -519,13 +578,19 @@ def classify_runtime_path(rec: dict, direct_static: dict[str, set],
     if ds_target is not None and (non_target_frames
                                   & direct_static[ds_target]):
         reaching = direct_static[ds_target]
+        # Non-target frames excluding allocator targets the path merely
+        # passed through on its way to `target`: those are chain links,
+        # not unexplained callers, so they should not defeat the
+        # "all non-target frames explained" check below.
+        chain_links = {t for t in targets if t != ds_target}
+        accounted = {f for f in non_target_frames if f not in chain_links}
         # Prefer indirect attribution when the only matching frame is
         # itself a known indirect candidate impl (the dispatch went
         # through a function pointer, not a direct call).
         ds_frames = non_target_frames & reaching
         if ds_frames and ds_frames <= indirect_impls and indirect_inter:
             pass  # fall through to indirect classification
-        elif all(f in reaching for f in non_target_frames):
+        elif all(f in reaching for f in accounted):
             return ("direct_static_explained", "function_set",
                     f"all non-target frames in direct-static reaching "
                     f"set of {ds_target}", set())
