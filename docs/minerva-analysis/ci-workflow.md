@@ -326,6 +326,21 @@ not a mismatch. Free-side plumbing (`xfree`, `free_xenheap_pages`,
 `free_domheap_pages`) is dropped during canonicalisation, since an
 interleaved free is not a call frame on the allocation path.
 
+### Subsystem root heuristics
+
+The scenario classifier recognises subsystem roots to assign an accurate
+actor/phase before the cause/effect assessment: `do_domctl`/`do_sysctl`
+are privileged control hypercalls (recognised before XSM/FLASK frames so
+a control hypercall through a permission check is not mistaken for a
+guest); `grant_table_init`/`gnttab_setup_table` are privileged
+per-domain grant setup; `do_grant_table_op`/`gnttab_grow_table` are
+guest-reachable grant operations; and `avc_alloc_node`/`avc_has_perm`/
+`flask_*` are XSM access-vector-cache allocations (phase
+`xsm_access_check`). Only positively privileged, bounded paths accept;
+guest-driven paths receive an accurate actor/phase but stay in review,
+because their bound (AVC cache size, per-domain grant limit) is a design
+fact asserted by annotation, never inferred from the stack.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
