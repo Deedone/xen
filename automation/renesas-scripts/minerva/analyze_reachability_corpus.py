@@ -790,6 +790,8 @@ def write_reports(out_dir, status, qualifier, pairs, config_groups,
                 if s["review_status"] == "needs_manual_review"])
     _write_scenarios_md(sdir / "allocation-scenarios.md", scenarios,
                         scen_counts)
+    _write_review_reduction_md(sdir / "manual-review-reduction.md",
+                               scenarios)
     for s in scenarios:
         _write_scenario_group_md(
             sdir / "scenario-groups" / f"{s['scenario_id']}.md", s)
@@ -848,6 +850,70 @@ def write_reports(out_dir, status, qualifier, pairs, config_groups,
     (out / "logs" / "loader-warnings.txt").write_text(
         "\n".join(warnings) + ("\n" if warnings else ""))
     return summary
+
+
+def _write_review_reduction_md(path, scenarios):
+    """Auditable funnel from raw runtime observations to the residual
+    manual-review queue, attributing each reduction stage to its cause
+    (duplicate collapse, machine heuristic, or curated annotation).
+    """
+    raw_observations = sum(max(int(s.get("raw_stack_variants", 1) or 1), 1)
+                           for s in scenarios)
+    total = len(scenarios)
+    collapsed = raw_observations - total
+    review = sum(1 for s in scenarios
+                 if s["review_status"] == "needs_manual_review")
+    accepted = sum(1 for s in scenarios
+                   if s["review_status"] == "accepted")
+    rejected = sum(1 for s in scenarios
+                   if s["review_status"] == "rejected")
+    annot = sum(1 for s in scenarios
+                if s.get("classification_source") == "annotation_classified")
+    accepted_machine = sum(
+        1 for s in scenarios
+        if s["review_status"] == "accepted"
+        and s.get("classification_source") != "annotation_classified")
+    accepted_annot = sum(
+        1 for s in scenarios
+        if s["review_status"] == "accepted"
+        and s.get("classification_source") == "annotation_classified")
+
+    L = ["# Manual-review reduction", "",
+         "How the raw runtime allocation observations are reduced to the "
+         "residual queue a reviewer must read, and what drove each "
+         "reduction. Reductions are evidence-based: a scenario leaves the "
+         "queue only by duplicate collapse, a machine rule with positive "
+         "cause/effect proof, or a curated annotation with justification.",
+         "",
+         f"- Raw allocation observations (stack variants): {raw_observations}",
+         f"- Collapsed as duplicates / variants: {collapsed}",
+         f"- Distinct scenarios: {total}",
+         f"  - Accepted by machine rule (positive cause/effect proof): "
+         f"{accepted_machine}",
+         f"  - Accepted by annotation (justified): {accepted_annot}",
+         f"  - Rejected (positively unsafe): {rejected}",
+         f"  - Remaining needs_manual_review: {review}",
+         "",
+         f"Annotation-classified scenarios in total: {annot}", ""]
+
+    if review:
+        L.append("## Remaining manual-review queue")
+        L.append("")
+        for s in scenarios:
+            if s["review_status"] != "needs_manual_review":
+                continue
+            L.append(f"- `{s['scenario_id']}` target "
+                     f"`{s['allocation_target']}`, actor "
+                     f"`{s.get('trigger_actor', 'unknown')}`, phase "
+                     f"`{s.get('phase', 'unknown')}`")
+            stack = s.get("canonical_stack", "")
+            if stack:
+                L.append(f"  - `{stack}`")
+        L.append("")
+    else:
+        L.append("No scenarios remain in manual review.")
+        L.append("")
+    Path(path).write_text("\n".join(L))
 
 
 def _scenario_counts(scenarios):
@@ -1727,6 +1793,22 @@ def _self_test() -> int:
         summ = _verdict(str(t / "static"), str(t / "runtime"))
         check("valid matched pair, accepted scenario -> SUPPORTED",
               summ["assurance_status"] == "SUPPORTED")
+        # manual-review-reduction report writer emits the funnel.
+        rr = t / "review-reduction.md"
+        _write_review_reduction_md(rr, [
+            {"scenario_id": "S1", "allocation_target": "_xmalloc",
+             "review_status": "needs_manual_review", "raw_stack_variants": 3,
+             "trigger_actor": "ordinary_guest", "phase": "hypercall",
+             "canonical_stack": "do_x -> _xmalloc",
+             "classification_source": "machine_classified"},
+            {"scenario_id": "S2", "allocation_target": "_xmalloc",
+             "review_status": "accepted", "raw_stack_variants": 1,
+             "classification_source": "annotation_classified"}])
+        _rrt = rr.read_text()
+        check("review-reduction report has funnel + residual queue",
+              "Raw allocation observations" in _rrt
+              and "Accepted by annotation" in _rrt
+              and "S1" in _rrt)
 
     # Unmatched-path diagnostics: an allocator-internal stack that does
     # not reach a static caller must emit the new per-path frame detail
