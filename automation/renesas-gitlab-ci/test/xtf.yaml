@@ -30,6 +30,16 @@
   # runtime evidence; the corpus tolerates partial input and the
   # empty-corpus gate covers the all-failed case.
   allow_failure: true
+  # The instrumented build emits a Xen WARN (register + stack-trace dump)
+  # on every tracked allocation; log_parser.py needs those call stacks, so
+  # the WARN stays. The trade-offs it forces are handled here:
+  #  - the test runs much longer (slow serial output of every backtrace),
+  #    so raise both the GitLab job timeout and the expect per-message
+  #    timeout (TEST_TIMEOUT_OVERRIDE, consumed by console.exp);
+  #  - the larger logs plus 16 concurrent uploads can overload the
+  #    coordinator (intermittent 500s on artifact upload), so give the
+  #    runner more upload attempts and a longer after_script window.
+  timeout: 2h
   variables:
     # Identity for the corpus join key. config_sha256 is derived from
     # xen-config, the expanded config the instrumented build exports and
@@ -41,6 +51,16 @@
     MINERVA_CONFIG_NAME: "rel_arm64_defconfig+debug-info"
     MINERVA_CONFIG_FILE: "xen-config"
     MINERVA_RUNTIME_LOG_DIR: "$CI_PROJECT_DIR"
+    # Instrumented runs stream a Xen WARN backtrace per allocation, which
+    # slows the cadence between expected console messages; raise the
+    # expect timeout (console.exp: TEST_TIMEOUT_OVERRIDE overrides the
+    # 1500s default).
+    TEST_TIMEOUT_OVERRIDE: "3600"
+    # Artifact upload tuning: more attempts and a longer after_script
+    # window so a transient coordinator 500 under concurrent upload load
+    # is ridden out rather than failing the job.
+    ARTIFACT_UPLOAD_ATTEMPTS: "5"
+    RUNNER_AFTER_SCRIPT_TIMEOUT: "10m"
   # Pure runtime: the inherited script: runs the qemu workload and
   # tees its console output into ${LOGFILE}. The after_script packages
   # the log into a runtime artifact (parsing it standalone) without
@@ -59,11 +79,14 @@
     - linux-6.6.86-image-export
     - alpine-3.18-xen-tools-export
     - xen-atfe-arm64-minerva
+  # Upload only the corpus-consumed tree. The raw console log already
+  # lives under runtime-artifacts/<test>/logs/, so the top-level *.log
+  # and *.serial were redundant copies; dropping them roughly halves the
+  # upload (significant given the WARN-heavy instrumented logs and 16
+  # concurrent uploads).
   artifacts:
     paths:
       - runtime-artifacts/
-      - '*.log'
-      - '*.serial'
     when: always
 
 # Test jobs
