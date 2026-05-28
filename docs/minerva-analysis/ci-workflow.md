@@ -235,6 +235,25 @@ runtime manifest missing `config_sha256`), the corpus verdict is
 forced to `NOT_SUPPORTED` with an explicit blocker. Absence of
 evidence is not evidence of support.
 
+### Booting the instrumented build and the shared config
+
+Each `minerva-qemu-xtf-*` job depends on `xen-atfe-arm64-minerva`
+only -- not the plain `xen-atfe-arm64`. Both builds export
+`binaries/xen`; depending on both would let the uninstrumented binary
+overwrite the instrumented one, and the booted Xen would emit no
+`CONFIG_MINERVA_ANALYSIS` allocation traces (the runtime artifact would
+parse to an empty corpus).
+
+The join key `config_sha256` has a single source of truth: the expanded
+config the instrumented build produces and exports as `xen-config`. The
+runtime job derives its hash from that file (it arrives via the build
+dependency), and `minerva-static-analysis` consumes the same
+`xen-config` (via `MINERVA_CONFIG_INPUT`) instead of expanding its own
+config. Because both sides hash the identical file, their
+`config_sha256` match by construction -- there is no second config
+expansion to keep byte-aligned. The static job still builds its own
+callgraph from that config; only the config expansion is shared.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
