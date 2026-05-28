@@ -1811,6 +1811,43 @@ def _self_test() -> int:
     check("xfree dropped (text-report loader)",
           all("xfree" not in r["frames"] for r in _txt))
 
+    # Subsystem heuristics (Series 20). Privileged, per-domain-bounded
+    # setup paths accept; guest-driven paths get an accurate actor/phase
+    # but must NOT auto-accept (their bound is an annotation fact).
+    def _hclass(stack, classes=("direct_static_explained",)):
+        frames = stack.split(" -> ")
+        sc = {"allocation_target": frames[-1], "canonical_stack": stack,
+              "_canonical_frames": frames,
+              "comparison_classes_seen": list(classes),
+              "raw_stack_variants": 1, "domains_seen": "",
+              "max_size_observed": 0}
+        asc.classify_scenario(sc, "medium")
+        return sc
+
+    _g = _hclass("grant_table_init -> gnttab_grow_table -> "
+                 "alloc_xenheap_pages -> alloc_domheap_pages")
+    check("grant-table setup -> privileged domain_creation, accepted",
+          _g["trigger_actor"] == "dom0_or_hwdom"
+          and _g["phase"] == "domain_creation"
+          and _g["review_status"] == "accepted")
+    _dc = _hclass("do_trap_guest_sync -> do_domctl -> flask_getdomaininfo "
+                  "-> avc_has_perm -> _xmalloc")
+    check("domctl+flask -> privileged actor, control_hypercall",
+          _dc["trigger_actor"] == "dom0_or_hwdom"
+          and _dc["phase"] == "control_hypercall")
+    check("domctl control hypercall not auto-accepted (cause unknown)",
+          _dc["review_status"] == "needs_manual_review")
+    _xsm = _hclass("avc_has_perm -> avc_alloc_node -> _xzalloc -> _xmalloc")
+    check("guest XSM avc alloc -> ordinary_guest, stays in review",
+          _xsm["trigger_actor"] == "ordinary_guest"
+          and _xsm["phase"] == "xsm_access_check"
+          and _xsm["review_status"] == "needs_manual_review")
+    _gop = _hclass("do_grant_table_op -> gnttab_grow_table -> "
+                   "alloc_xenheap_pages -> alloc_domheap_pages")
+    check("guest grant-op -> ordinary_guest, stays in review",
+          _gop["trigger_actor"] == "ordinary_guest"
+          and _gop["review_status"] == "needs_manual_review")
+
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
 

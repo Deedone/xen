@@ -187,6 +187,29 @@ _INTERRUPT_HINTS = ("gic", "vgic", "irq", "interrupt", "timer",
                     "do_IRQ", "vtimer")
 _SCHED_HINTS = ("schedule", "sched_", "cpu_schedule", "credit",
                 "rt_alloc", "csched")
+# Privileged control hypercalls. do_domctl / do_sysctl require a
+# privileged caller (dom0 / hwdom / toolstack); reaching one in the
+# path means the trigger actor is privileged, not an ordinary guest --
+# even if the path then passes through XSM/FLASK permission checks.
+_PRIV_HYPERCALL_HINTS = ("do_domctl", "do_sysctl", "arch_do_domctl",
+                         "arch_do_sysctl")
+# Grant-table setup vs grant-table operation. grant_table_init /
+# gnttab_setup_table allocate per-domain grant structures during
+# domain setup (privileged, per-domain bounded). gnttab_grow_table and
+# the do_grant_table_op entry are guest-reachable grant operations.
+_GRANT_SETUP_HINTS = ("grant_table_init", "gnttab_setup_table",
+                      "grant_table_create", "gnttab_populate")
+_GRANT_OP_HINTS = ("do_grant_table_op", "gnttab_grow_table",
+                   "gnttab_map_grant_ref", "gnttab_transfer")
+# XSM / FLASK access-vector cache. avc_alloc_node allocates AVC cache
+# nodes during permission checks. The allocation is part of the XSM
+# decision cache; its frequency is driven by whoever triggers the
+# permission check (often a guest hypercall), and its size is bounded
+# by the AVC cache design -- but that bound is a design fact asserted
+# by annotation, not inferable from the stack. The heuristic only
+# records the phase here; the actor is taken from the path root.
+_XSM_HINTS = ("avc_alloc_node", "avc_has_perm", "avc_audit",
+              "avc_insert", "flask_", "xsm_")
 _HYPERCALL_HINTS = ("do_", "hypercall", "compat_")
 _EVTCHN_HINTS = ("evtchn", "event_channel")
 _XENHEAP_TARGETS = ("alloc_xenheap_pages", "_xmalloc")
@@ -281,6 +304,39 @@ def classify_scenario(sc: dict, confidence_mode: str = "medium") -> dict:
         phase, actor, priv, conf = ("domain_destroy", "dom0_or_hwdom",
                                     "privileged", "medium")
         freq = "per_domain_creation"
+    elif _frames_match(frames, _GRANT_SETUP_HINTS):
+        # Per-domain grant-table setup: privileged, bounded by the
+        # per-domain grant frame limit.
+        phase, actor, priv, conf = ("domain_creation", "dom0_or_hwdom",
+                                    "privileged", "medium")
+        freq, size_kind = "per_domain_creation", "domain_limit_bounded"
+    elif _frames_match(frames, _PRIV_HYPERCALL_HINTS):
+        # do_domctl / do_sysctl require a privileged caller. Recognised
+        # before the XSM and generic-hypercall fallbacks so a
+        # privileged control hypercall that passes through a FLASK
+        # permission check is attributed to the privileged toolstack,
+        # not mistaken for an ordinary guest. The size bound is not
+        # assumed: a control hypercall is frequency-bounded by the
+        # privileged caller, not necessarily per-allocation bounded.
+        phase, actor, priv, conf = ("control_hypercall", "dom0_or_hwdom",
+                                    "privileged", "medium")
+        freq = "privileged_invocation"
+    elif _frames_match(frames, _GRANT_OP_HINTS):
+        # Guest-reachable grant-table operation. Guest-driven cause; the
+        # bound (per-domain grant limit) is a design fact for annotation
+        # to assert, so this stays in review absent that evidence.
+        phase, actor, priv, conf = ("hypercall", "ordinary_guest",
+                                    "unprivileged_guest", "low")
+    elif _frames_match(frames, _XSM_HINTS):
+        # XSM / FLASK access-vector cache allocation reached without a
+        # privileged hypercall root above (those are handled earlier).
+        # Phase is the access check; the actor is whoever drove it --
+        # typically an ordinary guest hypercall. The AVC cache bound is
+        # a design fact asserted by annotation, not inferred here, so
+        # this remains unprivileged_guest and stays in review until
+        # annotated.
+        phase, actor, priv, conf = ("xsm_access_check", "ordinary_guest",
+                                    "unprivileged_guest", "low")
     elif _frames_match(frames, _SCHED_HINTS):
         phase, actor, priv, conf = ("runtime_background", "dom0_or_hwdom",
                                     "internal", "low")
