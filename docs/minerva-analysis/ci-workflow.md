@@ -308,6 +308,24 @@ near-miss spellings a symbol-naming mismatch, and an empty
 `reaching_set_checked` a missing static edge. These fields are
 diagnostic only and do not affect classification.
 
+### Allocator-chain attribution
+
+A runtime allocation can cross an allocator chain -- a caller invokes
+`_xmalloc`, which for a large request falls through to
+`alloc_xenheap_pages` and then `alloc_domheap_pages`. The path is
+attributed to its innermost allocator, but the real caller reaches the
+*outer* allocator it actually called. Direct-static matching therefore
+considers the path's own target first and then any other allocation
+target that appears as a frame in the path (an allocator the path
+genuinely traversed), so a caller in an outer allocator's reaching set
+still explains the path. The match remains strict set membership and is
+scoped to allocator targets present in the path. A path whose only
+non-target frames are themselves allocation targets has no external
+caller captured and is reported as `target_observed_no_caller_context`,
+not a mismatch. Free-side plumbing (`xfree`, `free_xenheap_pages`,
+`free_domheap_pages`) is dropped during canonicalisation, since an
+interleaved free is not a call frame on the allocation path.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
