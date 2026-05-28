@@ -1959,6 +1959,22 @@ def _self_test() -> int:
           _asc_sc2["review_status"] == "accepted"
           and _asc_sc2.get("classification_source") == "annotation_classified")
 
+    # Comparison robustness (Series 23). A parser report whose path is
+    # entirely allocator plumbing (only frees) must not crash: after the
+    # plumbing drop the frame list is empty, which previously indexed an
+    # empty list. It is skipped, yielding no records and no exception.
+    _allfree = _rsc._parse_report_text(
+        "[d0] _xmalloc :\nmax size path:\n    xfree\n"
+        "    free_xenheap_pages\n", {"_xmalloc"})
+    check("all-plumbing report yields no records, no crash",
+          _allfree == [])
+    # A mixed path with a leading plumbing frame still parses.
+    _mixed = _rsc._parse_report_text(
+        "[d0] _xmalloc :\nmax size path:\n    do_domctl\n    xfree\n"
+        "    _xmalloc\n", {"_xmalloc"})
+    check("mixed plumbing/real path still parses",
+          bool(_mixed) and "xfree" not in _mixed[0]["frames"])
+
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
 

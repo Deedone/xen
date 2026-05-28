@@ -62,6 +62,12 @@ from pathlib import Path
 
 DEFAULT_TARGETS = ["alloc_domheap_pages", "alloc_xenheap_pages", "_xmalloc"]
 
+# Warnings accumulated while reading parser text reports (e.g. a
+# malformed report that was skipped rather than allowed to crash the
+# comparator). Reset at the start of each compare() and surfaced in the
+# comparison notes.
+_PARSE_REPORT_WARNINGS: list[str] = []
+
 # Allocator-layer aliases: runtime label observed -> canonical static
 # target the analysis trees are framed around.
 #
@@ -297,6 +303,12 @@ def _parse_report_text(text: str, known: set) -> list[dict]:
         # loader produced the frames. A free between two allocations is
         # not a call frame on the allocation's path.
         norm = [f for f in norm if f not in ALLOCATOR_PLUMBING]
+        if not norm:
+            # Every frame was allocator plumbing (e.g. a path of only
+            # frees): this is not an allocation path, so there is
+            # nothing to attribute. Skip rather than indexing an empty
+            # list below.
+            return
         # Collapse consecutive duplicate frames (the parser may print
         # the head frame twice at increasing indent).
         collapsed: list[str] = []
@@ -391,7 +403,17 @@ def _load_parser_text_reports(parsed_dir: Path,
             text = rep.read_text(errors="replace")
         except OSError:
             continue
-        out.extend(_parse_report_text(text, known))
+        try:
+            out.extend(_parse_report_text(text, known))
+        except Exception as e:  # noqa: BLE001
+            # A single malformed report must not crash the comparator and
+            # block the whole corpus. Skip it and carry on; the absence
+            # of its paths is visible in the metrics, and the failure is
+            # noted rather than fatal. This mirrors the JSON/CSV loaders,
+            # which already swallow malformed input.
+            _PARSE_REPORT_WARNINGS.append(
+                f"{rep}: unreadable parser report skipped ({type(e).__name__})")
+            continue
     return out
 
 
@@ -676,6 +698,7 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
             config_name: str = "", git_sha: str = "",
             targets: list[str] | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
+    _PARSE_REPORT_WARNINGS.clear()
     direct_static = load_direct_static(direct_static_dir)
     indirect_impls, indirect_reaches = load_indirect_candidates(
         reachability_dir)
@@ -868,7 +891,7 @@ def compare(runtime_parsed: Path, reachability_dir: Path,
             "not_observed_in_this_workload does not mean impossible.",
             "Static reachability does not mean runtime exercised.",
             "Metrics are per-run artifacts, not committed constants.",
-        ] + collect_notes,
+        ] + collect_notes + list(_PARSE_REPORT_WARNINGS),
     }
     (out_dir / "runtime-static-comparison.json").write_text(
         json.dumps(metrics, indent=2), encoding="utf-8")
