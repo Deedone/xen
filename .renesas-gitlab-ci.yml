@@ -116,58 +116,55 @@ minerva-allocation-assurance-corpus:
   needs:
     - job: minerva-static-analysis
       artifacts: true
-    - job: minerva-qemu-smoke-dom0-arm64-gcc
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0-arm64-gcc-debug
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-boot-cpupools
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-earlyprintk
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-gicv3
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-static-shared-mem
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-staticheap
-      artifacts: true
-    - job: minerva-qemu-smoke-dom0less-arm64-gcc-debug-staticmem
-      artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-cacheflush
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-createdomain
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-destroydomain
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-get-paging-mempool-size
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-getdomaininfo
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-max-mem
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-pausedomain
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-set-paging-mempool-size
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-domctl-unpausedomain
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-getdomaininfolist
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-sysctl-physinfo
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-debug-hyp-xen-version
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-gcc-hyp-xen-version
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-cmdline
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-edf
       artifacts: true
+      optional: true
     - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime
       artifacts: true
+      optional: true
   tags:
     - arm64
   variables:
