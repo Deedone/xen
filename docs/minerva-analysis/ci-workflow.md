@@ -365,6 +365,16 @@ confirms the cited bound. Acceptance is therefore always a human
 assertion. The corpus job passes `--annotations` when the file is
 present.
 
+### Comparison robustness
+
+A single runtime job's malformed parser report must not crash the
+comparator and block the whole corpus. `_parse_report_text` skips a path
+that reduces to no frames after the plumbing drop (an all-free path is
+not an allocation path), and each report is parsed under a guard so a
+malformed report is skipped with a note in the comparison `notes` rather
+than aborting the job. This mirrors the JSON/CSV loaders, which already
+ignore malformed input.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
