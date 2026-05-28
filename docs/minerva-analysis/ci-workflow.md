@@ -284,6 +284,15 @@ under concurrent upload load, and upload only the `runtime-artifacts/`
 tree (the raw console log already lives under
 `runtime-artifacts/<test>/logs/`).
 
+The instrumented build is also compiled with `CONFIG_FRAME_POINTER=y`.
+Xen's arm64 backtrace (`show_trace()`) walks the frame-pointer chain, and
+a `debug=n` build otherwise omits frame pointers, so the WARN trace would
+collapse to the allocator entry point with no caller frame (reported by
+the corpus as `target_observed_no_caller_context`). Frame pointers let
+the trace retain the caller of `_xmalloc`/`alloc_domheap_pages`, which is
+the non-target context the runtime/static comparison needs to explain the
+path.
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
