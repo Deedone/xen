@@ -292,6 +292,11 @@ def _parse_report_text(text: str, known: set) -> list[dict]:
         if not frames:
             return
         norm = [_frame_func(f) for f in frames]
+        # Drop allocator plumbing (interleaved frees) here as well as in
+        # _coerce_path_record, so the drop applies regardless of which
+        # loader produced the frames. A free between two allocations is
+        # not a call frame on the allocation's path.
+        norm = [f for f in norm if f not in ALLOCATOR_PLUMBING]
         # Collapse consecutive duplicate frames (the parser may print
         # the head frame twice at increasing indent).
         collapsed: list[str] = []

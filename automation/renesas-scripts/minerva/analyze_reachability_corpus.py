@@ -1798,10 +1798,18 @@ def _self_test() -> int:
           == "unresolved_normalization_mismatch")
     # xfree plumbing is dropped during canonicalisation, so
     # _xmalloc -> xfree -> _xmalloc reduces to a caller-less path.
+    # Cover BOTH loaders: the JSON/CSV path (_coerce_path_record) and
+    # the text-report path (_parse_report_text), since the drop must
+    # apply regardless of which produced the frames.
     _rec = _rsc._coerce_path_record(
         {"target": "_xmalloc", "frames": ["_xmalloc", "xfree", "_xmalloc"]})
-    check("xfree dropped as allocator plumbing",
+    check("xfree dropped (json/csv loader)",
           "xfree" not in _rec["frames"])
+    _txt = _rsc._parse_report_text(
+        "alloc() dom d0\n    _xmalloc\n    xfree\n    _xmalloc\n",
+        {"_xmalloc"})
+    check("xfree dropped (text-report loader)",
+          all("xfree" not in r["frames"] for r in _txt))
 
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
