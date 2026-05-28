@@ -1,10 +1,27 @@
 # CI workflow
 
-The Minerva indirect-call analysis runs as a GitLab CI job
-named `minerva-indirect-reachability`. The job script invokes
-the driver, which orchestrates the full pipeline against a
-freshly built Xen `.config` and a freshly generated `.ci`
-tree.
+The Minerva indirect-call analysis runs in CI through the
+driver described below, which orchestrates the full pipeline
+against a freshly built Xen `.config` and a freshly generated
+`.ci` tree.
+
+The current pipeline separates the work into independent
+producers and a single consumer (see "Corpus producer/consumer
+workflow" at the end of this document):
+
+- `minerva-static-analysis` runs the static stages once per
+  config/backend/build and emits `static-analysis/`;
+- the per-test `minerva-qemu-xtf-*` and `minerva-qemu-smoke-*`
+  jobs each run a runtime workload and emit
+  `runtime-artifacts/<test>/`, with no static analysis;
+- `minerva-allocation-assurance-corpus` joins the two by
+  manifest identity and emits `corpus-analysis/`.
+
+The earlier combined `minerva-indirect-reachability` job, which
+ran the static stages and an optional same-job runtime in one
+job, has been retired in favour of these independent producers.
+The driver mechanics below still describe what the static
+producer runs.
 
 ## Driver entry point
 
@@ -183,3 +200,38 @@ See [artifact-contract.md](artifact-contract.md) for the
 exact artifact layout and
 [runtime-static-status.md](runtime-static-status.md) for the
 status-label decision rules.
+
+## Corpus producer/consumer workflow
+
+The corpus assurance analysis (see
+[corpus-assurance.md](corpus-assurance.md) when present, and
+`analyze_reachability_corpus.py`) consumes SEPARATED
+static-analysis and runtime artifacts. Three roles make up the
+pipeline:
+
+| Role | Job(s) | Emits | needs |
+| --- | --- | --- | --- |
+| Static producer | `minerva-static-analysis` | `static-analysis/` | none (independent) |
+| Runtime producers | `minerva-qemu-xtf-*` (16), `minerva-qemu-smoke-*` (10) | `runtime-artifacts/<test>/` | `xen-atfe-arm64-minerva` (the LLVM-based build) |
+| Corpus consumer | `minerva-allocation-assurance-corpus` | `corpus-analysis/` | the static job + every runtime test job |
+
+The static job and the runtime test jobs are fully independent:
+neither needs the other, and a runtime test never triggers or
+repeats static analysis. Each runtime test job extends a
+pure-runtime template (`.minerva-arm64` / `.minerva-smoke-arm64`)
+that runs the workload and packages the console log into
+`runtime-artifacts/<test>/` via `package_artifacts.sh` -- it runs
+no static stages.
+
+Only the corpus job joins static and runtime, matching by manifest
+identity (`git_sha` / `target_arch` / `config_sha256`). The one
+value both sides must compute identically -- `config_sha256` -- is
+derived on each side from the expanded `.config` content, so two
+independent jobs agree without either depending on the other.
+
+An empty corpus never supports a bounded assurance claim: if there
+are no static artifacts, no runtime artifacts, no matched config
+groups, or every discovered artifact was quarantined (for example a
+runtime manifest missing `config_sha256`), the corpus verdict is
+forced to `NOT_SUPPORTED` with an explicit blocker. Absence of
+evidence is not evidence of support.
