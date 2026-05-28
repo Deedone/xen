@@ -273,6 +273,17 @@ automatically they are satisfied by real runs. The producers carry
 pipeline -- a missing producer just yields less runtime evidence, and
 the empty-corpus gate covers the all-failed case.
 
+The instrumented build emits a Xen `WARN()` (register + stack-trace
+dump) per tracked allocation, which `log_parser.py` needs for the call
+stacks. That makes instrumented runs slow and their logs large, so the
+`minerva-qemu-xtf-*` jobs raise the job `timeout` and
+`TEST_TIMEOUT_OVERRIDE` (the expect per-message timeout in
+`console.exp`), increase `ARTIFACT_UPLOAD_ATTEMPTS` and
+`RUNNER_AFTER_SCRIPT_TIMEOUT` to ride out transient coordinator 500s
+under concurrent upload load, and upload only the `runtime-artifacts/`
+tree (the raw console log already lives under
+`runtime-artifacts/<test>/logs/`).
+
 The corpus `needs:` are marked `optional: true`: the corpus depends on
 each producer only if it exists and ran in this pipeline. The xtf jobs
 are `when: manual`, so an operator can run any subset and still get a
