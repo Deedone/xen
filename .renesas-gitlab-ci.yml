@@ -191,6 +191,9 @@ minerva-allocation-assurance-corpus:
         --policy docs/minerva-analysis/assurance-policy.example.yaml
         --out-dir corpus-analysis/
       )
+      if [ -f automation/renesas-scripts/minerva/scenario-annotations.yaml ]; then
+        args+=( --annotations automation/renesas-scripts/minerva/scenario-annotations.yaml )
+      fi
       if [ -d coverage-artifacts ]; then
         args+=( --coverage-root coverage-artifacts/ )
       fi

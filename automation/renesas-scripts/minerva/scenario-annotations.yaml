@@ -1,0 +1,144 @@
+# Curated scenario annotations for the minerva allocation corpus.
+#
+# Each entry refines a scenario's evidence fields and MAY accept it -- but
+# only if it carries a non-empty `justification`. The analyzer ignores an
+# acceptance whose justification is empty (it still applies the field
+# refinements), so the TODO placeholders below are SAFE: they will not
+# accept anything until a reviewer supplies the safety reasoning.
+#
+# This file is intentionally shipped with empty justifications. Each one
+# is a human safety assertion about a real Xen allocation; it must be
+# written and owned by an engineer, not generated. Fill the justification
+# (and confirm the bound) for an entry to take effect.
+#
+# match:
+#   allocation_target: <exact target>            (optional)
+#   frames_any: [<frame substrings>]             (any-of match on the path)
+# refinements: actor / phase / privilege / controllability,
+#   lifetime{class,cleanup}, size_bound{kind,explanation},
+#   frequency{class}
+# classification: an accepted_* class (requires justification) or a
+#   needs_manual_review (to annotate without accepting).
+#
+# Pass with:  indirect_ci_driver / analyze_reachability_corpus
+#             --annotations automation/renesas-scripts/minerva/scenario-annotations.yaml
+
+scenarios:
+
+  # --- XSM / FLASK access-vector cache ---------------------------------
+  # avc_alloc_node allocates AVC cache nodes during permission checks.
+  # The frequency is driven by whoever triggers the check (often a guest
+  # hypercall), but the AVC caps its live node count and recycles, so the
+  # retained footprint is bounded by that cap. Confirm the cap symbol and
+  # write the justification before this accepts.
+  - id: "XSM-AVC-NODE-CACHE"
+    match:
+      allocation_target: "_xmalloc"
+      frames_any:
+        - "avc_alloc_node"
+        - "avc_insert"
+    actor: "ordinary_guest"
+    phase: "xsm_access_check"
+    controllability: "unprivileged_guest"
+    lifetime:
+      class: "retained_after_return"
+      cleanup: "avc_reclaim_node"
+    size_bound:
+      kind: "config_bounded"
+      explanation: "TODO: AVC live-node count is capped (confirm the cap, e.g. avc_cache_threshold / avc_node_cache) and recycled via avc_reclaim_node."
+    frequency:
+      class: "runtime_repeated"
+    classification: "accepted_runtime_bounded"
+    justification: ""   # TODO: assert and cite the AVC node-count bound.
+
+  # --- Grant table: guest-reachable operations -------------------------
+  # do_grant_table_op / gnttab_grow_table grow per-domain grant
+  # structures. Bounded by the per-domain grant-frame limit
+  # (max_grant_frames). Confirm and justify.
+  - id: "GNTTAB-GROW-TABLE"
+    match:
+      frames_any:
+        - "gnttab_grow_table"
+        - "do_grant_table_op"
+    actor: "ordinary_guest"
+    phase: "hypercall"
+    controllability: "unprivileged_guest"
+    lifetime:
+      class: "transferred_to_domain_lifetime"
+      cleanup: "gnttab_release_mappings"
+    size_bound:
+      kind: "domain_limit_bounded"
+      explanation: "TODO: bounded by per-domain max_grant_frames; cite the limit and where it is enforced."
+    frequency:
+      class: "per_domain_creation"
+    classification: "accepted_guest_triggered_bounded_domain_lifetime"
+    justification: ""   # TODO: assert the per-domain grant-frame bound.
+
+  # --- Event channel: FIFO control structures -------------------------
+  # evtchn_fifo_init_control allocates per-domain FIFO control pages.
+  # Bounded by the per-domain event-channel limit.
+  - id: "EVTCHN-FIFO-CONTROL"
+    match:
+      frames_any:
+        - "evtchn_fifo_init_control"
+        - "evtchn_fifo_set_pending"
+    actor: "ordinary_guest"
+    phase: "hypercall"
+    controllability: "unprivileged_guest"
+    lifetime:
+      class: "transferred_to_domain_lifetime"
+      cleanup: "evtchn_fifo_destroy"
+    size_bound:
+      kind: "domain_limit_bounded"
+      explanation: "TODO: bounded by the per-domain event-channel limit (max_evtchns); cite it."
+    frequency:
+      class: "per_event_channel"
+    classification: "accepted_guest_triggered_bounded_domain_lifetime"
+    justification: ""   # TODO: assert the per-domain evtchn bound.
+
+  # --- IOMMU / SMMU: device assignment --------------------------------
+  # IOMMU page-table and device-context allocations during device
+  # assignment. Privileged (toolstack-driven) and per-device bounded.
+  - id: "IOMMU-DEVICE-ASSIGN"
+    match:
+      frames_any:
+        - "arm_smmu_assign_dev"
+        - "arm_iommu_map_page"
+        - "iommu_map"
+    actor: "hardware"
+    phase: "device_assignment"
+    controllability: "hardware_firmware"
+    lifetime:
+      class: "transferred_to_domain_lifetime"
+      cleanup: "arm_smmu_deassign_dev"
+    size_bound:
+      kind: "hardware_table_bounded"
+      explanation: "TODO: bounded by the assigned-device count and SMMU page-table size; cite the bound."
+    frequency:
+      class: "per_device"
+    classification: "accepted_hardware_firmware_controlled"
+    justification: ""   # TODO: assert the per-device IOMMU bound.
+
+  # --- Domain creation: per-domain structures -------------------------
+  # Allocations under domain_create / construct_domain are per-domain,
+  # bounded by the domain count the privileged toolstack may create.
+  - id: "DOMAIN-CREATE-STRUCT"
+    match:
+      frames_any:
+        - "domain_create"
+        - "arch_domain_create"
+        - "construct_domain"
+        - "alloc_domain_struct"
+    actor: "dom0_or_hwdom"
+    phase: "domain_creation"
+    controllability: "privileged"
+    lifetime:
+      class: "transferred_to_domain_lifetime"
+      cleanup: "domain_destroy"
+    size_bound:
+      kind: "domain_limit_bounded"
+      explanation: "TODO: per-domain, bounded by the privileged-toolstack domain limit; cite it."
+    frequency:
+      class: "per_domain_creation"
+    classification: "accepted_domain_creation_bounded"
+    justification: ""   # TODO: assert the per-domain-creation bound.

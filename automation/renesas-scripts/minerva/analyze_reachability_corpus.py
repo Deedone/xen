@@ -1930,6 +1930,35 @@ def _self_test() -> int:
           _gop["trigger_actor"] == "ordinary_guest"
           and _gop["review_status"] == "needs_manual_review")
 
+    # Annotation safety (Series 22): an annotation with an empty
+    # justification must NOT accept, even though it refines fields.
+    _asc_sc = {"scenario_id": "A1", "allocation_target": "_xmalloc",
+               "canonical_stack": "avc_alloc_node -> _xmalloc",
+               "_canonical_frames": ["avc_alloc_node", "_xmalloc"],
+               "comparison_classes_seen": ["direct_static_explained"],
+               "raw_stack_variants": 1, "domains_seen": "",
+               "max_size_observed": 0}
+    asc.classify_scenario(_asc_sc, "medium")
+    _w = []
+    asc.apply_annotations([_asc_sc], {"scenarios": [{
+        "id": "T", "match": {"frames_any": ["avc_alloc_node"]},
+        "size_bound": {"kind": "config_bounded", "explanation": "x"},
+        "classification": "accepted_runtime_bounded",
+        "justification": ""}]}, _w)
+    check("annotation w/ empty justification does not accept",
+          _asc_sc["review_status"] == "needs_manual_review"
+          and _asc_sc.get("allocation_size_kind") == "config_bounded")
+    _asc_sc2 = dict(_asc_sc)
+    _asc_sc2["review_status"] = "needs_manual_review"
+    _w2 = []
+    asc.apply_annotations([_asc_sc2], {"scenarios": [{
+        "id": "T2", "match": {"frames_any": ["avc_alloc_node"]},
+        "classification": "accepted_runtime_bounded",
+        "justification": "bounded by AVC cap, reclaimed"}]}, _w2)
+    check("annotation w/ justification accepts",
+          _asc_sc2["review_status"] == "accepted"
+          and _asc_sc2.get("classification_source") == "annotation_classified")
+
     print(f"\n{len(failures)} failures" if failures else "\nall passed")
     return 1 if failures else 0
 
