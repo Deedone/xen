@@ -50,6 +50,8 @@ int call_psci_cpu_on(int cpu)
 
 void call_psci_cpu_off(void)
 {
+    fuzzer_on_block();
+
     if ( psci_ver > PSCI_VERSION(0, 1) )
     {
         struct arm_smccc_res res;

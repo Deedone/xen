@@ -23,6 +23,7 @@
 #include <xen/watchdog.h>
 #include <xen/init.h>
 #include <asm/div64.h>
+#include <xen/fuzzer.h>
 
 static unsigned char keypress_key;
 static bool alt_key_handling;
@@ -252,6 +253,8 @@ static void cf_check dump_hwdom_registers(unsigned char key)
 
 static void noreturn cf_check reboot_machine(unsigned char key, bool unused)
 {
+    fuzzer_on_block();
+
     printk("'%c' pressed -> rebooting machine\n", key);
     machine_restart(0);
 }
