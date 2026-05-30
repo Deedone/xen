@@ -59,8 +59,6 @@ static int vpci_mmio_read_root(struct vcpu *v, mmio_info_t *info, register_t *r,
     struct pci_host_bridge *bridge = p;
     pci_sbdf_t sbdf = vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, true);
     
-    ASSERT(!bridge == !is_hardware_domain(v->domain));
-
     return vpci_mmio_read(v, info, r, sbdf);
 }
 
@@ -69,8 +67,6 @@ static int vpci_mmio_read_child(struct vcpu *v, mmio_info_t *info,
 {
     struct pci_host_bridge *bridge = p;
     pci_sbdf_t sbdf = vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, false);
-
-    ASSERT(!bridge == !is_hardware_domain(v->domain));
 
     return vpci_mmio_read(v, info, r, sbdf);
 }
@@ -88,8 +84,6 @@ static int vpci_mmio_write_root(struct vcpu *v, mmio_info_t *info, register_t r,
     struct pci_host_bridge *bridge = p;
     pci_sbdf_t sbdf = vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, true);
 
-    ASSERT(!bridge == !is_hardware_domain(v->domain));
-
     return vpci_mmio_write(v, info, r, sbdf);
 }
 
@@ -98,8 +92,6 @@ static int vpci_mmio_write_child(struct vcpu *v, mmio_info_t *info,
 {
     struct pci_host_bridge *bridge = p;
     pci_sbdf_t sbdf = vpci_sbdf_from_gpa(v->domain, bridge, info->gpa, false);
-
-    ASSERT(!bridge == !is_hardware_domain(v->domain));
 
     return vpci_mmio_write(v, info, r, sbdf);
 }

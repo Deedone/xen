@@ -142,6 +142,16 @@ int pci_sanitize_bar_memory(struct rangeset *r)
     return 0;
 }
 
+bool pci_is_hardware_domain(const struct domain *d, u16 seg, u8 bus)
+{
+    return is_hardware_domain(d);
+}
+
+struct domain *pci_get_hardware_domain(u16 seg, u8 bus)
+{
+    return hardware_domain;
+}
+
 void __init pci_setup(void)
 {
     /*

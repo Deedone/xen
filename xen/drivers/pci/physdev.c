@@ -53,7 +53,7 @@ ret_t pci_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         }
 #endif
 
-        ret = pci_add_device(hardware_domain, add.seg, add.bus, add.devfn,
+        ret = pci_add_device(current->domain, add.seg, add.bus, add.devfn,
                              &pdev_info, node);
         break;
     }
