@@ -6,6 +6,7 @@
 #include <xen/sched.h>
 #include <xen/vpci.h>
 #include <xen/domain-layout.h>
+#include <xen/iocap.h>
 
 #include <asm/mmio.h>
 
@@ -127,6 +128,24 @@ static int vpci_setup_mmio_handler_cb(struct domain *d,
     return count;
 }
 
+
+static int vpci_permit_iomem(const struct dt_device_node *dev,
+                                   uint32_t flags, uint64_t pci_addr, uint64_t addr,
+                                   uint64_t len, void *data)
+{
+    struct domain *d = data;
+
+    iomem_permit_access(d, PFN_DOWN(addr), PFN_UP(addr + len));
+    return 0;
+}
+
+static int vpci_permit_bridge_iomem(struct domain *d,
+                                   struct pci_host_bridge *bridge)
+{
+    dt_for_each_range(bridge->dt_node, vpci_permit_iomem, d);
+    return 0;
+}
+
 int domain_vpci_init(struct domain *d)
 {
     if ( !has_vpci(d) )
@@ -142,6 +161,10 @@ int domain_vpci_init(struct domain *d)
         int ret;
 
         ret = pci_host_iterate_bridges_and_count(d, vpci_setup_mmio_handler_cb);
+        if ( ret < 0 )
+            return ret;
+
+        ret = pci_host_iterate_bridges_and_count(d, vpci_permit_bridge_iomem);
         if ( ret < 0 )
             return ret;
     }
