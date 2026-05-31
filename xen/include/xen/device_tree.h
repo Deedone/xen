@@ -668,8 +668,8 @@ int dt_for_each_irq_map(const struct dt_device_node *dev,
  */
 int dt_for_each_range(const struct dt_device_node *dev,
                       int (*cb)(const struct dt_device_node *dev,
-                                uint32_t flags, uint64_t addr, uint64_t length,
-                                void *data),
+                                uint32_t flags, uint64_t pci_add, uint64_t addr,
+                                uint64_t length, void *data),
                       void *data);
 
 /* Flag test macros for use in the callback */

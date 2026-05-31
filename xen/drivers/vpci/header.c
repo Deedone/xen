@@ -665,7 +665,7 @@ static void cf_check bar_write(
     if ( bar->enabled )
     {
         /* If the value written is the current one avoid printing a warning. */
-        if ( val != (uint32_t)(bar->addr >> (hi ? 32 : 0)) )
+        if ( val != (uint32_t)(bar->pci_addr >> (hi ? 32 : 0)) )
             gprintk(XENLOG_WARNING,
                     "%pp: ignored BAR %zu write while mapped\n",
                     &pdev->sbdf, bar - pdev->vpci->header.bars + hi);
@@ -677,8 +677,13 @@ static void cf_check bar_write(
      * Update the cached address, so that when memory decoding is enabled
      * Xen can map the BAR into the guest p2m.
      */
-    bar->addr &= ~(0xffffffffULL << (hi ? 32 : 0));
-    bar->addr |= (uint64_t)val << (hi ? 32 : 0);
+    bar->pci_addr &= ~(0xffffffffULL << (hi ? 32 : 0));
+    bar->pci_addr |= (uint64_t)val << (hi ? 32 : 0); 
+
+    if ( vpci_translate_bar_range(pdev, bar) )
+        printk("Failed to translate BAR range %lx - %lx\n", bar->pci_addr,
+               bar->pci_addr + bar->size - 1);
+
     /* Update guest address, so hardware domain BAR is identity mapped. */
     bar->guest_addr = bar->addr;
 

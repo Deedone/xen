@@ -699,8 +699,8 @@ int __init add_ext_regions(unsigned long s_gfn, unsigned long e_gfn,
 }
 
 static int __init handle_pci_range(const struct dt_device_node *dev,
-                                   uint32_t flags, uint64_t addr, uint64_t len,
-                                   void *data)
+                                   uint32_t flags, uint64_t pci_addr, uint64_t addr,
+                                   uint64_t len, void *data)
 {
     struct rangeset *mem_holes = data;
     paddr_t start, end;
@@ -1463,8 +1463,8 @@ struct vpci_param {
 };
 
 static int __init handle_vpci_range(const struct dt_device_node *dev,
-                                    uint32_t flags, uint64_t addr, uint64_t len,
-                                    void *data)
+                                    uint32_t flags, uint64_t pci_addr, uint64_t addr,
+                                    uint64_t len, void *data)
 {
     struct vpci_param *vpci = (struct vpci_param *)data;
 

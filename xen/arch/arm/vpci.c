@@ -222,6 +222,29 @@ void platform_pci_fixup_bar(const struct pci_dev *pdev,
     }
 }
 
+int vpci_translate_bar_range(const struct pci_dev *pdev, struct vpci_bar *bar)
+{
+    struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->sbdf.seg, pdev->sbdf.bus);
+    struct pci_range_map *map;
+    uint64_t start = bar->pci_addr;
+    uint64_t end = bar->pci_addr + bar->size - 1;
+
+    if ( !bridge )
+        return -EINVAL;
+
+    list_for_each_entry(map, &bridge->range_maps, node)
+    {
+        if ( start >= map->pci_addr && start <= map->pci_addr + map->len - 1 &&
+             end >= map->pci_addr && end <= map->pci_addr + map->len - 1 )
+        {
+            bar->addr = map->mem_addr + (start - map->pci_addr);
+            return 0;
+        }
+    }
+
+    return -EINVAL;
+}
+
 /*
  * Local variables:
  * mode: C

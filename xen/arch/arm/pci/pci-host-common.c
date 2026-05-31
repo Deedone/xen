@@ -166,6 +166,7 @@ static struct pci_host_bridge *pci_alloc_host_bridge(void)
         return NULL;
 
     INIT_LIST_HEAD(&bridge->node);
+    INIT_LIST_HEAD(&bridge->range_maps);
 
     return bridge;
 }
@@ -255,12 +256,25 @@ static int pci_bus_find_domain_nr(struct dt_device_node *dev)
 }
 
 static int add_bar_range(const struct dt_device_node *dev, uint32_t flags,
-                         uint64_t addr, uint64_t len, void *data)
+                         uint64_t pci_addr, uint64_t addr, uint64_t len, void *data)
 {
     struct pci_host_bridge *bridge = data;
+    struct pci_range_map *map = NULL;
 
     if ( !dt_range_is_memory(flags) )
         return 0;
+
+    map = xzalloc(struct pci_range_map);
+
+    if ( !map )
+        return -ENOMEM;
+
+    map->mem_addr = addr;
+    map->pci_addr = pci_addr;
+    map->len = len;
+    INIT_LIST_HEAD(&map->node);
+
+    list_add_tail(&map->node, &bridge->range_maps);    
 
     if ( dt_range_is_prefetchable(flags) )
         return rangeset_add_range(bridge->bar_ranges_prefetch, addr,
@@ -344,8 +358,8 @@ err_exit:
 }
 
 static int __init set_bridge_mem_base_limit(const struct dt_device_node *dev,
-                                            uint32_t flags, uint64_t addr,
-                                            uint64_t len, void *data)
+                                            uint32_t flags, uint64_t pci_addr,
+                                            uint64_t addr, uint64_t len, void *data)
 {
     pci_sbdf_t sbdf = *(pci_sbdf_t *)data;
     uint16_t base, limit;
@@ -528,7 +542,7 @@ int __init pci_host_bridge_mappings(struct domain *d)
                     bridge->child_ops->need_p2m_hwdom_mapping(d, bridge, addr);
             if ( need_mapping )
             {
-                err = map_range_to_domain(dev, 0, addr, size, &mr_data);
+                err = map_range_to_domain(dev, 0, 0, addr, size, &mr_data);
                 if ( err )
                     return err;
             }
@@ -565,7 +579,8 @@ struct domain *pci_get_hardware_domain(u16 seg, u8 bus)
  * right place for alignment check.
  */
 static int is_bar_valid(const struct dt_device_node *dev,
-                        uint32_t flags, uint64_t addr, uint64_t len, void *data)
+                        uint32_t flags, uint64_t pci_addr, uint64_t addr,
+                        uint64_t len, void *data)
 {
     struct pdev_bar_check *bar_data = data;
     paddr_t s = bar_data->start;

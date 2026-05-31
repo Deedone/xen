@@ -976,14 +976,15 @@ int dt_device_get_paddr(const struct dt_device_node *dev, unsigned int index,
 
 int dt_for_each_range(const struct dt_device_node *dev,
                       int (*cb)(const struct dt_device_node *dev,
-                                uint32_t flags, uint64_t addr, uint64_t length,
-                                void *data),
+                                uint32_t flags, uint64_t pci_add, uint64_t addr,
+                                uint64_t length, void *data),
                       void *data)
 {
     const struct dt_device_node *parent = NULL;
     const struct dt_bus *bus, *pbus;
     const __be32 *ranges;
     __be32 addr[DT_MAX_ADDR_CELLS];
+    __be32 pci_addr[DT_MAX_ADDR_CELLS];
     unsigned int rlen;
     int na, ns, pna, pns, rone;
 
@@ -1040,16 +1041,19 @@ int dt_for_each_range(const struct dt_device_node *dev,
     for ( ; rlen >= rone; rlen -= rone, ranges += rone )
     {
         uint64_t a, s;
+        uint64_t pa;
         int ret;
         __be32 flags;
 
         memcpy(&flags, ranges, sizeof(flags));
+        memcpy(pci_addr, ranges + 1, 4*pna);
         memcpy(addr, ranges + na, 4 * pna);
 
         a = __dt_translate_address(dev, addr, "ranges");
+        pa = __dt_translate_address(dev, pci_addr, "ranges");
         s = dt_read_number(ranges + na + pna, ns);
 
-        ret = cb(dev, be32_to_cpu(flags), a, s, data);
+        ret = cb(dev, be32_to_cpu(flags), pa, a, s, data);
         if ( ret )
         {
             dt_dprintk(" -> callback failed=%d\n", ret);
