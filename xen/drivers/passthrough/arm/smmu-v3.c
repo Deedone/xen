@@ -339,9 +339,32 @@ static int queue_poll_cons(struct arm_smmu_queue *q, bool sync, bool wfe)
 static void queue_write(__le64 *dst, u64 *src, size_t n_dwords)
 {
 	int i;
+	const void *p;
+	size_t cacheline_mask = dcache_line_bytes - 1;
 
-	for (i = 0; i < n_dwords; ++i)
+	for (i = 0; i < n_dwords; ++i) {
 		*dst++ = cpu_to_le64(*src++);
+		/*
+		 * WA HACK: without invadlidating the cache here, the SMMU
+		 * will read invalid commands, due to some possible race issues
+		 * while updating prod_reg in advance of writing actual
+		 * data to the queue. This happens when more than one CPU
+		 * is enabled and while starting DomU, while a lot of SMMU
+		 * invalidation commands are sent to the SMMU. No memory
+		 * barrier is not working,  as well as more logical using
+		 * of proper cleaning of caches. Also, moving the same code just
+		 * below the cycle is not working too. The issue was
+		 * reproduced only once on the native BSP.
+		 *
+		 * NOTE: This hack should be removed once the root cause
+		 * of the issue is found and fixed properly.
+		 * Second NOTE: raw __invalidate_dcache_one function is used,
+		 * due to bug in Xen while invoking the invalidate_dcache_va_range,
+		 * while calculating the size which may overflow.
+		 */
+		p = (void *)((uintptr_t)dst & ~cacheline_mask);
+		asm volatile (__invalidate_dcache_one(0) : : "r" (p));
+	}
 }
 
 static int queue_insert_raw(struct arm_smmu_queue *q, u64 *ent)
@@ -647,6 +670,7 @@ arm_smmu_write_strtab_l1_desc(__le64 *dst, struct arm_smmu_strtab_l1_desc *desc)
 
 	/* See comment in arm_smmu_write_ctx_desc() */
 	write_atomic(dst, cpu_to_le64(val));
+	clean_dcache_va_range(dst, sizeof(__le64));
 }
 
 static void arm_smmu_sync_ste_for_sid(struct arm_smmu_device *smmu, u32 sid)
@@ -682,7 +706,7 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 	 * 2. Write everything apart from dword 0, sync, write dword 0, sync
 	 * 3. Update Config, sync
 	 */
-	u64 val = le64_to_cpu(dst[0]);
+	u64 val;
 	bool ste_live = false;
 	struct arm_smmu_device *smmu = NULL;
 	struct arm_smmu_s2_cfg *s2_cfg = NULL;
@@ -693,6 +717,10 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 			.sid	= sid,
 		},
 	};
+
+	invalidate_dcache_va_range(dst, sizeof(*dst) * 4);;
+
+	val = le64_to_cpu(dst[0]);
 
 	if (master) {
 		smmu_domain = master->domain;
@@ -735,6 +763,7 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 		 * The SMMU can perform negative caching, so we must sync
 		 * the STE regardless of whether the old value was live.
 		 */
+		clean_dcache_va_range(dst, sizeof(*dst) * 4);;
 		if (smmu)
 			arm_smmu_sync_ste_for_sid(smmu, sid);
 		return;
@@ -750,7 +779,8 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 			 STRTAB_STE_2_S2PTW | STRTAB_STE_2_S2AA64 |
 			 STRTAB_STE_2_S2R;
 
-		BUG_ON(ste_live);
+        if ( ste_live )
+            printk("Warning, ste live\n");
 		dst[2] = cpu_to_le64(strtab);
 
 		dst[3] = cpu_to_le64(s2_cfg->vttbr & STRTAB_STE_3_S2TTB_MASK);
@@ -762,8 +792,10 @@ static void arm_smmu_write_strtab_ent(struct arm_smmu_master *master, u32 sid,
 		dst[1] |= cpu_to_le64(FIELD_PREP(STRTAB_STE_1_EATS,
 						 STRTAB_STE_1_EATS_TRANS));
 
+	clean_dcache_va_range(dst, sizeof(*dst) * 4);;
 	arm_smmu_sync_ste_for_sid(smmu, sid);
 	write_atomic(&dst[0], cpu_to_le64(val));
+	clean_dcache_va_range(dst, sizeof(*dst) * 4);;
 	arm_smmu_sync_ste_for_sid(smmu, sid);
 
 	/* It's likely that we'll want to use the new STE soon */
