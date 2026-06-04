@@ -1,7 +1,9 @@
 # Dockerfile for Xen test artifacts, use Alpine
 
+ARG TARGETPLATFORM
+
 # Builder image
-FROM --platform=linux/arm64/v8 registry.gitlab.com/xen-project/hardware/test-artifacts/alpine:3.18-arm64-build AS kernel-builder
+FROM --platform=$TARGETPLATFORM registry.gitlab.com/xen-project/hardware/test-artifacts/alpine:3.18-arm64-build AS kernel-builder
 
 ENV LINUX_VERSION=6.6.86
 WORKDIR /build
@@ -20,7 +22,7 @@ RUN set -e && curl -fsSLO https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${L
     cp arch/arm64/boot/Image /build/Image
 
 # Builder rootfs
-FROM --platform=linux/arm64/v8 registry.gitlab.com/xen-project/hardware/test-artifacts/alpine:3.18-arm64-base AS rootfs-builder
+FROM --platform=$TARGETPLATFORM registry.gitlab.com/xen-project/hardware/test-artifacts/alpine:3.18-arm64-base AS rootfs-builder
 
 # Build depends
 RUN apk --no-cache upgrade && apk --no-cache add \
@@ -73,7 +75,7 @@ RUN set -e && cd /  && \
     zcat /build/rootfs.cpio.gz | cpio -tv
 
 # Final artifacts export image
-FROM --platform=linux/arm64/v8 alpine:3.22.4@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601 AS final
+FROM --platform=$TARGETPLATFORM alpine:3.22.4@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601 AS final
 
 WORKDIR /artifacts
 

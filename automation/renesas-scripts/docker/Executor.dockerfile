@@ -1,31 +1,33 @@
 # Dockerfile for Xen certification tasks, use Debian Bookworm
 
+ARG TARGETPLATFORM
+
 #Builder image
-FROM --platform=linux/arm64/v8 debian:bookworm@sha256:d01662367b48fc3bd42f389af59f2b39e20652b8f4be4130f80d1ac223d7eb27 AS builder
+FROM --platform=$TARGETPLATFORM debian:bookworm@sha256:d01662367b48fc3bd42f389af59f2b39e20652b8f4be4130f80d1ac223d7eb27 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get --quiet --yes --no-install-recommends install \
-    bzip2=1.0.8-5+b1 \
-    ca-certificates=20230311+deb12u1 \
-    cmake=3.25.1-1 \
-    gcc=4:12.2.0-3 \
-    g++=4:12.2.0-3 \
-    git=1:2.39.5-0+deb12u3 \
-    libc6-dev=2.36-9+deb12u13 \
-    libglib2.0-dev=2.74.6-2+deb12u8 \
-    libslirp-dev=4.7.0-1 \
-    libxml2-dev=2.9.14+dfsg-1.3~deb12u5 \
-    make=4.3-4.1 \
-    meson=1.0.1-5 \
-    ninja-build=1.11.1-2~deb12u1 \
-    patch=2.7.6-7 \
-    pkg-config=1.8.1-1 \
-    python3-dev=3.11.2-1+b1 \
-    python3-venv=3.11.2-1+b1 \
-    swig=4.1.0-0.2 \
-    wget=1.21.3-1+deb12u1 \
-    xz-utils=5.4.1-1 \
+    bzip2=1.0.8* \
+    ca-certificates=20230311* \
+    cmake=3.25.1* \
+    gcc=4:12.2.0* \
+    g++=4:12.2.0* \
+    git=1:2.39.5* \
+    libc6-dev=2.36* \
+    libglib2.0-dev=2.74.6* \
+    libslirp-dev=4.7.0* \
+    libxml2-dev=2.9.14* \
+    make=4.3* \
+    meson=1.0.1* \
+    ninja-build=1.11.1* \
+    patch=2.7.6* \
+    pkg-config=1.8.1* \
+    python3-dev=3.11.2* \
+    python3-venv=3.11.2* \
+    swig=4.1.0* \
+    wget=1.21.3* \
+    xz-utils=5.4.1* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists* /tmp/* /var/tmp/*
 
@@ -201,54 +203,54 @@ RUN mkdir -p /opt && mkdir -p /opt/zephyr \
 ########################################################################
 
 #Final image
-FROM --platform=linux/arm64/v8 python:3.12-bookworm@sha256:49de7aa80568e7a112035322a6a961cd55774862b35198886f7508223abf6ca1 AS runner
+FROM --platform=$TARGETPLATFORM python:3.12-bookworm@sha256:49de7aa80568e7a112035322a6a961cd55774862b35198886f7508223abf6ca1 AS runner
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get --quiet --yes --no-install-recommends install \
-    acpica-tools=20200925-8 \
-    bison=2:3.8.2+dfsg-1+b1 \
-    busybox-static=1:1.35.0-4+b7 \
-    ca-certificates=20230311+deb12u1 \
-    checkpolicy=3.4-1+b2 \
-    cmake=3.25.1-1 \
-    cpio=2.13+dfsg-7.1 \
-    cppcheck=2.10-2 \
-    curl=7.88.1-10+deb12u14 \
-    device-tree-compiler=1.6.1-4+b1 \
-    expect=5.45.4-2+b1 \
-    file=1:5.44-3 \
-    flex=2.6.4-8.2 \
-    gcc=4:12.2.0-3 \
-    g++=4:12.2.0-3 \
-    gdb-multiarch=13.1-3 \
-    git=1:2.39.5-0+deb12u3 \
-    grep=3.8-5 \
-    libfdt-dev=1.6.1-4+b1 \
-    libglib2.0-dev=2.74.6-2+deb12u8 \
-    liblzma-dev=5.4.1-1 \
-    libnl-3-dev=3.7.0-0.2+b1 \
-    libnl-route-3-dev=3.7.0-0.2+b1 \
-    libncurses-dev=6.4-4 \
-    libpixman-1-dev=0.42.2-1 \
-    libslirp-dev=4.7.0-1 \
-    libyajl-dev=2.1.0-3+deb12u2 \
-    libcapture-tiny-perl=0.48-2 \
-    libdatetime-perl=2:1.59-1 \
-    libdevel-cover-perl=1.38-1+b1 \
-    libjson-perl=4.10000-1 \
-    libtimedate-perl=2.3300-2 \
-    libmodule-load-conditional-perl=0.74-2 \
-    markdown=1.0.1-12 \
-    make=4.3-4.1 \
-    ninja-build=1.11.1-2~deb12u1 \
-    pandoc=2.17.1.1-2~deb12u1 \
-    pkg-config=1.8.1-1 \
-    u-boot-qemu=2023.01+dfsg-2+deb12u2 \
-    u-boot-tools=2023.01+dfsg-2+deb12u2 \
-    unzip=6.0-28 \
-    uuid-dev=2.38.1-5+deb12u3 \
-    wget=1.21.3-1+deb12u1 \
+    acpica-tools=20200925* \
+    bison=2:3.8.2* \
+    busybox-static=1:1.35.0* \
+    ca-certificates=20230311* \
+    checkpolicy=3.4* \
+    cmake=3.25.1* \
+    cpio=2.13* \
+    cppcheck=2.10* \
+    curl=7.88.1* \
+    device-tree-compiler=1.6.1* \
+    expect=5.45.4* \
+    file=1:5.44* \
+    flex=2.6.4* \
+    gcc=4:12.2.0* \
+    g++=4:12.2.0* \
+    gdb-multiarch=13.1* \
+    git=1:2.39.5* \
+    grep=3.8* \
+    libfdt-dev=1.6.1* \
+    libglib2.0-dev=2.74.6* \
+    liblzma-dev=5.4.1* \
+    libnl-3-dev=3.7.0* \
+    libnl-route-3-dev=3.7.0* \
+    libncurses-dev=6.4* \
+    libpixman-1-dev=0.42.2* \
+    libslirp-dev=4.7.0* \
+    libyajl-dev=2.1.0* \
+    libcapture-tiny-perl=0.48* \
+    libdatetime-perl=2:1.59* \
+    libdevel-cover-perl=1.38* \
+    libjson-perl=4.10000* \
+    libtimedate-perl=2.3300* \
+    libmodule-load-conditional-perl=0.74* \
+    markdown=1.0.1* \
+    make=4.3* \
+    ninja-build=1.11.1* \
+    pandoc=2.17.1.1* \
+    pkg-config=1.8.1* \
+    u-boot-qemu=2023.01* \
+    u-boot-tools=2023.01* \
+    unzip=6.0* \
+    uuid-dev=2.38.1* \
+    wget=1.21.3* \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists* /tmp/* /var/tmp/*
 
