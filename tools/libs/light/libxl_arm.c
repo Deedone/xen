@@ -178,6 +178,8 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     unsigned int i;
     uint32_t vuart_irq, virtio_mmio_irq_last, virtio_pci_irq_last = 0;
     bool vuart_enabled = false, virtio_mmio_enabled = false;
+    bool vpci_enabled = d_config->num_pcidevs ||
+        libxl_defbool_val(d_config->c_info.driver_domain);
     unsigned int num_virtio_pci_hosts = 0;
     libxl_virtio_pci_host virtio_pci_hosts[VIRTIO_PCI_MAX_HOSTS] = {0};
     uint64_t virtio_mmio_base = GUEST_VIRTIO_MMIO_BASE;
@@ -368,7 +370,7 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     }
     LOG(DEBUG, " - SCI type=%u", config->arch.arm_sci_type);
     
-    if (d_config->num_pcidevs)
+    if (vpci_enabled)
         config->flags |= XEN_DOMCTL_CDF_vpci;
 
     return 0;
@@ -1690,6 +1692,8 @@ static int libxl__prepare_dtb(libxl__gc *gc, libxl_domain_config *d_config,
     int pfdt_size = 0;
     libxl_domain_build_info *const info = &d_config->b_info;
     bool iommu_needed = false;
+    bool vpci_enabled = d_config->num_pcidevs ||
+        libxl_defbool_val(d_config->c_info.driver_domain);
     unsigned int i;
 
     const libxl_version_info *vers;
@@ -1776,7 +1780,7 @@ next_resize:
                                  GUEST_GICC_BASE, GUEST_GICC_SIZE) );
             break;
         case LIBXL_GIC_VERSION_V3:
-            FDT( make_gicv3_node(gc, fdt, d_config->num_pcidevs) );
+            FDT( make_gicv3_node(gc, fdt, vpci_enabled) );
             break;
         default:
             LOG(ERROR, "Unknown GIC version %s",
@@ -1794,7 +1798,7 @@ next_resize:
         if (info->tee == LIBXL_TEE_TYPE_OPTEE)
             FDT( make_optee_node(gc, fdt) );
 
-        if (d_config->num_pcidevs)
+        if (vpci_enabled)
             FDT( make_vpci_node(gc, fdt, ainfo, dom) );
 
         for (i = 0; i < d_config->num_disks; i++) {
