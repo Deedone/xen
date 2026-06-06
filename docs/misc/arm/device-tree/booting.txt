@@ -345,6 +345,12 @@ with the following properties:
     not passed. This configuration requires static allocation (xen,static-mem)
     and direct mapping (direct-map).
 
+- seclabel
+
+    A string property specifying an XSM security label to this domain. Effective
+    only when FLASK is enabled. Domains will be classified “unlabeled” if
+    this property not specified.
+
 Under the "xen,domain" compatible node, one or more sub-nodes are present
 for the DomU kernel and ramdisk.
 
@@ -422,6 +428,7 @@ chosen {
         memory = <0 131072>;
         cpus = <2>;
         vpl011;
+        seclabel = "system_u:system_r:domU_t";
 
         vcpu0 {
             compatible = "xen,vcpu";
@@ -453,6 +460,7 @@ chosen {
         #size-cells = <0x1>;
         memory = <0 65536>;
         cpus = <1>;
+        seclabel = "system_u:system_r:domU_t";
 
         module@0x4c000000 {
             compatible = "multiboot,kernel", "multiboot,module";

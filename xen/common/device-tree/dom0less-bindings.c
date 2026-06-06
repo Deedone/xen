@@ -11,6 +11,8 @@
 #include <public/bootfdt.h>
 #include <public/domctl.h>
 
+#include <security.h>
+
 int __init parse_dom0less_node(struct dt_device_node *node,
                                struct boot_domain *bd)
 {
@@ -21,6 +23,7 @@ int __init parse_dom0less_node(struct dt_device_node *node,
     bool has_dtb = false;
     bool iommu = false;
     const char *dom0less_iommu = NULL;
+    const char *xsm_seclabel = NULL;
 
     if ( !dt_device_is_compatible(node, "xen,domain") )
         return -ENOENT;
@@ -140,6 +143,14 @@ int __init parse_dom0less_node(struct dt_device_node *node,
     if ( !llc_coloring_enabled && bd->llc_colors_str )
         panic("'llc-colors' found, but LLC coloring is disabled\n");
 #endif
+
+    if ( IS_ENABLED(CONFIG_XSM_FLASK) &&
+         !dt_property_read_string(node, "seclabel", &xsm_seclabel) )
+    {
+        if ( security_context_to_sid(xsm_seclabel, strlen(xsm_seclabel),
+                                     &d_cfg->ssidref) )
+            panic("Invalid security context for domain: %s\n", xsm_seclabel);
+    }
 
     return arch_parse_dom0less_node(node, bd);
 }
