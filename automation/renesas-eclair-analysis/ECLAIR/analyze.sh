@@ -67,12 +67,14 @@ accepted|monitored)
 esac
 
 if [ "$llvm" = "y" ]; then
-  export CC_ALIASES="clang"
-  export CXX_ALIASES="clang++"
-  export LD_ALIASES="ld.lld"
-  export AR_ALIASES="llvm-ar"
-  export AS_ALIASES="llvm-as"
-  export FILEMANIP_ALIASES="cp mv llvm-objcopy"
+  # Absolute path of the toolchain bin directory.
+  TOOLCHAIN_BIN_DIR="/opt/atfe/bin/"
+  # Absolute paths of toolchain components that ECLAIR should intercept.
+  export CC_ALIASES="${TOOLCHAIN_BIN_DIR}clang"
+  export CXX_ALIASES="${TOOLCHAIN_BIN_DIR}clang++"
+  export LD_ALIASES="${TOOLCHAIN_BIN_DIR}ld.lld"
+  export AR_ALIASES="${TOOLCHAIN_BIN_DIR}llvm-ar"
+  export FILEMANIP_ALIASES="cp mv ${TOOLCHAIN_BIN_DIR}llvm-objcopy"
 else
   export CC_ALIASES="${CROSS_COMPILE}gcc-12"
   export CXX_ALIASES="${CROSS_COMPILE}g++-12"
