@@ -1,0 +1,43 @@
+.test-jobs-common:
+  stage: test
+  image: xentroops/xen_rel
+  rules:
+  - when: on_success
+
+.arm64-zephyr-test-needs: &arm64-zephyr-test-needs
+  - xen-atfe-arm64
+
+.qemu-arm64:
+  extends: .test-jobs-common
+  variables:
+    LOGFILE: qemu-smoke-arm64.log
+  artifacts:
+    paths:
+      - '*.serial'
+      - '*.log'
+      - 'coverage_data'
+      - 'binaries/*.bin'
+      - 'binaries/*.dtb'
+    when: always
+  tags:
+    - aws-arm64
+
+# Test jobs
+
+qemu-zephyr-tests:
+  extends: .qemu-arm64
+  parallel:
+    matrix:
+      - TEST:
+        - "hyp-domctl-pausedomain"
+        - "hyp-domctl-unpausedomain"
+        - "hyp-domctl-resumedomain"
+        - "hyp-domctl-max-vcpus"
+        - "hyp-domctl-setvcpucontext"
+        - "hyp-domctl-getvcpucontext"
+        - "hyp-domctl-bind-pt-irq"
+        - "hyp-domctl-deassign-device"
+  script:
+    - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - *arm64-zephyr-test-needs
