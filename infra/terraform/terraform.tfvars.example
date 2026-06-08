@@ -3,6 +3,10 @@ aws_region  = "eu-central-1"
 environment = "ci"
 gitlab_url  = "https://gitpct.epam.com"
 
+# Subnets added to the default VPC (must not overlap existing 172.31.x.0/20 subnets)
+public_subnet_cidr  = "172.31.96.0/24"
+private_subnet_cidr = "172.31.97.0/24"
+
 # Tokens stored in SSM Parameter Store:
 #   /xen-ci/runner-token-x86   (SecureString)
 #   /xen-ci/runner-token-arm64 (SecureString)

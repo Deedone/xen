@@ -5,13 +5,13 @@ module "gitlab_runner_x86" {
   environment = "ci-x86"
 
   vpc_id    = data.aws_vpc.default.id
-  subnet_id = data.aws_subnets.default.ids[0]
+  subnet_id = aws_subnet.private.id
 
-  # Runner manager instance
+  # Runner manager instance — private only, reaches GitLab via NAT gateway
   runner_instance = {
     name                 = "xen-ci-manager-x86"
     type                 = "t3.nano"
-    private_address_only = false
+    private_address_only = true
   }
 
   runner_ami_filter = {
@@ -57,7 +57,7 @@ module "gitlab_runner_x86" {
 
   runner_worker_docker_autoscaler_instance = {
     root_size            = var.worker_root_volume_size
-    private_address_only = false
+    private_address_only = true
     start_script         = <<-EOF
       #!/bin/bash
       set -e
@@ -86,7 +86,7 @@ module "gitlab_runner_x86" {
     on_demand_base_capacity                  = 0
     on_demand_percentage_above_base_capacity = 0
     spot_allocation_strategy                 = "lowest-price"
-    subnet_ids                               = data.aws_subnets.default.ids
+    subnet_ids                               = [aws_subnet.private.id]
   }
 
   # Terminate old manager quickly on replacement

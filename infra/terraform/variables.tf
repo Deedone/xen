@@ -4,6 +4,18 @@ variable "aws_region" {
   default     = "eu-central-1"
 }
 
+variable "public_subnet_cidr" {
+  description = "CIDR for the public subnet hosting the NAT gateway"
+  type        = string
+  default     = "172.31.96.0/24"
+}
+
+variable "private_subnet_cidr" {
+  description = "CIDR for the private subnet where runners operate"
+  type        = string
+  default     = "172.31.97.0/24"
+}
+
 variable "environment" {
   description = "Environment name (e.g., ci, staging, prod)"
   type        = string

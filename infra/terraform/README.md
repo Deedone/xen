@@ -8,30 +8,51 @@ and the [cattle-ops/terraform-aws-gitlab-runner](https://github.com/cattle-ops/t
 ```
 GitLab Server (gitpct.epam.com)
        │
-       ▼ HTTPS
-┌─────────────────────────────────────────────┐
-│  Default VPC (eu-central-1)                 │
-│                                             │
-│  ┌──────────────┐                           │
-│  │ Manager      │  t4g.nano (always-on)     │
-│  │ gitlab-runner│  polls GitLab for jobs    │
-│  └──────┬───────┘                           │
-│         │ fleeting plugin                   │
-│  ┌──────▼──────┐                            │
-│  │ Worker ASG  │  Spot, on-demand only      │
-│  │ m7g.8xl    │  50 jobs per instance      │
-│  │ max: 2      │  idle 3 min then terminate │
-│  └─────────────┘                            │
-│                                             │
-│  S3 cache bucket                            │
-└─────────────────────────────────────────────┘
+       ▲ HTTPS (all outbound via single fixed EIP)
+       │
+┌──────┴──────────────────────────────────────────────┐
+│  Default VPC  172.31.0.0/16  (eu-central-1)         │
+│                                                     │
+│  ┌─────────────────────────────────────┐            │
+│  │ Public Subnet  172.31.96.0/24       │            │
+│  │   NAT Gateway ← EIP (fixed IP)     │            │
+│  │   (uses existing IGW)               │            │
+│  └─────────────────────────────────────┘            │
+│                                                     │
+│  ┌─────────────────────────────────────┐            │
+│  │ Private Subnet  172.31.97.0/24      │            │
+│  │                                     │            │
+│  │  ┌──────────────┐                   │            │
+│  │  │ Manager      │  t4g.nano         │            │
+│  │  │ gitlab-runner│  polls GitLab     │            │
+│  │  └──────┬───────┘                   │            │
+│  │         │ fleeting plugin           │            │
+│  │  ┌──────▼──────┐                    │            │
+│  │  │ Worker ASG  │  Spot instances    │            │
+│  │  │ m7g.8xl    │  50 jobs/instance  │            │
+│  │  │ max: 2      │  idle 3min        │            │
+│  │  └─────────────┘                    │            │
+│  └─────────────────────────────────────┘            │
+│                                                     │
+│  S3 VPC Endpoint (cache traffic avoids NAT)         │
+│  S3 cache bucket                                    │
+└─────────────────────────────────────────────────────┘
 ```
+
+All runner traffic to GitLab exits through a single NAT gateway with a fixed
+Elastic IP. This IP can be allowlisted on the GitLab server firewall.
+
+After `terragrunt apply`, run:
+```bash
+terragrunt output nat_gateway_public_ip
+```
+to get the IP address to allowlist.
 
 ## Usage
 
 ### Prerequisites
 
-- AWS CLI configured with permissions (EC2, ASG, IAM, S3, SSM, Lambda, CloudWatch)
+- AWS CLI configured with permissions (EC2, ASG, IAM, S3, SSM, Lambda, CloudWatch, VPC)
 - Terraform >= 1.5
 - Terragrunt >= 0.69
 - GitLab runner registration token stored in SSM Parameter Store
@@ -51,6 +72,20 @@ terragrunt destroy -auto-approve
 ```
 
 Note: Lambda VPC ENIs take up to 20 minutes to detach after destroy. Be patient.
+
+## Networking
+
+| Resource | Purpose |
+|---|---|
+| Default VPC `172.31.0.0/16` | Existing VPC, reused |
+| Public subnet `172.31.96.0/24` | Hosts only the NAT gateway |
+| Private subnet `172.31.97.0/24` | Manager + Worker instances |
+| NAT Gateway + EIP | Single fixed outbound IP for all traffic |
+| S3 VPC Endpoint | Cache bucket traffic stays in AWS (no NAT cost) |
+
+The manager and all workers are in private subnets with no public IPs.
+All outbound internet traffic (to GitLab, Docker Hub, Ubuntu repos) routes
+through the NAT gateway → internet gateway path.
 
 ## How to Add a New Runner
 
@@ -168,6 +203,12 @@ Hardware test runners (`xilinx`, `qubes-hw*`, `epdefrans`) are unchanged and run
 
 ### Runner not registering (403 Forbidden)
 - Token expired or invalid. Create new runner on GitLab, update SSM parameter, terminate manager instance.
+- Verify the NAT gateway EIP is allowlisted on the GitLab server.
 
 ### Worker ASG max_size = 0
 - Module v7.x bug. Use v9.x+ which doesn't ignore `max_size` changes.
+
+### Workers can't reach the internet
+- Check NAT gateway status in the VPC console.
+- Verify the private subnet route table has `0.0.0.0/0 → nat-gateway-id`.
+- Check that the S3 VPC endpoint is in place (cache operations should not go through NAT).

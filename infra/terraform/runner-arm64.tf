@@ -5,13 +5,13 @@ module "gitlab_runner_arm64" {
   environment = "ci-arm"
 
   vpc_id    = data.aws_vpc.default.id
-  subnet_id = data.aws_subnets.default.ids[1]
+  subnet_id = aws_subnet.private.id
 
-  # Runner manager instance
+  # Runner manager instance — private only, reaches GitLab via NAT gateway
   runner_instance = {
     name                 = "xen-ci-manager-arm64"
     type                 = "t4g.nano"
-    private_address_only = false
+    private_address_only = true
   }
 
   runner_ami_filter = {
@@ -21,8 +21,8 @@ module "gitlab_runner_arm64" {
 
   # GitLab connection
   runner_gitlab = {
-    url            = var.gitlab_url
-    runner_version = "17.4.0"
+    url                                           = var.gitlab_url
+    runner_version                                = "17.4.0"
     preregistered_runner_token_ssm_parameter_name = "/xen-ci/runner-token-arm64"
   }
 
@@ -36,9 +36,9 @@ module "gitlab_runner_arm64" {
   }
 
   runner_worker_docker_options = {
-    privileged   = true
-    volumes      = ["/cache", "/var/run/docker.sock:/var/run/docker.sock"]
-    image        = "alpine:latest"
+    privileged    = true
+    volumes       = ["/cache", "/var/run/docker.sock:/var/run/docker.sock"]
+    image         = "alpine:latest"
     pull_policies = ["if-not-present"]
   }
 
@@ -57,7 +57,7 @@ module "gitlab_runner_arm64" {
 
   runner_worker_docker_autoscaler_instance = {
     root_size            = var.worker_root_volume_size
-    private_address_only = false
+    private_address_only = true
     start_script         = <<-EOF
       #!/bin/bash
       export DEBIAN_FRONTEND=noninteractive
@@ -105,7 +105,7 @@ module "gitlab_runner_arm64" {
     on_demand_base_capacity                  = 0
     on_demand_percentage_above_base_capacity = 0
     spot_allocation_strategy                 = "lowest-price"
-    subnet_ids                               = data.aws_subnets.default.ids
+    subnet_ids                               = [aws_subnet.private.id]
   }
 
   # Terminate old manager quickly on replacement
