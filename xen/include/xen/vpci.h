@@ -277,8 +277,9 @@ static inline int __must_check vpci_reset_device(struct pci_dev *pdev)
 #ifdef CONFIG_ARM
 #include <asm/pci.h>
 
-#define has_vpci_bridge(d) (!is_hardware_domain(d) || \
-                            (is_hardware_domain(d) && is_pci_scan_enabled()))
+#define has_vpci_bridge(d) ( !domain_uses_hw_pci_bridge(d) || \
+                             is_pci_scan_enabled() )
+
 #else
 #define has_vpci_bridge(d) (!is_hardware_domain(d))
 #endif

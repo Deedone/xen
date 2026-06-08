@@ -210,27 +210,25 @@ static int vpci_get_num_handlers_cb(struct domain *d,
 
 unsigned int domain_vpci_get_num_mmio_handlers(struct domain *d)
 {
+    int ret;
     if ( !has_vpci(d) )
         return 0;
 
-    if ( !has_vpci_bridge(d) )
+    ret = pci_host_iterate_bridges_and_count(d, vpci_get_num_handlers_cb);
+
+    if ( ret < 0 )
     {
-        int ret = pci_host_iterate_bridges_and_count(d, vpci_get_num_handlers_cb);
-
-        if ( ret < 0 )
-        {
-            ASSERT_UNREACHABLE();
-            return 0;
-        }
-
-        return ret;
+        ASSERT_UNREACHABLE();
+        return 0;
     }
 
-    /*
-     * For guests each host bridge requires one region to cover the
-     * configuration space. At the moment, we only expose a single host bridge.
-     */
-    return 1;
+    if ( ret )
+        return ret;
+
+    if ( is_control_domain(d) )
+        return 0;
+    else
+        return 1;
 }
 
 void platform_pci_fixup_bar(const struct pci_dev *pdev,

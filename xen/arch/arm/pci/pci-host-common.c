@@ -676,6 +676,20 @@ int pci_reserve_bar_range(const struct pci_dev *pdev, uint64_t addr,
     return rangeset_remove_range(range, addr, addr + size - 1);
 }
 
+bool domain_uses_hw_pci_bridge(const struct domain *d)
+{
+    struct pci_host_bridge *bridge;
+
+    list_for_each_entry( bridge, &pci_host_bridges, node )
+    {
+        if ( dt_device_used_by(bridge->dt_node) == d->domain_id ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /*
  * Local variables:
  * mode: C
