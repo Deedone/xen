@@ -34,7 +34,7 @@ if [ -f "${DOMAIN_BINS_S}" ]; then
         sort -u || true)
 
     for domu in ${EXTRA_DOMUS}; do
-        west build -p always -b xenvm "${ZTESTS_ROOT}/testcases/${domu}"
+        west build -p always -b xenvm/xenvm/gicv3 "${ZTESTS_ROOT}/testcases/${domu}"
         cp build/zephyr/zephyr.bin "${WORKDIR}/${domu}.bin"
         if [ -f "build/${domu}.dtb" ]; then
             cp "build/${domu}.dtb" "${WORKDIR}/${domu}.dtb"
