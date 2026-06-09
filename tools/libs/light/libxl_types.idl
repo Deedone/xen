@@ -575,6 +575,11 @@ libxl_arm_sci = Struct("arm_sci", [
     ("type", libxl_arm_sci_type),
     ])
 
+libxl_vpci_type = Enumeration("vpci_type", [
+    (0, "none"),
+    (1, "ecam"),
+    ], init_val = "LIBXL_VPCI_TYPE_NONE")
+
 libxl_rdm_reserve = Struct("rdm_reserve", [
     ("strategy",    libxl_rdm_reserve_strategy),
     ("policy",      libxl_rdm_reserve_policy),
@@ -775,6 +780,7 @@ libxl_domain_build_info = Struct("domain_build_info",[
                                ("sve_vl", libxl_sve_type),
                                ("nr_spis", uint32, {'init_val': 'LIBXL_NR_SPIS_DEFAULT'}),
                                ("arm_sci", libxl_arm_sci),
+                               ("vpci", libxl_vpci_type),
                               ])),
     ("arch_x86", Struct(None, [("msr_relaxed", libxl_defbool),
                               ])),

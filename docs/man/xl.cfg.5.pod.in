@@ -3184,6 +3184,28 @@ writes will be ignored.
 
 This option is only implemented for Arm where the default is enabled.
 
+=item B<vpci="STRING">
+
+Enable the virtual PCI (vPCI) host bridge for the guest. This is useful for
+domains that need a vPCI bus without any PCI devices assigned at creation time,
+such as a driver domain hosting a virtio-pci backend.
+
+Allowed values are:
+
+=over 4
+
+=item B<none>
+
+Don't expose a vPCI host bridge to the guest unless it is implied by other
+options (e.g. PCI passthrough devices or a driver domain). This is the default
+value.
+
+=item B<ecam>
+
+Expose an ECAM-based vPCI host bridge to the guest.
+
+=back
+
 =item B<arm_sci="ARM_SCI_STRING">
 
 Set ARM_SCI specific options for the guest. ARM SCI is System
