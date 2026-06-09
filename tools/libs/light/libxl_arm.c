@@ -179,7 +179,8 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     uint32_t vuart_irq, virtio_mmio_irq_last, virtio_pci_irq_last = 0;
     bool vuart_enabled = false, virtio_mmio_enabled = false;
     bool vpci_enabled = d_config->num_pcidevs ||
-        libxl_defbool_val(d_config->c_info.driver_domain);
+        libxl_defbool_val(d_config->c_info.driver_domain) ||
+        d_config->b_info.arch_arm.vpci == LIBXL_VPCI_TYPE_ECAM;
     unsigned int num_virtio_pci_hosts = 0;
     libxl_virtio_pci_host virtio_pci_hosts[VIRTIO_PCI_MAX_HOSTS] = {0};
     uint64_t virtio_mmio_base = GUEST_VIRTIO_MMIO_BASE;
@@ -1693,7 +1694,8 @@ static int libxl__prepare_dtb(libxl__gc *gc, libxl_domain_config *d_config,
     libxl_domain_build_info *const info = &d_config->b_info;
     bool iommu_needed = false;
     bool vpci_enabled = d_config->num_pcidevs ||
-        libxl_defbool_val(d_config->c_info.driver_domain);
+        libxl_defbool_val(d_config->c_info.driver_domain) ||
+        d_config->b_info.arch_arm.vpci == LIBXL_VPCI_TYPE_ECAM;
     unsigned int i;
 
     const libxl_version_info *vers;

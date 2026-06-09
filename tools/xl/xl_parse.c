@@ -3234,6 +3234,14 @@ skip_usbdev:
         }
     }
 
+    if (!xlu_cfg_get_string (config, "vpci", &buf, 1)) {
+        e = libxl_vpci_type_from_string(buf, &b_info->arch_arm.vpci);
+        if (e) {
+            fprintf(stderr, "Unknown vpci \"%s\" specified\n", buf);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     parse_vkb_list(config, d_config);
     parse_vgsx_list(config, d_config);
 
