@@ -1,0 +1,11 @@
+# Per-test overrides for hyp-sysctl-sched-rtds-create-cpupool.
+# DomU: Zephyr domu-basic. No boot-time cpupool: the system boots with the
+# default scheduler and creating RTDS cpupool at runtime via
+# XEN_SYSCTL_CPUPOOL_OP_CREATE.
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=1
+export XTF_DOMU_KERNEL=domu-basic.bin
+export XTF_DOMU_RAMDISK=""
+export XTF_DOMU_ZEPHYR_APP=domu-basic
+export XTF_DOMU_ZEPHYR_BRANCH=safety-staging
+export XTF_DOMU_ZEPHYR_BOARD=xenvm/xenvm/gicv3

@@ -54,6 +54,10 @@ qemu-xtf-tests:
         - "arm64 mmu64le hyp-domctl-max-mem"
         # [XenValTestJob~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
         - "arm64 mmu64le hyp-sysctl-sched-rtds-cmdline"
+        # [XenValTestJob~arm64_use_rtds_sched_if_set_in_boot_time_cpupool~1]
+        - "arm64 mmu64le hyp-sysctl-sched-rtds-boot-cpupool"
+        # [XenValTestJob~arm64_use_rtds_sched_if_set_via_hypercall~1]
+        - "arm64 mmu64le hyp-sysctl-sched-rtds-create-cpupool"
         - "arm64 mmu64le hyp-sysctl-sched-rtds-edf"
         - "arm64 mmu64le hyp-sysctl-sched-rtds-extratime"
         # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_vcpu~1]

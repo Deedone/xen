@@ -55,6 +55,12 @@ EOF
             echo "DOMU_VCPUS[$i]=${domu_vcpus}"
         } >> ${WORKDIR}/config
     done
+    # Optional boot-time cpupool config, provided verbatim by a per-test
+    # include (e.g. CPUPOOL[]/DOMU_CPUPOOL[]/NUM_CPUPOOLS for imagebuilder).
+    if [[ -n "${XTF_CPUPOOL_CONFIG:-}" ]]; then
+        echo "${XTF_CPUPOOL_CONFIG}" >> ${WORKDIR}/config
+    fi
+
     cp ${XTF_BINARY} ${WORKDIR}/xtf-test
 
     # Generate virt-gicv3.dtb

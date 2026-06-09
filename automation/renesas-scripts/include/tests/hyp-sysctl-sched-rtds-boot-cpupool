@@ -1,0 +1,14 @@
+# Per-test overrides for hyp-sysctl-sched-rtds-boot-cpupool.
+# DomU: Zephyr domu-basic, placed in a boot-time cpupool owning cpu@1 with the
+# RTDS scheduler selected via the device-tree "cpupool-sched" property. cpu0
+# stays in Pool-0 with dom0 and the default scheduler.
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=1
+export XTF_DOMU_KERNEL=domu-basic.bin
+export XTF_DOMU_RAMDISK=""
+export XTF_DOMU_ZEPHYR_APP=domu-basic
+export XTF_DOMU_ZEPHYR_BRANCH=safety-staging
+export XTF_DOMU_ZEPHYR_BOARD=xenvm/xenvm/gicv3
+export XTF_CPUPOOL_CONFIG='CPUPOOL[0]="cpu@1 rtds"
+DOMU_CPUPOOL[0]=0
+NUM_CPUPOOLS=1'
