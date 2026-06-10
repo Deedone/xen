@@ -43,6 +43,8 @@ function die()
 # Build an XTF test binary.
 # $1 Test variant.
 # $2 Test name.
+# Environment:
+#   EXTRA_XTF_MAKE_VARS  Optional extra variables forwarded to make
 function xtf_build_binary()
 {
     local xtf_variant=$1
@@ -58,6 +60,7 @@ function xtf_build_binary()
         -C ${xtf_dir} \
         -j$(nproc) \
         $(tr '\n' ' ' < ${XTF_SRC_CONFIG}) \
+        ${EXTRA_XTF_MAKE_VARS} \
         TESTS=tests/${xtf_name}
 
     export XTF_NAME="${xtf_name}"
@@ -80,6 +83,7 @@ function xtf_build_cmdline()
         [hyp-sysctl-sched-rtds-extratime]="sched=rtds maxcpus=2 dom0_max_vcpus=1 dom0_vcpus_pin=true"
         [hyp-sysctl-sched-rtds-cmdline]="sched=rtds maxcpus=1"
         [hyp-sysctl-sched-credit2-default]="maxcpus=1"
+        [hyp-domctl-sched-rtds-params]="sched=rtds maxcpus=2 dom0_max_vcpus=1 dom0_vcpus_pin=true"
     )
 
     cmdline+=("${XEN_CMDLINE}")

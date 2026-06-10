@@ -56,6 +56,14 @@ qemu-xtf-tests:
         - "arm64 mmu64le hyp-sysctl-sched-rtds-cmdline"
         - "arm64 mmu64le hyp-sysctl-sched-rtds-edf"
         - "arm64 mmu64le hyp-sysctl-sched-rtds-extratime"
+        # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_vcpu~1]
+        - "arm64 mmu64le hyp-domctl-sched-rtds-params"
+      # Extra domain-wide variant for the same test
+      - TEST:
+          # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_domain~1]
+          - "arm64 mmu64le hyp-domctl-sched-rtds-params"
+        EXTRA_XTF_MAKE_VARS:
+          - "EXTRA_FLAGS=-DTEST_DOMAIN_WIDE"
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh ${TEST} 2>&1 | tee ${LOGFILE}
   needs:

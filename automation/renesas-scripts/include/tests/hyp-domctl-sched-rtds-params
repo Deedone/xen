@@ -1,0 +1,7 @@
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=2
+export XTF_DOMU_KERNEL=domu-load.bin
+export XTF_DOMU_RAMDISK=""
+export XTF_DOMU_ZEPHYR_APP=domu-load
+export XTF_DOMU_ZEPHYR_BRANCH=safety-staging
+export XTF_DOMU_ZEPHYR_BOARD=xenvm/xenvm/gicv3
