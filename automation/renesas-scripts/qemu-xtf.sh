@@ -19,20 +19,7 @@ set -x
 
 export XEN_ROOT="${PWD}"
 
-if [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-edf" ]]; then
-    domu_check="
-taskset -c 0 sh -c 'while :; do :; done' &
-taskset -c 1 sh -c 'while :; do :; done' &
-wait
-"
-elif [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-extratime" ]]; then
-    domu_check="
-taskset -c 0 sh -c 'while :; do :; done' &
-wait
-"
-fi
-
-# DomU Busybox
+# DomU Busybox (default DomU for XTF tests that use a Linux guest)
 cd binaries
 mkdir -p initrd
 mkdir -p initrd/bin
@@ -51,7 +38,6 @@ echo "#!/bin/sh
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
-${domu_check}
 /bin/sh" > initrd/init
 chmod +x initrd/init
 cd initrd
@@ -67,13 +53,24 @@ if [ ! -f "include/xtf-${ARCH}" ]; then
 fi
 source include/xtf-${ARCH}
 
-# Per-test environment overrides
-if [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-edf" ]]; then
-    export XTF_NUM_DOMUS=1
-    export XTF_DOMU_VCPUS=2
-elif [[ "${XTF_NAME_ARG}" == "hyp-sysctl-sched-rtds-extratime" ]]; then
-    export XTF_NUM_DOMUS=1
-    export XTF_DOMU_VCPUS=1
+# Auto-load per-test overrides (DomU type, vCPU count, Zephyr config, etc.)
+if [ -f "include/tests/${XTF_NAME_ARG}" ]; then
+    source "include/tests/${XTF_NAME_ARG}"
+fi
+
+# Build Zephyr DomU if the per-test config requests it
+if [[ -n "${XTF_DOMU_ZEPHYR_APP}" ]]; then
+    _scripts_dir="${PWD}"
+    if [[ ! -d "${XEN_ROOT}/zephyr_tests" ]]; then
+        git clone --depth 1 \
+            "https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git" \
+            -b "${XTF_DOMU_ZEPHYR_BRANCH:-safety-staging}" "${XEN_ROOT}/zephyr_tests"
+    fi
+    cd "${ZEPHYR_SDK_INSTALL_DIR}"
+    west build -p always -b "${XTF_DOMU_ZEPHYR_BOARD:-xenvm/xenvm/gicv3}" \
+        "${XEN_ROOT}/zephyr_tests/testcases/${XTF_DOMU_ZEPHYR_APP}"
+    cp build/zephyr/zephyr.bin "${XEN_ROOT}/binaries/${XTF_DOMU_KERNEL}"
+    cd "${_scripts_dir}"
 fi
 
 xtf_test $@

@@ -26,6 +26,8 @@ function xtf_arch_setup()
 
     local num_domus=${XTF_NUM_DOMUS:-1}
     local domu_vcpus=${XTF_DOMU_VCPUS:-1}
+    local domu_kernel="${XTF_DOMU_KERNEL:-Image}"
+    local domu_ramdisk="${XTF_DOMU_RAMDISK-domU-rootfs.cpio.gz}"
 
     cat > ${WORKDIR}/config <<EOF
 MEMORY_START="0x40000000"
@@ -46,12 +48,12 @@ UBOOT_SCRIPT="boot.scr"
 DBG_FDT_PRINT_CHOSEN=1
 EOF
     for i in $(seq 0 $((num_domus - 1))); do
-        cat >> ${WORKDIR}/config <<DOMUEOF
-DOMU_KERNEL[$i]="Image"
-DOMU_RAMDISK[$i]="domU-rootfs.cpio.gz"
-DOMU_MEM[$i]=128
-DOMU_VCPUS[$i]=${domu_vcpus}
-DOMUEOF
+        {
+            echo "DOMU_KERNEL[$i]=\"${domu_kernel}\""
+            [[ -n "${domu_ramdisk}" ]] && echo "DOMU_RAMDISK[$i]=\"${domu_ramdisk}\""
+            echo "DOMU_MEM[$i]=128"
+            echo "DOMU_VCPUS[$i]=${domu_vcpus}"
+        } >> ${WORKDIR}/config
     done
     cp ${XTF_BINARY} ${WORKDIR}/xtf-test
 

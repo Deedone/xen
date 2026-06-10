@@ -1,0 +1,4 @@
+# Per-test overrides for hyp-sysctl-sched-rtds-extratime.
+# Uses Linux busybox DomU with 1 vCPU spinning to exercise RTDS extratime.
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=1
