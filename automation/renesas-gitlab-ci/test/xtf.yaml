@@ -44,6 +44,8 @@ qemu-xtf-tests:
         - "arm64 mmu64le hyp-domctl-unpausedomain"
         # [XenValTestJob~~1->XenValTestCode~sysctl_get_vmlist_using_sysctl~1]
         - "arm64 mmu64le hyp-sysctl-getdomaininfolist"
+        # [XenValTestJob~~1->XenValTestCode~arm64_boot_time_cpupool_cpus~1]
+        - "arm64 mmu64le hyp-sysctl-cpupool-info"
         # [XenValTestJob~~1->XenValTestCode~arm64_domctl_getdomaininfo_domain~1]
         - "arm64 mmu64le hyp-domctl-getdomaininfo"
         # [XenValTestJob~~1->XenValTestCode~arm64_domctl_createdomain~1]

@@ -28,6 +28,9 @@ function xtf_arch_setup()
     local domu_vcpus=${XTF_DOMU_VCPUS:-1}
     local domu_kernel="${XTF_DOMU_KERNEL:-Image}"
     local domu_ramdisk="${XTF_DOMU_RAMDISK-domU-rootfs.cpio.gz}"
+    # Number of pCPUs exposed to QEMU. Make it configurable for tests that requires
+    # more than 2 cpus in QEMU.
+    local smp=${XTF_SMP:-2}
 
     cat > ${WORKDIR}/config <<EOF
 MEMORY_START="0x40000000"
@@ -68,7 +71,7 @@ EOF
         -cpu cortex-a53 \
         -machine virt,virtualization=true,gic-version=3 \
         -m 2048 \
-        -smp 2 \
+        -smp ${smp} \
         -machine dumpdtb=${WORKDIR}/virt-gicv3.dtb
 
     # Decompile host's DTB into a readable format
@@ -84,7 +87,7 @@ EOF
         -cpu cortex-a53 \
         -machine virt,virtualization=true,gic-version=3 \
         -m 2048 \
-        -smp 2 \
+        -smp ${smp} \
         -no-reboot \
         -nodefaults \
         -display none \

@@ -1,0 +1,29 @@
+# Per-test overrides for hyp-sysctl-cpupool-info.
+#
+# Boots two Zephyr "domu-basic" DomUs, each placed in its own boot-time
+# cpupool with a different set of pCPUs, so the test (running in dom0) can
+# read each pool back via XEN_SYSCTL_CPUPOOL_OP_INFO and prove the device-tree
+# "cpupool-cpus" assignment was applied:
+#
+#   dom0  -> Pool-0            -> pCPU {0}   (default pool, unassigned cpus)
+#   domU0 -> cpupool index 0   -> pCPU {1}   (cpu@1)
+#   domU1 -> cpupool index 1   -> pCPU {2,3} (cpu@2, cpu@3)
+#
+# Needs more than the default two pCPUs, hence XTF_SMP=4.
+export XTF_NUM_DOMUS=2
+export XTF_DOMU_VCPUS=1
+export XTF_DOMU_KERNEL=domu-basic.bin
+export XTF_DOMU_RAMDISK=""
+export XTF_DOMU_ZEPHYR_APP=domu-basic
+export XTF_DOMU_ZEPHYR_BRANCH=safety-staging
+export XTF_DOMU_ZEPHYR_BOARD=xenvm/xenvm/gicv3
+
+export XTF_SMP=4
+
+# Boot-time cpupool config, emitted verbatim into imagebuilder's config by
+# the xtf-arm64 include (see add_device_tree_cpupools in uboot-script-gen).
+export XTF_CPUPOOL_CONFIG='NUM_CPUPOOLS=2
+CPUPOOL[0]="cpu@1 credit2"
+CPUPOOL[1]="cpu@2,cpu@3 credit2"
+DOMU_CPUPOOL[0]=0
+DOMU_CPUPOOL[1]=1'
