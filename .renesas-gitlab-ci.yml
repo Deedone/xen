@@ -194,7 +194,7 @@ minerva-allocation-assurance-corpus:
       args=(
         --static-root static-analysis/
         --runtime-root runtime-artifacts/
-        --policy docs/minerva-analysis/assurance-policy.example.yaml
+        --policy automation/renesas-scripts/minerva/assurance-policy.yaml
         --out-dir corpus-analysis/
       )
       if [ -f automation/renesas-scripts/minerva/scenario-annotations.yaml ]; then
