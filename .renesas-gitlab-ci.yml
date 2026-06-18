@@ -176,6 +176,12 @@ minerva-allocation-assurance-corpus:
     - job: minerva-qemu-xtf-dom0-arm64-hyp-sysctl-sched-rtds-extratime
       artifacts: true
       optional: true
+    - job: minerva-qemu-xtf-dom0-arm64-hyp-domctl-sched-rtds-params
+      artifacts: true
+      optional: true
+    - job: minerva-qemu-xtf-dom0-arm64-hyp-domctl-sched-rtds-params-domain-wide
+      artifacts: true
+      optional: true
   tags:
     - arm64
   variables:

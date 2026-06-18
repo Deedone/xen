@@ -221,3 +221,15 @@ minerva-qemu-xtf-dom0-arm64-gcc-hyp-xen-version:
   extends: .minerva-arm64
   script:
     - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-xen-version 2>&1 | tee ${LOGFILE}
+
+minerva-qemu-xtf-dom0-arm64-hyp-domctl-sched-rtds-params:
+  extends: .minerva-arm64
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-sched-rtds-params 2>&1 | tee ${LOGFILE}
+
+minerva-qemu-xtf-dom0-arm64-hyp-domctl-sched-rtds-params-domain-wide:
+  extends: .minerva-arm64
+  variables:
+    EXTRA_XTF_MAKE_VARS: "EXTRA_FLAGS=-DTEST_DOMAIN_WIDE"
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le hyp-domctl-sched-rtds-params 2>&1 | tee ${LOGFILE}
