@@ -1,0 +1,218 @@
+# Minerva static + runtime dynamic-allocation analysis.
+#
+# This whole file is included only when RUN_MINERVA == "true" (see the
+# conditional include in .renesas-gitlab-ci.yml), mirroring the FUZZER
+# pattern. The minerva runs are heavy (instrumented build emits a Xen
+# WARN backtrace per allocation), so they are opt-in.
+#
+# Three roles, joined by manifest identity (git_sha/target_arch/config_sha256):
+#   minerva-static-analysis              static callgraph/reachability producer
+#   minerva-qemu-xtf-tests               per-XTF-test runtime producers (matrix)
+#   minerva-allocation-assurance-corpus  consumer, emits corpus-analysis/
+#
+# The static and runtime jobs are FULLY INDEPENDENT (neither needs the
+# other). Only the corpus job needs both. The runtime jobs all boot the
+# LLVM-based, CONFIG_MINERVA_ANALYSIS=y xen-atfe-arm64-minerva build.
+
+# Instrumented Xen build (CONFIG_MINERVA_ANALYSIS=y, frame pointers, debug
+# info). Lives here so it is only built in a RUN_MINERVA pipeline. Extends
+# the clang atfe build template from build.yaml.
+#
+# The extra config MUST go in CUSTOM_XEN_CONFIG, not EXTRA_XEN_CONFIG: the
+# .arm64-build-tmpl before_script rebuilds and exports EXTRA_XEN_CONFIG from
+# BASE_XEN_CONFIG + UBSAN + COVERAGE + CUSTOM_XEN_CONFIG, so anything set in
+# EXTRA_XEN_CONFIG here is clobbered before the build runs (which previously
+# silently dropped CONFIG_MINERVA_ANALYSIS and produced an UNinstrumented
+# build). CUSTOM_XEN_CONFIG is the template's input knob and is appended last.
+# BASE_XEN_CONFIG already supplies CONFIG_CMDLINE and CONFIG_DEBUG_INFO, so
+# only the minerva-specific options are needed here.
+xen-atfe-arm64-minerva:
+  extends: .atfe-arm64-build
+  variables:
+    HYPERVISOR_ONLY: y
+    KBUILD_DEFCONFIG: rel_arm64_defconfig
+    CUSTOM_XEN_CONFIG: |
+      CONFIG_MINERVA_ANALYSIS=y
+      CONFIG_FRAME_POINTER=y
+
+# Shared template for the runtime producers.
+.minerva-arm64:
+  extends: .qemu-arm64
+  when: on_success
+  # Auto-running runtime producers: a single qemu boot failure should not
+  # redden the pipeline. A missing/failed producer just yields less
+  # runtime evidence; the corpus tolerates partial input and the
+  # empty-corpus gate covers the all-failed case.
+  allow_failure: true
+  # The instrumented build emits a Xen WARN (register + stack-trace dump)
+  # on every tracked allocation; log_parser.py needs those call stacks, so
+  # the WARN stays. The trade-offs it forces are handled here:
+  #  - the test runs much longer (slow serial output of every backtrace),
+  #    so raise both the GitLab job timeout and the expect per-message
+  #    timeout (TEST_TIMEOUT_OVERRIDE, consumed by console.exp);
+  #  - the larger logs plus concurrent uploads can overload the
+  #    coordinator (intermittent 500s on artifact upload), so give the
+  #    runner more upload attempts and a longer after_script window.
+  timeout: 2h
+  variables:
+    # Identity for the corpus join key. config_sha256 is derived from
+    # xen-config, the expanded config the instrumented build exports and
+    # which arrives here via needs: xen-atfe-arm64-minerva. The static
+    # job consumes the SAME xen-config, so the two sides match by
+    # construction. git_sha defaults to the CI commit.
+    MINERVA_GIT_SHA: "$CI_COMMIT_SHA"
+    MINERVA_TARGET_ARCH: "arm64"
+    MINERVA_CONFIG_NAME: "rel_arm64_defconfig+debug-info"
+    MINERVA_CONFIG_FILE: "xen-config"
+    MINERVA_RUNTIME_LOG_DIR: "$CI_PROJECT_DIR"
+    # Instrumented runs stream a Xen WARN backtrace per allocation, which
+    # slows the cadence between expected console messages; raise the
+    # expect timeout (console.exp: TEST_TIMEOUT_OVERRIDE overrides the
+    # 1500s default).
+    TEST_TIMEOUT_OVERRIDE: "3600"
+    # Artifact upload tuning: more attempts and a longer after_script
+    # window so a transient coordinator 500 under concurrent upload load
+    # is ridden out rather than failing the job.
+    ARTIFACT_UPLOAD_ATTEMPTS: "5"
+    RUNNER_AFTER_SCRIPT_TIMEOUT: "10m"
+  # Pure runtime: the job script runs the qemu workload and tees its
+  # console output into ${LOGFILE}. The after_script packages the log
+  # into a runtime artifact (parsing it standalone) without any static
+  # analysis; the static-analysis tree is produced independently by
+  # minerva-static-analysis and the corpus job joins them later. The
+  # artifact directory defaults to the job name; the matrix job below
+  # overrides after_script to use a clean per-test label.
+  after_script:
+    - bash automation/renesas-scripts/minerva/package_artifacts.sh
+        runtime . runtime-artifacts "$CI_JOB_NAME"
+  # Boot the instrumented Xen ONLY. The plain xen-atfe-arm64 build is
+  # excluded: both builds emit binaries/xen, so depending on both
+  # overwrites the instrumented binary with the uninstrumented one and the
+  # runtime emits no allocation traces. List the image/rootfs deps
+  # explicitly.
+  needs:
+    - linux-6.6.86-image-export
+    - alpine-3.18-xen-tools-export
+    - xen-atfe-arm64-minerva
+  # Upload only the corpus-consumed tree. The raw console log already
+  # lives under runtime-artifacts/<test>/logs/.
+  artifacts:
+    paths:
+      - runtime-artifacts/
+    when: always
+
+# Runtime producers, one parallel job per XTF test (plus the rtds-params
+# domain-wide variant). Mirrors the qemu-xtf-tests matrix. MINERVA_TEST_LABEL
+# gives each instance a clean runtime-artifacts/<label>/ directory.
+minerva-qemu-xtf-tests:
+  extends: .minerva-arm64
+  parallel:
+    matrix:
+      - TEST:
+        - "hyp-xen-version"
+        - "hyp-sysctl-physinfo"
+        - "hyp-domctl-cacheflush"
+        - "hyp-domctl-destroydomain"
+        - "hyp-domctl-pausedomain"
+        - "hyp-domctl-set-paging-mempool-size"
+        - "hyp-domctl-unpausedomain"
+        - "hyp-sysctl-getdomaininfolist"
+        - "hyp-domctl-getdomaininfo"
+        - "hyp-domctl-createdomain"
+        - "hyp-domctl-get-paging-mempool-size"
+        - "hyp-domctl-max-mem"
+        - "hyp-sysctl-sched-rtds-cmdline"
+        - "hyp-sysctl-sched-rtds-edf"
+        - "hyp-sysctl-sched-rtds-extratime"
+        - "hyp-domctl-sched-rtds-params"
+      # Domain-wide variant of the same test binary; MINERVA_VARIANT keeps
+      # its runtime artifact directory distinct from the per-vcpu run.
+      - TEST: "hyp-domctl-sched-rtds-params"
+        EXTRA_XTF_MAKE_VARS: "EXTRA_FLAGS=-DTEST_DOMAIN_WIDE"
+        MINERVA_VARIANT: "domain-wide"
+  script:
+    - ./automation/renesas-scripts/qemu-xtf.sh arm64 mmu64le ${TEST} 2>&1 | tee ${LOGFILE}
+  # Clean per-test artifact directory: "<test>" or "<test>-<variant>".
+  after_script:
+    - |
+      label="${TEST}${MINERVA_VARIANT:+-$MINERVA_VARIANT}"
+      bash automation/renesas-scripts/minerva/package_artifacts.sh runtime . runtime-artifacts "$label"
+
+# Static-analysis producer: run once per config/backend/build. Runs the
+# static stages only (--no-runtime via empty MINERVA_RUNTIME_COMMAND) and
+# emits static-analysis/.
+minerva-static-analysis:
+  stage: build
+  image: xentroops/xen_rel
+  allow_failure: true
+  when: on_success
+  tags:
+    - arm64
+  # Consume the instrumented build's expanded config as the single source
+  # of truth for the corpus join key. xen-atfe-arm64-minerva exports
+  # xen-config; with it as MINERVA_CONFIG_INPUT the driver derives
+  # config_sha256 from the exact same file the runtime side hashes, so the
+  # two match by construction. The callgraph is still built here from that
+  # config; only the config expansion is shared.
+  needs:
+    - xen-atfe-arm64-minerva
+  variables:
+    MINERVA_CALLGRAPH_BACKEND: "llvm-ir"
+    MINERVA_GENERATE_LLVM_IR: "true"
+    LLVM_CC: "clang"
+    MINERVA_RUNTIME_COMMAND: ""        # static only; no runtime here
+    MINERVA_INDIRECT_OUT: "indirect-reachability"
+    MINERVA_CONFIG_INPUT: "xen-config" # the build's exported expanded config
+    MINERVA_CONFIG_NAME: "rel_arm64_defconfig+debug-info"
+  script:
+    - bash automation/renesas-scripts/minerva/run_indirect_ci.sh
+    - bash automation/renesas-scripts/minerva/package_artifacts.sh
+        static indirect-reachability static-analysis
+  artifacts:
+    when: always
+    paths:
+      - static-analysis/
+
+# Corpus-level dynamic-allocation assurance aggregation. Consumes the
+# static-analysis and runtime artifacts produced above, joins them by
+# manifest identity, runs/reuses runtime/static comparison for matched
+# pairs, performs scenario analysis, ingests optional structural coverage
+# evidence, and emits one bounded assurance verdict. It rebuilds no static
+# callgraphs and re-runs no per-test static analysis.
+minerva-allocation-assurance-corpus:
+  stage: analyze
+  image: xentroops/xen_rel
+  allow_failure: true
+  when: on_success
+  needs:
+    - minerva-static-analysis
+    - minerva-qemu-xtf-tests
+  tags:
+    - arm64
+  variables:
+    # When true, the job exits non-zero if the bounded assurance claim is
+    # NOT_SUPPORTED. Off by default so the report is produced for
+    # inspection without failing the pipeline.
+    MINERVA_ASSURANCE_FAIL_ON_NOT_SUPPORTED: "false"
+  script:
+    - |
+      args=(
+        --static-root static-analysis/
+        --runtime-root runtime-artifacts/
+        --policy automation/renesas-scripts/minerva/assurance-policy.yaml
+        --out-dir corpus-analysis/
+      )
+      if [ -f automation/renesas-scripts/minerva/scenario-annotations.yaml ]; then
+        args+=( --annotations automation/renesas-scripts/minerva/scenario-annotations.yaml )
+      fi
+      if [ -d coverage-artifacts ]; then
+        args+=( --coverage-root coverage-artifacts/ )
+      fi
+      if [ "${MINERVA_ASSURANCE_FAIL_ON_NOT_SUPPORTED}" = "true" ]; then
+        args+=( --fail-on-not-supported )
+      fi
+      python3 automation/renesas-scripts/minerva/analyze_reachability_corpus.py "${args[@]}"
+  artifacts:
+    when: always
+    paths:
+      - corpus-analysis/
