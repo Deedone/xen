@@ -16,14 +16,21 @@
 #include <xen/types.h>
 
 #include <asm/arm64/io.h>
+#include <asm/gic.h>
 
 #define GITS_CMD_VMOVI                   0x21
 #define GITS_CMD_VMOVP                   0x22
+#define GITS_CMD_VSGI                    0x23
 #define GITS_CMD_VSYNC                   0x25
 #define GITS_CMD_VMAPP                   0x29
 #define GITS_CMD_VMAPTI                  0x2a
 #define GITS_CMD_VINVALL                 0x2d
 #define GITS_CMD_INVDB                   0x2e
+
+/* ITS registers, offsets from the GICv4.1 SGIR frame. */
+#define GITS_SGIR                        0x00020
+#define GITS_SGIR_VPEID                  GENMASK_ULL(47, 32)
+#define GITS_SGIR_VINTID                 GENMASK_ULL(7, 0)
 
 struct its_device;
 struct pending_irq;
@@ -59,6 +66,11 @@ struct its_vpe {
         /* Number of active v4.1 VMAPP mappings for this VPE. */
         atomic_t vmapp_count;
     };
+    struct {
+        uint8_t priority;
+        bool enabled;
+        bool group;
+    } sgi_config[NR_GIC_SGI];
     /*
      * Ensure mutual exclusion between affinity setting of the vPE
      * and vLPI operations using vpe->col_idx.

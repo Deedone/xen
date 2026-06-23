@@ -95,9 +95,11 @@
 
 #define GICD_TYPER2                  (0x000c)
 #define GICD_TYPER2_VIL              (1U << 7)
+#define GICD_TYPER2_nASSGIcap        (1U << 8)
 #define GICD_TYPER2_VID              GENMASK(4, 0)
 
 #define GICD_CTLR_RWP                (1UL << 31)
+#define GICD_CTLR_nASSGIreq          (1U << 8)
 #define GICD_CTLR_DS                 (1U << 6)
 #define GICD_CTLR_ARE_NS             (1U << 4)
 #define GICD_CTLR_ENABLE_G1A         (1U << 1)
@@ -135,6 +137,12 @@
 #define GICR_INVALLR                 (0x00B0)
 #define GICR_SYNCR                   (0x00C0)
 #define GICR_PIDR2                   GICD_PIDR2
+
+/* GICv4.1 virtual SGI registers in the VLPI frame. */
+#define GICR_VSGIR                   (0x0080)
+#define GICR_VSGIPENDR               (0x0088)
+#define GICR_VSGIPENDR_BUSY          (1U << 31)
+#define GICR_VSGIPENDR_PENDING       GENMASK(15, 0)
 
 /* GICR for SGI's & PPI's */
 

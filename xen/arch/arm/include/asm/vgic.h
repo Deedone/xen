@@ -209,6 +209,7 @@ struct vgic_dist {
      */
     bool rdists_enabled;                /* Is any redistributor enabled? */
     bool has_its;
+    bool nassgireq;                     /* Guest requested direct vSGIs. */
 #ifdef CONFIG_GICV4
     struct its_vm *its_vm;
 #endif
@@ -376,12 +377,20 @@ bool gic_support_directLPI(void);
 bool gic_support_vptValidDirty(void);
 bool gic_has_v4_1_extension(void);
 bool gicv4_supports_vlpis(void);
+bool vgic_has_directVSGI(struct domain *d);
+bool guest_support_nassgi(struct domain *d);
+void vgic_v4_configure_vsgis(struct domain *d);
 #else
 #define gic_support_vlpis() (false)
 #define gic_support_directLPI() (false)
 #define gic_support_vptValidDirty() (false)
 #define gic_has_v4_1_extension() (false)
 #define gicv4_supports_vlpis() (false)
+#define vgic_has_directVSGI(d) ((void)(d), false)
+#define guest_support_nassgi(d) ((void)(d), false)
+static inline void vgic_v4_configure_vsgis(struct domain *d)
+{
+}
 #endif
 
 int vgic_v4_its_vm_init(struct domain *d);

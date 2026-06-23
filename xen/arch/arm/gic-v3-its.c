@@ -803,6 +803,10 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
     {
         uint32_t svpet = MASK_EXTR(reg, GITS_TYPER_SVPET);
 
+        hw_its->sgir_base = ioremap_nocache(hw_its->addr + SZ_128K, SZ_64K);
+        if ( !hw_its->sgir_base )
+            return -ENOMEM;
+
         hw_its->mpidr = readl_relaxed(hw_its->its_base + GITS_MPIDR);
         printk(XENLOG_INFO "ITS@%lx: using GICv4.1 mode mpidr=%#x svpet=%#x\n",
                hw_its->addr, hw_its->mpidr, svpet);
