@@ -916,6 +916,7 @@ void vgic_inject_irq(struct domain *d, struct vcpu *v, unsigned int virq,
             return;
         }
 
+        perfc_incra(vgic_sgi_its, virq);
         priority = vgic_get_virq_priority(v, virq);
         n->priority = priority;
 
