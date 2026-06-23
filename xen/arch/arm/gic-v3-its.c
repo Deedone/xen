@@ -736,7 +736,8 @@ static struct host_its *find_sibling_its(struct host_its *cur_its)
 
     list_for_each_entry(its, &host_its_list, entry)
     {
-        uint64_t typer, baser;
+        const struct its_baser *baser;
+        uint64_t typer;
 
         if ( !its->is_v4_1 || its == cur_its )
             continue;
@@ -748,9 +749,8 @@ static struct host_its *find_sibling_its(struct host_its *cur_its)
         if ( aff != compute_its_aff(its) )
             continue;
 
-        /* GICv4.1 guarantees that the vPE table is GITS_BASER2. */
-        baser = its->tables[2].val;
-        if ( !(baser & GITS_BASER_VALID) )
+        baser = its_get_baser(its, GITS_BASER_TYPE_VCPU);
+        if ( !baser || !(baser->val & GITS_BASER_VALID) )
             continue;
 
         return its;
@@ -840,7 +840,11 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
 
                 if ( sibling )
                 {
-                    *baser = sibling->tables[2];
+                    const struct its_baser *sibling_baser =
+                        its_get_baser(sibling, GITS_BASER_TYPE_VCPU);
+
+                    ASSERT(sibling_baser);
+                    *baser = *sibling_baser;
                     writeq_relaxed(baser->val, basereg);
                     baser->val = readq_relaxed(basereg);
                     break;

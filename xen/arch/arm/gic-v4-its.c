@@ -1736,6 +1736,7 @@ static uint64_t inherit_vpe_l1_table_from_its(void)
 
     list_for_each_entry(its, &host_its_list, entry)
     {
+        const struct its_baser *vpe_baser;
         uint64_t typer, baser;
         paddr_t addr;
 
@@ -1749,7 +1750,11 @@ static uint64_t inherit_vpe_l1_table_from_its(void)
         if ( aff != compute_its_aff(its) )
             continue;
 
-        baser = its->tables[2].val;
+        vpe_baser = its_get_baser(its, GITS_BASER_TYPE_VCPU);
+        if ( !vpe_baser )
+            continue;
+
+        baser = vpe_baser->val;
         if ( !(baser & GITS_BASER_VALID) )
             continue;
 
