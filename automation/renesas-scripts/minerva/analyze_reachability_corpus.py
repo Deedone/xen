@@ -637,6 +637,7 @@ def compute_verdict(pairs, scenarios, coverage_states, policy,
     n_static = scope.get("static_loaded", 0)
     n_runtime = scope.get("runtime_loaded", 0)
     n_groups = scope.get("config_groups", 0)
+    n_obs = scope.get("runtime_observations", 0)
     static_disc = scope.get("static_discovered", 0)
     runtime_disc = scope.get("runtime_discovered", 0)
     static_quar = scope.get("static_quarantined", 0)
@@ -648,6 +649,15 @@ def compute_verdict(pairs, scenarios, coverage_states, policy,
         blockers.append({"type": "no_runtime_artifacts"})
     if n_groups == 0:
         blockers.append({"type": "no_config_groups"})
+    # Runtime artifacts present but they yielded ZERO allocation
+    # observations corpus-wide. This is the silent-build case: an
+    # uninstrumented (or otherwise non-emitting) Xen boots fine and uploads
+    # valid runtime manifests, but its logs carry no allocation traces, so
+    # there are no scenarios to classify and the scenario gate would pass
+    # vacuously. Artifact presence is not evidence of allocation behaviour;
+    # a bounded claim requires at least one observed allocation.
+    if n_runtime > 0 and n_obs == 0:
+        blockers.append({"type": "no_runtime_observations"})
     # "Found some but all dropped" is distinct from "found none": call
     # it out explicitly so the report explains the empty corpus.
     if static_disc > 0 and n_static == 0 and static_quar == static_disc:
@@ -1097,6 +1107,8 @@ def _recommend(b):
         "no_static_artifacts": "provide at least one static-analysis "
                                "artifact",
         "no_runtime_artifacts": "provide at least one runtime artifact",
+        "no_runtime_observations": "boot an instrumented build that emits "
+                                   "allocation traces",
         "no_config_groups": "provide a matched static/runtime pair",
         "all_static_artifacts_quarantined":
             "fix static manifests (missing core identity)",
@@ -1381,6 +1393,7 @@ def run(args) -> int:
         "static_loaded": len(statics),
         "runtime_loaded": len(runtimes),
         "config_groups": len(config_groups),
+        "runtime_observations": len(observations),
         "static_discovered": stats.get("static_discovered", 0),
         "runtime_discovered": stats.get("runtime_discovered", 0),
         "static_quarantined": stats.get("static_quarantined", 0),
@@ -1922,6 +1935,22 @@ def _self_test() -> int:
         check("all runtime artifacts quarantined -> NOT_SUPPORTED",
               summ["assurance_status"] == "NOT_SUPPORTED"
               and any(b["type"] == "all_runtime_artifacts_quarantined"
+                      for b in summ["blockers"]))
+
+    # 4c. Runtime artifact present and matched, but with ZERO allocation
+    #     observations (e.g. an uninstrumented build that booted fine and
+    #     uploaded a valid manifest but emitted no traces) -> NOT_SUPPORTED.
+    #     Regression for the silent-build false positive that previously
+    #     reported SUPPORTED vacuously over an empty scenario set.
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        _mk_static(t / "static", "sha1", "cfgA")
+        _mk_runtime(t / "runtime" / "build-arm64", "sha1", "cfgA",
+                    "build-arm64", explained=0)
+        summ = _verdict(str(t / "static"), str(t / "runtime"))
+        check("runtime present but zero observations -> NOT_SUPPORTED",
+              summ["assurance_status"] == "NOT_SUPPORTED"
+              and any(b["type"] == "no_runtime_observations"
                       for b in summ["blockers"]))
 
     # 5. One valid matched pair with an accepted scenario -> SUPPORTED.
