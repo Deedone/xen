@@ -1905,22 +1905,21 @@ int allocate_vpe_l1_table(void)
     return 0;
 }
 
-static int its_send_cmd_vsgi(struct host_its *its, uint8_t vsgi_irq,
-                             struct its_vpe *vpe, bool clear)
+static int its_send_cmd_vsgi_config(struct host_its *its, uint8_t vsgi_irq,
+                                    struct its_vpe *vpe, bool clear,
+                                    uint8_t priority, bool enabled,
+                                    bool group)
 {
     uint64_t cmd[4];
-    uint8_t priority;
     int ret;
 
     if ( vsgi_irq >= NR_GIC_SGI )
         return -EINVAL;
 
-    priority = vpe->sgi_config[vsgi_irq].priority;
-
     cmd[0] = GITS_CMD_VSGI | ((uint64_t)vsgi_irq << 32) |
              ((uint64_t)(priority >> 4) << 20);
-    cmd[0] |= vpe->sgi_config[vsgi_irq].enabled ? GITS_ENABLE_BIT : 0;
-    cmd[0] |= vpe->sgi_config[vsgi_irq].group ? GITS_GROUP_BIT : 0;
+    cmd[0] |= enabled ? GITS_ENABLE_BIT : 0;
+    cmd[0] |= group ? GITS_GROUP_BIT : 0;
     cmd[0] |= clear ? GITS_CLEAR_BIT : 0;
     cmd[1] = (uint64_t)vpe->vpe_id << 32;
     cmd[2] = 0;
@@ -1931,6 +1930,18 @@ static int its_send_cmd_vsgi(struct host_its *its, uint8_t vsgi_irq,
         return ret;
 
     return its_send_cmd_vsync(its, vpe->vpe_id);
+}
+
+static int its_send_cmd_vsgi(struct host_its *its, uint8_t vsgi_irq,
+                             struct its_vpe *vpe, bool clear)
+{
+    if ( vsgi_irq >= NR_GIC_SGI )
+        return -EINVAL;
+
+    return its_send_cmd_vsgi_config(its, vsgi_irq, vpe, clear,
+                                    vpe->sgi_config[vsgi_irq].priority,
+                                    vpe->sgi_config[vsgi_irq].enabled,
+                                    vpe->sgi_config[vsgi_irq].group);
 }
 
 int vgic_v4_configure_vcpu_sgi(struct vcpu *v)
@@ -1961,26 +1972,38 @@ int its_sgi_mask_irq(struct vcpu *v, unsigned int irq)
 {
     struct its_vpe *vpe = v->arch.vgic.its_vpe;
     struct host_its *hw_its = find_4_1_its();
+    int ret;
 
     if ( irq >= NR_GIC_SGI || !vpe || !hw_its )
         return -EINVAL;
 
-    vpe->sgi_config[irq].enabled = false;
+    ret = its_send_cmd_vsgi_config(hw_its, irq, vpe, false,
+                                   vpe->sgi_config[irq].priority, false,
+                                   vpe->sgi_config[irq].group);
+    if ( ret )
+        return ret;
 
-    return its_send_cmd_vsgi(hw_its, irq, vpe, false);
+    vpe->sgi_config[irq].enabled = false;
+    return 0;
 }
 
 int its_sgi_unmask_irq(struct vcpu *v, unsigned int irq)
 {
     struct its_vpe *vpe = v->arch.vgic.its_vpe;
     struct host_its *hw_its = find_4_1_its();
+    int ret;
 
     if ( irq >= NR_GIC_SGI || !vpe || !hw_its )
         return -EINVAL;
 
-    vpe->sgi_config[irq].enabled = true;
+    ret = its_send_cmd_vsgi_config(hw_its, irq, vpe, false,
+                                   vpe->sgi_config[irq].priority, true,
+                                   vpe->sgi_config[irq].group);
+    if ( ret )
+        return ret;
 
-    return its_send_cmd_vsgi(hw_its, irq, vpe, false);
+    vpe->sgi_config[irq].enabled = true;
+    return 0;
 }
 
 int its_sgi_get_pending_state(struct vcpu *v, uint32_t *ipending)
@@ -2054,22 +2077,28 @@ int its_sgi_prop_update(struct vcpu *v, unsigned int irq, uint8_t priority)
 {
     struct its_vpe *vpe = v->arch.vgic.its_vpe;
     struct host_its *hw_its = find_4_1_its();
+    int ret;
 
     if ( irq >= NR_GIC_SGI || !vpe || !hw_its )
         return -EINVAL;
 
-    vpe->sgi_config[irq].priority = priority;
+    ret = its_send_cmd_vsgi_config(hw_its, irq, vpe, false, priority,
+                                   vpe->sgi_config[irq].enabled,
+                                   vpe->sgi_config[irq].group);
+    if ( ret )
+        return ret;
 
-    return its_send_cmd_vsgi(hw_its, irq, vpe, false);
+    vpe->sgi_config[irq].priority = priority;
+    return 0;
 }
 
-static void vgic_v4_sync_sgi_config(struct its_vpe *vpe,
-                                    struct pending_irq *pirq)
+static void vgic_v4_get_sgi_config(const struct pending_irq *pirq,
+                                   uint8_t *priority, bool *enabled,
+                                   bool *group)
 {
-    vpe->sgi_config[pirq->irq].enabled =
-        test_bit(GIC_IRQ_GUEST_ENABLED, &pirq->status);
-    vpe->sgi_config[pirq->irq].group = true;
-    vpe->sgi_config[pirq->irq].priority = pirq->priority;
+    *enabled = test_bit(GIC_IRQ_GUEST_ENABLED, &pirq->status);
+    *group = true;
+    *priority = pirq->priority;
 }
 
 static void vgic_v4_enable_vsgis(struct vcpu *vcpu)
@@ -2085,6 +2114,9 @@ static void vgic_v4_enable_vsgis(struct vcpu *vcpu)
     for ( i = 0; i < NR_GIC_SGI; i++ )
     {
         struct pending_irq *p = irq_to_pending(vcpu, i);
+        uint8_t priority;
+        bool enabled, group;
+        bool transferred = false;
         int ret;
 
         spin_lock_irqsave(&vcpu->arch.vgic.lock, flags);
@@ -2092,28 +2124,48 @@ static void vgic_v4_enable_vsgis(struct vcpu *vcpu)
         if ( p->hw )
             goto unlock;
 
-        p->hw = true;
-        vgic_v4_sync_sgi_config(vpe, p);
-        ret = its_send_cmd_vsgi(hw_its, i, vpe, false);
+        vgic_v4_get_sgi_config(p, &priority, &enabled, &group);
+        ret = its_send_cmd_vsgi_config(hw_its, i, vpe, false, priority,
+                                       enabled, group);
         if ( ret )
         {
-            p->hw = false;
             WARN_ON(ret);
             goto unlock;
         }
 
-        if ( test_bit(GIC_IRQ_GUEST_ENABLED, &p->status) &&
-             !list_empty(&p->inflight) )
+        if ( enabled && !list_empty(&p->inflight) )
         {
             if ( !list_empty(&p->lr_queue) )
             {
-                list_del_init(&p->lr_queue);
-                WARN_ON(its_sgi_set_pending_state(vcpu, i, true));
-                clear_bit(GIC_IRQ_GUEST_QUEUED, &p->status);
-                list_del_init(&p->inflight);
+                ret = its_sgi_set_pending_state(vcpu, i, true);
+                if ( ret )
+                {
+                    int disable_ret;
+
+                    disable_ret = its_send_cmd_vsgi_config(hw_its, i, vpe,
+                                                           false, priority,
+                                                           false, group);
+                    WARN_ON(disable_ret);
+                    WARN_ON(ret);
+                    goto unlock;
+                }
+
+                transferred = true;
             }
             else
                 gic_raise_inflight_irq(vcpu, i);
+        }
+
+        vpe->sgi_config[i].priority = priority;
+        vpe->sgi_config[i].enabled = enabled;
+        vpe->sgi_config[i].group = group;
+        p->hw = true;
+
+        if ( transferred )
+        {
+            list_del_init(&p->lr_queue);
+            clear_bit(GIC_IRQ_GUEST_QUEUED, &p->status);
+            list_del_init(&p->inflight);
         }
 
     unlock:
@@ -2134,7 +2186,11 @@ static void vgic_v4_disable_vsgis(struct vcpu *vcpu)
         return;
 
     ret = its_sgi_get_pending_state(vcpu, &ipending);
-    WARN_ON(ret);
+    if ( ret )
+    {
+        WARN_ON(ret);
+        return;
+    }
 
     for ( i = 0; i < NR_GIC_SGI; i++ )
     {
@@ -2146,11 +2202,28 @@ static void vgic_v4_disable_vsgis(struct vcpu *vcpu)
         if ( !p->hw )
             goto unlock;
 
-        p->hw = false;
-        reinject = !ret && (ipending & BIT(i, U));
+        ret = its_send_cmd_vsgi_config(hw_its, i, vpe, false,
+                                       vpe->sgi_config[i].priority, false,
+                                       vpe->sgi_config[i].group);
+        if ( ret )
+        {
+            WARN_ON(ret);
+            goto unlock;
+        }
+
+        reinject = ipending & BIT(i, U);
         vpe->sgi_config[i].enabled = false;
-        WARN_ON(its_send_cmd_vsgi(hw_its, i, vpe, false));
-        WARN_ON(its_send_cmd_vsgi(hw_its, i, vpe, true));
+        p->hw = false;
+
+        /*
+         * We already captured and will reinject the pending state. Clearing the
+         * hardware bit is best-effort cleanup for the now-disabled direct path.
+         */
+        ret = its_send_cmd_vsgi_config(hw_its, i, vpe, true,
+                                       vpe->sgi_config[i].priority, false,
+                                       vpe->sgi_config[i].group);
+        if ( ret )
+            WARN_ON(ret);
 
     unlock:
         spin_unlock_irqrestore(&vcpu->arch.vgic.lock, flags);
@@ -2160,14 +2233,12 @@ static void vgic_v4_disable_vsgis(struct vcpu *vcpu)
     }
 }
 
+/* The caller must keep all other vCPUs in the domain paused. */
 void vgic_v4_configure_vsgis(struct domain *d)
 {
     struct vcpu *v;
 
     if ( !vgic_has_directVSGI(d) )
-        return;
-
-    if ( WARN_ON(domain_pause_except_self(d)) )
         return;
 
     for_each_vcpu ( d, v )
@@ -2177,8 +2248,6 @@ void vgic_v4_configure_vsgis(struct domain *d)
         else
             vgic_v4_disable_vsgis(v);
     }
-
-    domain_unpause_except_self(d);
 }
 
 bool guest_support_nassgi(struct domain *d)
