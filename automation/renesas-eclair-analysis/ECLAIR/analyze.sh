@@ -19,7 +19,7 @@ if [[ $# -ne 2 ]]; then
 fi
 
 # Absolute path of the ECLAIR bin directory.
-export ECLAIR_BIN_DIR=/opt/bugseng/eclair/bin/
+export ECLAIR_BIN_DIR=/home/gitlab-runner/bugseng/eclair/bin/
 
 # Directory where this script resides: usually in a directory named "ECLAIR".
 SCRIPT_DIR="$(

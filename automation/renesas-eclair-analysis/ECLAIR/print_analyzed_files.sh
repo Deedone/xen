@@ -43,7 +43,7 @@ else
 fi
 
 # Absolute path of the ECLAIR bin directory.
-export ECLAIR_BIN_DIR=/opt/bugseng/eclair/bin/
+export ECLAIR_BIN_DIR=/home/gitlab-runner/bugseng/eclair/bin/
 
 # Generating txt report with files
 "${ECLAIR_BIN_DIR}eclair_report" -db="${DB}" -files_txt="${files_txt}"

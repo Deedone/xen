@@ -89,7 +89,7 @@ eclair-server-start:
       echo 'Run command on your local machine: \
       ssh -L 3786:localhost:3786 -N <user>@10.13.64.194 \
       and open report at http://127.0.0.1:3786'
-    - /opt/bugseng/eclair/bin/eclair_report -verbose -db=/home/gitlab-runner/xen_latest/ECLAIR_out/PROJECT.ecd -browser -server || true
+    - /home/gitlab-runner/bugseng/eclair/bin/eclair_report -verbose -db=/home/gitlab-runner/xen_latest/ECLAIR_out/PROJECT.ecd -browser -server || true
   rules:
     - when: manual
   needs: []

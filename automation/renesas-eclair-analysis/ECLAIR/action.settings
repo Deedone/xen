@@ -91,7 +91,7 @@ esac
 
 keepOldAnalyses=10
 
-ECLAIR_BIN_DIR=/opt/bugseng/eclair/bin/
+ECLAIR_BIN_DIR=/home/gitlab-runner/bugseng/eclair/bin/
 
 # Artifacts URL served by the eclair_report server
 if [ -z "${ECLAIR_ECDF_DIR}" ]
