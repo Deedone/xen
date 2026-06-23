@@ -367,6 +367,7 @@ int its_vlpi_prop_update(struct pending_irq *pirq, uint8_t property,
 int gicv4_its_handle_invall(struct domain *d, struct vcpu *vcpu);
 
 bool event_is_forwarded_to_vcpu(struct its_device *dev, uint32_t eventid);
+bool gicv4_its_doorbell_requires_mask(void);
 void its_vpe_mask_db(struct its_vpe *vpe);
 #else
 static inline int gicv4_assign_guest_event(struct domain *d,

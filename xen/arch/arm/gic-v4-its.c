@@ -56,6 +56,11 @@ static struct {
     int next_victim;
 } vpe_proxy;
 
+bool gicv4_its_doorbell_requires_mask(void)
+{
+    return !gic_has_v4_1_extension();
+}
+
 /* Per-redistributor GICv4.1 VPE table sharing group. */
 DEFINE_PER_CPU(cpumask_t *, vpe_table_mask);
 #define vpe_table_mask_cpu(cpu) (per_cpu(vpe_table_mask, cpu))
@@ -1042,8 +1047,12 @@ static int its_send_cmd_vmapti(struct host_its *its, struct its_device *dev,
     uint16_t vpeid = vpe->vpe_id;
     uint32_t vintid = map->vintid;
     uint32_t db_pintid;
+    bool db_enabled = map->db_enabled;
 
-    if ( map->db_enabled )
+    if ( its->is_v4_1 )
+        db_enabled = false;
+
+    if ( db_enabled )
         db_pintid = vpe->vpe_db_lpi;
     else
         db_pintid = INVALID_DBLPI;
@@ -1087,15 +1096,19 @@ static int its_send_cmd_vmovi(struct host_its *its,
     uint32_t deviceid = dev->host_devid;
     uint16_t vpeid = vpe->vpe_id;
     uint32_t db_pintid;
+    bool db_enabled = map->db_enabled;
 
-    if ( map->db_enabled )
+    if ( its->is_v4_1 )
+        db_enabled = false;
+
+    if ( db_enabled )
         db_pintid = vpe->vpe_db_lpi;
     else
-        db_pintid = INVALID_IRQ;
+        db_pintid = INVALID_DBLPI;
 
     cmd[0] = GITS_CMD_VMOVI | ((uint64_t)deviceid << 32);
     cmd[1] = eventid | ((uint64_t)vpeid << 32);
-    cmd[2] = (map->db_enabled ? 1UL : 0UL) | ((uint64_t)db_pintid << 32);
+    cmd[2] = (db_enabled ? 1UL : 0UL) | ((uint64_t)db_pintid << 32);
     cmd[3] = 0x00;
 
     return its_send_command(its, cmd);
