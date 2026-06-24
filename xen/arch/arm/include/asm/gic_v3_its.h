@@ -378,7 +378,7 @@ int its_sgi_prop_update(struct vcpu *v, unsigned int irq, uint8_t priority);
 
 bool event_is_forwarded_to_vcpu(struct its_device *dev, uint32_t eventid);
 bool gicv4_its_doorbell_requires_mask(void);
-void its_vpe_mask_db(struct its_vpe *vpe);
+int its_vpe_mask_db(struct its_vpe *vpe);
 #else
 static inline int gicv4_assign_guest_event(struct domain *d,
                                            paddr_t vdoorbell_address,

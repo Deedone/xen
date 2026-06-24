@@ -235,8 +235,11 @@ void gicv3_do_LPI(unsigned int lpi)
          * GICR_VPENDBASER.DB. The legacy per-event doorbell flow still needs
          * explicit host LPI masking after the interrupt is observed.
          */
-        if ( gicv4_its_doorbell_requires_mask() )
-            its_vpe_mask_db(vpe);
+        if ( gicv4_its_doorbell_requires_mask() &&
+             its_vpe_mask_db(vpe) )
+            printk_once(XENLOG_WARNING
+                        "Failed to mask doorbell LPI %u for d%u vcpu%u\n",
+                        lpi, d->domain_id, hlpi.db_vcpu_id);
 
         /*
          * Update the pending_last flag that indicates that VLPIs are pending.

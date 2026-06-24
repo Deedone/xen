@@ -819,7 +819,7 @@ static int its_vpe_send_4_1_inv_db(struct host_its *its, struct its_vpe *vpe)
     return its_send_cmd_vsync(its, vpeid);
 }
 
-static void its_vpe_inv_db(struct its_vpe *vpe)
+static int its_vpe_inv_db(struct its_vpe *vpe)
 {
     struct host_its *its = find_4_1_its();
 
@@ -828,9 +828,12 @@ static void its_vpe_inv_db(struct its_vpe *vpe)
         int ret = its_vpe_send_4_1_inv_db(its, vpe);
 
         if ( ret )
+        {
             printk(XENLOG_WARNING
                    "ITS: failed to invalidate GICv4.1 VPE doorbell: %d\n",
                    ret);
+            return ret;
+        }
     }
     else if ( gic_support_directLPI() )
     {
@@ -851,9 +854,12 @@ static void its_vpe_inv_db(struct its_vpe *vpe)
         vpe_to_cpuid_unlock(vpe, &flags);
 
         if ( ret )
+        {
             printk(XENLOG_WARNING
                    "ITS: failed to invalidate GICv4 VPE doorbell: %d\n",
                    ret);
+            return ret;
+        }
     }
     else
     {
@@ -869,28 +875,38 @@ static void its_vpe_inv_db(struct its_vpe *vpe)
         spin_unlock_irqrestore(&vpe_proxy.lock, flags);
 
         if ( ret )
+        {
             printk(XENLOG_WARNING
                    "ITS: failed to invalidate GICv4 VPE doorbell mapping: %d\n",
                    ret);
+            return ret;
+        }
     }
+
+    return 0;
 }
 
-static void its_vpe_set_db_enabled(struct its_vpe *vpe, bool enable)
+static int its_vpe_set_db_enabled(struct its_vpe *vpe, bool enable)
 {
-    lpi_write_config(lpi_host_proptable(), vpe->vpe_db_lpi,
-                     enable ? 0 : LPI_PROP_ENABLED,
-                     enable ? LPI_PROP_ENABLED : 0);
-    its_vpe_inv_db(vpe);
+    int ret;
+
+    ret = lpi_write_config(lpi_host_proptable(), vpe->vpe_db_lpi,
+                           enable ? 0 : LPI_PROP_ENABLED,
+                           enable ? LPI_PROP_ENABLED : 0);
+    if ( ret )
+        return ret;
+
+    return its_vpe_inv_db(vpe);
 }
 
-void its_vpe_mask_db(struct its_vpe *vpe)
+int its_vpe_mask_db(struct its_vpe *vpe)
 {
-    its_vpe_set_db_enabled(vpe, false);
+    return its_vpe_set_db_enabled(vpe, false);
 }
 
-static void its_vpe_unmask_db(struct its_vpe *vpe)
+static int its_vpe_unmask_db(struct its_vpe *vpe)
 {
-    its_vpe_set_db_enabled(vpe, true);
+    return its_vpe_set_db_enabled(vpe, true);
 }
 
 static void its_vpe_teardown(struct its_vpe *vpe)
@@ -1050,7 +1066,14 @@ int vgic_v4_its_vpe_init(struct vcpu *vcpu)
      */
     gicv3_lpi_update_host_entry(vpe->vpe_db_lpi, vcpu->domain->domain_id,
                                 INVALID_LPI, true, vcpu->vcpu_id);
-    its_vpe_unmask_db(vpe);
+    ret = its_vpe_unmask_db(vpe);
+    if ( ret )
+    {
+        its_vm->vpes[vcpuid] = NULL;
+        vcpu->arch.vgic.its_vpe = NULL;
+        its_vpe_teardown(vpe);
+        return ret;
+    }
 
     return 0;
 }
@@ -2417,7 +2440,14 @@ void vgic_v4_load(struct vcpu *vcpu)
         return;
     }
 
-    its_vpe_mask_db(vpe);
+    ret = its_vpe_mask_db(vpe);
+    if ( ret )
+    {
+        printk(XENLOG_WARNING
+               "%pv: GICv4 failed to mask vPE doorbell before load: %d\n",
+               vcpu, ret);
+    }
+
     ret = its_make_vpe_resident(vpe, vcpu->processor);
     if ( ret )
     {
@@ -2465,10 +2495,20 @@ void vgic_v4_put(struct vcpu *vcpu, bool need_db)
         return;
     }
 
-    if ( need_db )
-        /* Enable the doorbell, as the guest is going to block */
-        its_vpe_unmask_db(vpe);
     vpe->resident = false;
+
+    if ( need_db )
+    {
+        /* Enable the doorbell, as the guest is going to block */
+        ret = its_vpe_unmask_db(vpe);
+        if ( ret )
+        {
+            printk(XENLOG_WARNING
+                   "%pv: GICv4 failed to unmask vPE doorbell: %d\n",
+                   vcpu, ret);
+            return;
+        }
+    }
 }
 
 static int its_vlpi_set_doorbell(struct its_vlpi_map *map, bool enable)
