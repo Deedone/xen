@@ -86,6 +86,8 @@ function xtf_build_cmdline()
         [hyp-domctl-sched-rtds-params]="sched=rtds maxcpus=2 dom0_max_vcpus=1 dom0_vcpus_pin=true"
         [hyp-sysctl-sched-rtds-tickle]="sched=rtds maxcpus=2 dom0_max_vcpus=1 dom0_vcpus_pin=true"
         [hyp-sysctl-cpupool-info]="sched=credit2 maxcpus=4"
+        [hyp-sysctl-sched-rtds-assign-vcpu]="sched=rtds maxcpus=2 dom0_vcpus_pin=true"
+        [hyp-sysctl-sched-rtds-deassign-vcpu]="sched=rtds maxcpus=2 dom0_vcpus_pin=true"
     )
 
     cmdline+=("${XEN_CMDLINE}")

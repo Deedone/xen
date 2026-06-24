@@ -1,0 +1,11 @@
+# Per-test overrides for hyp-sysctl-sched-rtds-deassign-vcpu.
+# Uses Zephyr domu-load as DomU: two vCPUs in tight busy-loops, active
+# immediately on boot, so a moved-in vCPU shows runtime and a moved-out
+# vCPU clearly vacates its pCPU.
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=2
+export XTF_DOMU_KERNEL=domu-load.bin
+export XTF_DOMU_RAMDISK=""
+export XTF_DOMU_ZEPHYR_APP=domu-load
+export XTF_DOMU_ZEPHYR_BRANCH=safety-staging
+export XTF_DOMU_ZEPHYR_BOARD=xenvm/xenvm/gicv3
