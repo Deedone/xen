@@ -3,7 +3,7 @@ oft-build:
   image: maven:3.8.3-openjdk-17
   script:
     - mkdir -p binaries
-    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/openfasttrace.git -b rel-safety-staging
+    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/openfasttrace.git -b ${OFT_BRANCH:-rel-safety-staging}
     - cd openfasttrace/ && ./automation/build.sh
     - cd .. && cp ./openfasttrace/automation/trace.sh trace.sh && cp ./openfasttrace/binaries/oft.jar binaries/oft.jar
   artifacts:
