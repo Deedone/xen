@@ -578,7 +578,7 @@ provided that they are declared using the `format' attribute."
 -doc_end
 
 -doc_begin="Not using the return value of a function does not endanger safety if it coincides with an actual argument."
--config=MC3A2.R17.7,calls+={safe, "any()", "decl(name(__builtin_memcpy||__builtin_memmove||__builtin_memset||cpumask_check))"}
+-config=MC3A2.R17.7,calls+={safe, "decl(name(__builtin_memcpy||__builtin_memmove||__builtin_memset||cpumask_check))"}
 -doc_end
 
 #
