@@ -70,9 +70,9 @@ DEFINE_PER_CPU(cpumask_t *, vpe_table_mask);
 #define VPE_TABLE_MASK          (this_cpu(vpe_table_mask))
 static cpumask_t *vpe_table_mask_pool;
 
-static void its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu);
-static bool its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
-                                          unsigned int cpu, bool req_db);
+static int its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu);
+static int its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
+                                         unsigned int cpu, bool req_db);
 static int vpe_to_cpuid_lock(struct its_vpe *vpe, unsigned long *flags);
 static void vpe_to_cpuid_unlock(struct its_vpe *vpe, unsigned long *flags);
 static void encode_vmovp_v4_1(uint64_t *cmd, uint32_t default_db_pintid);
@@ -1528,31 +1528,32 @@ int gicv4_its_handle_invall(struct domain *d, struct vcpu *vcpu)
     return its_vpe_4_1_invall(vpe);
 }
 
-static uint64_t read_vpend_dirty_clean(void __iomem *vlpi_base,
-                                       unsigned int count)
+static int read_vpend_dirty_clean(void __iomem *vlpi_base,
+                                  unsigned int count, uint64_t *val)
 {
-    uint64_t val;
-    bool clean;
+    uint64_t tmp;
 
-    do {
-        val = gits_read_vpendbaser(vlpi_base + GICR_VPENDBASER);
-        /* Poll GICR_VPENDBASER.Dirty until it reads 0. */
-        clean = !(val & GICR_VPENDBASER_Dirty);
-        if ( !clean )
-        {
-            count--;
-            cpu_relax();
-            udelay(1);
-        }
-    } while ( !clean && count );
-
-    if ( !clean )
+    while ( true )
     {
-        printk(XENLOG_WARNING "ITS virtual pending table not totally parsed\n");
-        val |= GICR_VPENDBASER_PendingLast;
+        tmp = gits_read_vpendbaser(vlpi_base + GICR_VPENDBASER);
+        /* Poll GICR_VPENDBASER.Dirty until it reads 0. */
+        if ( !(tmp & GICR_VPENDBASER_Dirty) )
+        {
+            *val = tmp;
+            return 0;
+        }
+
+        if ( !count-- )
+            break;
+
+        cpu_relax();
+        udelay(1);
     }
 
-    return val;
+    *val = tmp | GICR_VPENDBASER_PendingLast;
+    printk(XENLOG_WARNING "ITS virtual pending table not totally parsed\n");
+
+    return -ETIMEDOUT;
 }
 
 /*
@@ -1560,28 +1561,30 @@ static uint64_t read_vpend_dirty_clean(void __iomem *vlpi_base,
  * table to deliver pending interrupts. This takes place asynchronously,
  * and can at times take a long while.
  */
-static void its_wait_vpt_parse_complete(void __iomem *vlpi_base)
+static int its_wait_vpt_parse_complete(void __iomem *vlpi_base)
 {
-    if ( !gic_support_vptValidDirty() )
-        return;
+    uint64_t val;
 
-    read_vpend_dirty_clean(vlpi_base, 500);
+    if ( !gic_support_vptValidDirty() )
+        return 0;
+
+    return read_vpend_dirty_clean(vlpi_base, 500, &val);
 }
 
-static bool its_clear_vpend_valid(void __iomem *vlpi_base, uint64_t *val)
+static int its_clear_vpend_valid(void __iomem *vlpi_base, uint64_t *val)
 {
     unsigned int count = GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US;
 
     if ( !gits_clear_vpendbaser_valid(vlpi_base + GICR_VPENDBASER) )
-        return false;
+        return -ETIMEDOUT;
 
-    *val = read_vpend_dirty_clean(vlpi_base, count);
+    (void)read_vpend_dirty_clean(vlpi_base, count, val);
 
-    return true;
+    return 0;
 }
 
-static bool its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
-                                       uint64_t set, uint64_t *val)
+static int its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
+                                      uint64_t set, uint64_t *val)
 {
     void __iomem *vpendbaser = vlpi_base + GICR_VPENDBASER;
     unsigned int count = GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US;
@@ -1600,7 +1603,7 @@ static bool its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
             {
                 printk(XENLOG_WARNING
                        "GICv4: timeout clearing GICR_VPENDBASER.Valid\n");
-                return false;
+                return -ETIMEDOUT;
             }
 
             udelay(1);
@@ -1608,12 +1611,12 @@ static bool its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
         } while ( tmp & GICR_VPENDBASER_Valid );
     }
 
-    *val = read_vpend_dirty_clean(vlpi_base, count);
+    (void)read_vpend_dirty_clean(vlpi_base, count, val);
 
-    return true;
+    return 0;
 }
 
-static void its_make_vpe_resident(struct its_vpe *vpe, unsigned int cpu)
+static int its_make_vpe_resident(struct its_vpe *vpe, unsigned int cpu)
 {
     void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
     uint64_t val;
@@ -1638,29 +1641,36 @@ static void its_make_vpe_resident(struct its_vpe *vpe, unsigned int cpu)
     val |= GICR_VPENDBASER_Valid;
     gits_write_vpendbaser(val, vlpi_base + GICR_VPENDBASER);
 
-    its_wait_vpt_parse_complete(vlpi_base);
+    (void)its_wait_vpt_parse_complete(vlpi_base);
+
+    return 0;
 }
 
-static bool its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
+static int its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
 {
     void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
     uint64_t val;
+    int ret;
 
-    if ( !its_clear_vpend_valid(vlpi_base, &val) )
-        return false;
+    ret = its_clear_vpend_valid(vlpi_base, &val);
+    if ( ret )
+        return ret;
 
     vpe->idai = val & GICR_VPENDBASER_IDAI;
     write_atomic(&vpe->pending_last, val & GICR_VPENDBASER_PendingLast);
 
-    return true;
+    return 0;
 }
 
-static void its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu)
+static int its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu)
 {
     void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
     uint64_t old, val = 0;
+    int ret;
 
-    (void)its_clear_vpend_valid_bits(vlpi_base, 0, 0, &old);
+    ret = its_clear_vpend_valid_bits(vlpi_base, 0, 0, &old);
+    if ( ret )
+        return ret;
 
     val |= GICR_VPENDBASER_Valid;
     /* PendingLast is RES1 when GICR_VPENDBASER.Valid is written 0->1. */
@@ -1669,21 +1679,23 @@ static void its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu)
     val |= MASK_INSR(vpe->vpe_id, GICR_VPENDBASER_4_1_VPEID);
 
     gits_write_vpendbaser(val, vlpi_base + GICR_VPENDBASER);
+
+    return 0;
 }
 
-static bool its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
-                                          unsigned int cpu, bool req_db)
+static int its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
+                                         unsigned int cpu, bool req_db)
 {
     void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
     uint64_t val;
-    bool ret;
+    int ret;
 
     if ( req_db )
     {
         ret = its_clear_vpend_valid_bits(vlpi_base,
                                          GICR_VPENDBASER_PendingLast,
                                          GICR_VPENDBASER_4_1_DB, &val);
-        if ( ret )
+        if ( !ret )
             write_atomic(&vpe->pending_last,
                          !!(val & GICR_VPENDBASER_PendingLast));
     }
@@ -1696,7 +1708,7 @@ static bool its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
          */
         ret = its_clear_vpend_valid_bits(vlpi_base, GICR_VPENDBASER_4_1_DB,
                                          0, &val);
-        if ( ret )
+        if ( !ret )
             write_atomic(&vpe->pending_last,
                          !!(val & GICR_VPENDBASER_PendingLast));
     }
@@ -2369,6 +2381,7 @@ static int gicv4_vpe_set_affinity(struct vcpu *vcpu)
 void vgic_v4_load(struct vcpu *vcpu)
 {
     struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
+    int ret;
 
     if ( !vpe )
         return;
@@ -2380,22 +2393,47 @@ void vgic_v4_load(struct vcpu *vcpu)
      * Before making the VPE resident, make sure the redistributor
      * corresponding to our current CPU expects us here
      */
-    WARN_ON(gicv4_vpe_set_affinity(vcpu));
+    ret = gicv4_vpe_set_affinity(vcpu);
+    if ( ret )
+    {
+        printk(XENLOG_WARNING
+               "%pv: GICv4 failed to retarget vPE before load: %d\n",
+               vcpu, ret);
+        return;
+    }
+
     if ( gic_has_v4_1_extension() )
     {
-        its_make_vpe_4_1_resident(vpe, vcpu->processor);
+        ret = its_make_vpe_4_1_resident(vpe, vcpu->processor);
+        if ( ret )
+        {
+            printk(XENLOG_WARNING
+                   "%pv: GICv4.1 failed to make vPE resident: %d\n",
+                   vcpu, ret);
+            return;
+        }
+
         vpe->resident = true;
         return;
     }
 
     its_vpe_mask_db(vpe);
-    its_make_vpe_resident(vpe, vcpu->processor);
+    ret = its_make_vpe_resident(vpe, vcpu->processor);
+    if ( ret )
+    {
+        printk(XENLOG_WARNING
+               "%pv: GICv4 failed to make vPE resident: %d\n",
+               vcpu, ret);
+        return;
+    }
+
     vpe->resident = true;
 }
 
 void vgic_v4_put(struct vcpu *vcpu, bool need_db)
 {
     struct its_vpe *vpe = vcpu->arch.vgic.its_vpe;
+    int ret;
 
     if ( !vpe )
         return;
@@ -2405,15 +2443,27 @@ void vgic_v4_put(struct vcpu *vcpu, bool need_db)
 
     if ( gic_has_v4_1_extension() )
     {
-        if ( !its_make_vpe_4_1_non_resident(vpe, vcpu->processor, need_db) )
+        ret = its_make_vpe_4_1_non_resident(vpe, vcpu->processor, need_db);
+        if ( ret )
+        {
+            printk(XENLOG_WARNING
+                   "%pv: GICv4.1 failed to make vPE non-resident: %d\n",
+                   vcpu, ret);
             return;
+        }
 
         vpe->resident = false;
         return;
     }
 
-    if ( !its_make_vpe_non_resident(vpe, vcpu->processor) )
+    ret = its_make_vpe_non_resident(vpe, vcpu->processor);
+    if ( ret )
+    {
+        printk(XENLOG_WARNING
+               "%pv: GICv4 failed to make vPE non-resident: %d\n",
+               vcpu, ret);
         return;
+    }
 
     if ( need_db )
         /* Enable the doorbell, as the guest is going to block */
