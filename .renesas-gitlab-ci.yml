@@ -37,22 +37,28 @@ default:
       - scheduler_failure
       - unknown_failure
 
+# A standard pipeline runs the normal artifacts/build/test/trace/analyze
+# suite. FUZZER and MINERVA are EXCLUSIVE modes that replace it, so the
+# normal suite runs only when no exclusive mode is selected. Add any future
+# exclusive mode to this single line.
+.standard-pipeline-rules: &standard_pipeline
+  - if: '$RUN_FUZZER != "true" && $RUN_MINERVA != "true"'
+
 include:
+  # artifacts.yaml is shared: a MINERVA pipeline still needs the image and
+  # xen-tools exports for the runtime jobs, so it is gated off for FUZZER
+  # only, not for MINERVA. (FUZZER is self-contained and does not use it.)
   - local: 'automation/renesas-gitlab-ci/artifacts.yaml'
     rules:
       - if: '$RUN_FUZZER != "true"'
   - local: 'automation/renesas-gitlab-ci/build.yaml'
-    rules:
-      - if: '$RUN_FUZZER != "true"'
+    rules: *standard_pipeline
   - local: 'automation/renesas-gitlab-ci/test.yaml'
-    rules:
-      - if: '$RUN_FUZZER != "true"'
+    rules: *standard_pipeline
   - local: 'automation/renesas-gitlab-ci/trace.yaml'
-    rules:
-      - if: '$RUN_FUZZER != "true"'
+    rules: *standard_pipeline
   - local: 'automation/renesas-gitlab-ci/analyze.yaml'
-    rules:
-      - if: '$RUN_FUZZER != "true"'
+    rules: *standard_pipeline
   - local: 'automation/renesas-gitlab-ci/fuzzer.yaml'
     rules:
       - if: '$RUN_FUZZER == "true"'
