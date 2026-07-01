@@ -1,0 +1,10 @@
+# Per-test overrides for hyp-sysctl-cpupool-boot-sched.
+# One boot DomU placed in a boot-time cpupool owning cpu@1 with the RTDS
+# scheduler selected via the device-tree "cpupool-sched" property. cpu0 stays
+# in Pool-0 with dom0 and the default (credit2) scheduler, so the test can
+# prove the scheduler was assigned to the specified pool, not globally.
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=1
+export XTF_CPUPOOL_CONFIG='NUM_CPUPOOLS=1
+CPUPOOL[0]="cpu@1 rtds"
+DOMU_CPUPOOL[0]=0'

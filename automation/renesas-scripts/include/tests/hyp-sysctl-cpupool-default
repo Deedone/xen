@@ -1,0 +1,5 @@
+# Per-test overrides for hyp-sysctl-cpupool-default.
+# No boot-time cpupool config at all: Xen must create the default Pool-0
+# owning every online pCPU and place dom0 (and the DomU) in it.
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=1

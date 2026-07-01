@@ -1,0 +1,11 @@
+# Per-test overrides for hyp-sysctl-cpupool-cpu0.
+# Two boot-time cpupools: the first owns cpu@1, the second owns cpu@0. Because
+# the config puts cpu0 in a non-default pool, Xen must swap the assignments so
+# cpu0 stays in Pool-0 and cpu1 moves to Pool-1. The DomU is assigned to the
+# first-defined pool (which becomes Pool-1 after the swap).
+export XTF_NUM_DOMUS=1
+export XTF_DOMU_VCPUS=1
+export XTF_CPUPOOL_CONFIG='NUM_CPUPOOLS=2
+CPUPOOL[0]="cpu@1"
+CPUPOOL[1]="cpu@0"
+DOMU_CPUPOOL[0]=0'
