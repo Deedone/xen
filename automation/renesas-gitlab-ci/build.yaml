@@ -116,3 +116,96 @@ xen-atfe-arm64-earlyprintk:
       CONFIG_EARLY_UART_BASE_ADDRESS=0x9000000
   rules:
     - if: '$RUN_UBSAN == "true"'
+
+# ---------------------------------------------------------------------------
+# XTF binaries for Gen5 hardware tests
+# Built with Gen5 GIC config (0x39000000/0x39080000) on aws-arm64 Docker so
+# epdefrans (x86 shell executor) can download and run them without a
+# cross-compiler. One matrix instance per test - each exports a uniquely named
+# binaries/xtf-<name> so a single test job can depend on the whole matrix.
+# ---------------------------------------------------------------------------
+
+xtf-arm64-gen5:
+  stage: build
+  image: xentroops/xen_rel
+  tags:
+    - aws-arm64
+  needs: []
+  parallel:
+    matrix:
+      - XTF_TEST_NAME:
+          - hyp-xen-version
+          - hyp-domctl-pausedomain
+          - hyp-domctl-destroydomain
+          - hyp-domctl-unpausedomain
+          - hyp-domctl-cacheflush
+          - hyp-domctl-createdomain
+          - hyp-domctl-getdomaininfo
+          - hyp-domctl-get-paging-mempool-size
+          - hyp-domctl-set-paging-mempool-size
+          - hyp-domctl-max-mem
+          - hyp-sysctl-physinfo
+          - hyp-sysctl-getdomaininfolist
+          - hyp-sysctl-sched-rtds-cmdline
+          - hyp-sysctl-sched-rtds-edf
+  script:
+    - mkdir -p binaries
+    - cd automation/renesas-scripts
+    - source include/xtf-runner
+    - export XTF_SRC_CONFIG="${PWD}/include/configs/xtf-arm64-gen5-config"
+    - export XTF_SRC_BRANCH="${XTF_SRC_BRANCH:-safety-staging}"
+    - export XTF_SRC_URI="https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/xtf.git"
+    - export XTF_SRC_VARIANTS="mmu64le"
+    - export ARCH="arm64"
+    - export WORKDIR="${CI_PROJECT_DIR}/binaries"
+    - xtf_build_binary mmu64le "${XTF_TEST_NAME}"
+    - cp "${XTF_BINARY}" "${CI_PROJECT_DIR}/binaries/xtf-${XTF_TEST_NAME}"
+  artifacts:
+    paths:
+      - binaries/xtf-${XTF_TEST_NAME}
+    when: always
+
+# ---------------------------------------------------------------------------
+# Zephyr Dom0 binaries for Gen5 hardware tests
+# Built on aws-arm64 Docker (Zephyr SDK available); epdefrans has no SDK.
+# Dom0 uses qemu_cortex_a53 board with xen_dom0 + xen_dom0_overlay snippets
+# and xen_dom0_overlay_gen5_ironhide for Gen5 grant table / extended region
+# addresses. Snippet defined in zephyr_tests/testcases/snippets/. One matrix
+# instance per test - each exports a uniquely named binaries/dom0-<name>.bin.
+# ---------------------------------------------------------------------------
+
+zephyr-gen5-build:
+  stage: build
+  image: xentroops/xen_rel
+  tags:
+    - aws-arm64
+  needs: []
+  parallel:
+    matrix:
+      - ZEPHYR_TEST_NAME:
+          - hyp-domctl-pausedomain
+          - hyp-domctl-unpausedomain
+          - hyp-domctl-resumedomain
+          - hyp-domctl-getvcpucontext
+          - hyp-domctl-setvcpucontext
+          - hyp-domctl-max-vcpus
+  script:
+    - mkdir -p binaries
+    - git clone --depth 1 "https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git" -b safety-staging zephyr_tests
+    - cd "${ZEPHYR_SDK_INSTALL_DIR}"
+    - west build -p always -b xenvm "${CI_PROJECT_DIR}/zephyr_tests/testcases/domu-basic"
+    - cp build/zephyr/zephyr.bin "${CI_PROJECT_DIR}/binaries/domu-basic.bin"
+    - cp build/domu-basic.dtb "${CI_PROJECT_DIR}/binaries/domu-basic.dtb"
+    - export PREBUILT_IMAGES="${CI_PROJECT_DIR}/binaries"
+    - west build -p always -b qemu_cortex_a53 -S xen_dom0 -S xen_dom0_overlay_gen5_ironhide "${CI_PROJECT_DIR}/zephyr_tests/testcases/${ZEPHYR_TEST_NAME}"
+    - cp build/zephyr/zephyr.bin "${CI_PROJECT_DIR}/binaries/dom0-${ZEPHYR_TEST_NAME}.bin"
+    # Patch the arm64 boot-header image_size field (offset 0x10) to the real
+    # .bin size so Xen's zImage loader copies the whole dom0. With CONFIG_XIP=n
+    # there is no separate flash region, so Zephyr's _flash_used symbol (which
+    # feeds image_size) ends up as an absolute link address instead of a size
+    # (e.g. 0x40278000 for a 74000-byte image); without this Xen would copy ~1 GB.
+    - python3 -c "import struct,os; f=open('${CI_PROJECT_DIR}/binaries/dom0-${ZEPHYR_TEST_NAME}.bin','r+b'); sz=os.path.getsize('${CI_PROJECT_DIR}/binaries/dom0-${ZEPHYR_TEST_NAME}.bin'); f.seek(16); f.write(struct.pack('<Q',sz)); print(f'dom0.bin image_size patched to {sz} bytes')"
+  artifacts:
+    paths:
+      - binaries/dom0-${ZEPHYR_TEST_NAME}.bin
+    when: always

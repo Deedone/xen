@@ -26,6 +26,28 @@ alpine-3.18-rootfs-export:
     - aws-arm64
   needs: []
 
+# DomU arm64 busybox initrd for Gen5 hardware XTF tests
+# Built on aws-arm64 where /bin/busybox is arm64; epdefrans runner is x86-64.
+arm64-busybox-initrd-export:
+  stage: artifacts
+  image: xentroops/xen_rel
+  script:
+    - mkdir -p binaries/initrd/bin binaries/initrd/sbin binaries/initrd/etc
+        binaries/initrd/dev binaries/initrd/proc binaries/initrd/sys
+        binaries/initrd/lib binaries/initrd/var binaries/initrd/mnt
+    - cp /bin/busybox binaries/initrd/bin/busybox
+    - binaries/initrd/bin/busybox --install binaries/initrd/bin
+    - |
+      printf '#!/bin/sh\nmount -t proc proc /proc\nmount -t sysfs sysfs /sys\nmount -t devtmpfs devtmpfs /dev\n/bin/sh\n' > binaries/initrd/init
+    - chmod +x binaries/initrd/init
+    - (cd binaries/initrd && find . | cpio -H newc -o | gzip > ../domU-rootfs.cpio.gz)
+  artifacts:
+    paths:
+      - binaries/domU-rootfs.cpio.gz
+  tags:
+    - aws-arm64
+  needs: []
+
 # Xen Tools
 alpine-3.18-xen-tools-export:
   stage: artifacts
