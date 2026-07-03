@@ -42,9 +42,34 @@ expect_after {
 }
 
 if {[info exists env(UBOOT_CMD)]} {
-    expect "=>"
+    if {[info exists env(UBOOT_NET_CMD)] && $env(UBOOT_NET_CMD) ne ""} {
+        # Hardware U-Boot autoboots. Spam the space key until the "=>" prompt
+        # appears (the board may still be counting down, or already be at the
+        # prompt). Then send the network setup and the boot command separately:
+        # the combined string exceeds U-Boot's ~137-character input buffer.
+        set _saved_timeout $timeout
+        set timeout 2
+        set _got_prompt 0
+        for {set i 0} {$i < 90} {incr i} {
+            send -- " "
+            expect {
+                "=>" {set _got_prompt 1; break}
+                timeout {}
+            }
+        }
+        set timeout $_saved_timeout
+        if {!$_got_prompt} {
+            send_error "\nERROR-Timeout waiting for U-Boot prompt!\n"
+            exit 1
+        }
+        send -- "$env(UBOOT_NET_CMD)\r"
+        expect "=>"
+        send -- "$env(UBOOT_CMD)\r"
+    } else {
+        expect "=>"
 
-    send "$env(UBOOT_CMD)\r"
+        send "$env(UBOOT_CMD)\r"
+    }
 }
 
 if {[info exists env(BOOT_MSG)]} {
