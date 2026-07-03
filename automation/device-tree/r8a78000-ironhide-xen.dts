@@ -1,0 +1,1129 @@
+/dts-v1/;
+
+/*
+ * Xen overlay for the Ironhide (R8A78000) board.
+ *
+ * Includes the plain board DTS and layers the Xen-specific wiring on top:
+ * SMMU stream enablement, IOMMU bindings and xen,passthrough markers.
+ *
+ * /chosen is left as a bare node (stdout-path only). The dom0 / domU / xsm-policy
+ * multiboot modules and the Xen command line are injected at boot time by the
+ * test runner (gen5-xtf.sh / gen5-zephyr.sh) with fdt commands, because the load
+ * addresses and payloads differ per test. The BSP's baked Linux-dom0 modules
+ * (dom0@0x64000000, xsm@0x53000000) are intentionally dropped here.
+ */
+
+/include/ "r8a78000-ironhide.dts"
+
+/ {
+    chosen {
+        stdout-path = "serial0:1843200n8";
+    };
+};
+
+&smmu_hcn {
+    status = "okay";
+};
+
+&smmu_pere {
+    status = "okay";
+};
+
+&smmu_pv {
+    status = "okay";
+};
+
+&smmu_hcs1 {
+    status = "okay";
+};
+
+&smmu_mp {
+    status = "okay";
+};
+
+&smmu_perw {
+    status = "disabled";
+};
+
+&smmu_dsp {
+    status = "disabled";
+};
+
+&smmu_hcs0 {
+    status = "disabled";
+};
+
+&smmu_imn {
+    status = "disabled";
+};
+
+&smmu_ims {
+    status = "disabled";
+};
+
+&smmu_npu0 {
+    status = "disabled";
+};
+
+&smmu_npu1 {
+    status = "disabled";
+};
+
+&smmu_rt {
+    status = "disabled";
+};
+
+&smmu_scp {
+    status = "disabled";
+};
+
+&smmu_vipn {
+    status = "disabled";
+};
+
+&smmu_vips {
+    status = "disabled";
+};
+
+&smmu_vi0 {
+    status = "disabled";
+};
+
+&smmu_vi1 {
+    status = "disabled";
+};
+
+&rswitch3 {
+    iommus = <&smmu_hcn 0x0>, <&smmu_hcn 0x1>,
+             <&smmu_hcn 0x2>, <&smmu_hcn 0x3>,
+             <&smmu_hcn 0x4>, <&smmu_hcn 0x5>,
+             <&smmu_hcn 0x6>, <&smmu_hcn 0x7>,
+             <&smmu_hcn 0x10000>, <&smmu_hcn 0x10001>,
+             <&smmu_hcn 0x10002>, <&smmu_hcn 0x10003>,
+             <&smmu_hcn 0x10004>, <&smmu_hcn 0x10005>,
+             <&smmu_hcn 0x10006>, <&smmu_hcn 0x10007>,
+             <&smmu_hcn 0x20000>, <&smmu_hcn 0x30000>,
+             <&smmu_hcn 0x40000>, <&smmu_hcn 0x50000>,
+             <&smmu_hcn 0x60000>, <&smmu_hcn 0x70000>,
+             <&smmu_hcn 0x80000>, <&smmu_hcn 0x90000>;
+};
+
+&mmc0 {
+    iommus = <&smmu_pere 0x20000>;
+};
+
+&ufs0 {
+    iommus = <&smmu_pere 0x30000>;
+};
+
+&ufs1 {
+    iommus = <&smmu_pere 0x40000>;
+};
+
+/ {
+    soc {
+        gsx_osid0_domd: gsx_osid0_domd {
+            iommus = <&smmu_pv 0x00>, <&smmu_pv 0x10000>, <&smmu_pv 0x20000>, <&smmu_pv 0x30000>;
+            xen,passthrough;
+        };
+
+        gsx_osid1: gsx_osid1 {
+            iommus = <&smmu_pv 0x01>, <&smmu_pv 0x10001>, <&smmu_pv 0x20001>, <&smmu_pv 0x30001>;
+            xen,passthrough;
+        };
+    };
+};
+
+&usb30 {
+    iommus = <&smmu_hcn 0xc0000>;
+};
+
+&usb31 {
+    iommus = <&smmu_hcn 0xd0000>;
+};
+
+&usb20 {
+    iommus = <&smmu_hcn 0xe0000>;
+};
+
+&usb21 {
+    iommus = <&smmu_hcn 0xf0000>;
+};
+
+&pciec60 {
+    iommus = <&smmu_hcs1 0x20000>;
+    iommu-map = <0x0 &smmu_hcs1 0x20000 0x10000>;
+
+    linux,pci-domain = <1>;
+};
+
+&audio_dmac0 {
+    iommus = <&smmu_mp 0x40000>, <&smmu_mp 0x40001>,
+             <&smmu_mp 0x40002>, <&smmu_mp 0x40003>,
+             <&smmu_mp 0x40004>, <&smmu_mp 0x40005>,
+             <&smmu_mp 0x40006>, <&smmu_mp 0x40007>,
+             <&smmu_mp 0x40008>, <&smmu_mp 0x40009>,
+             <&smmu_mp 0x4000a>, <&smmu_mp 0x4000b>,
+             <&smmu_mp 0x4000c>, <&smmu_mp 0x4000d>,
+             <&smmu_mp 0x4000e>, <&smmu_mp 0x4000f>;
+};
+
+&audio_dmac1 {
+    iommus = <&smmu_mp 0x50000>, <&smmu_mp 0x50001>,
+             <&smmu_mp 0x50002>, <&smmu_mp 0x50003>,
+             <&smmu_mp 0x50004>, <&smmu_mp 0x50005>,
+             <&smmu_mp 0x50006>, <&smmu_mp 0x50007>,
+             <&smmu_mp 0x50008>, <&smmu_mp 0x50009>,
+             <&smmu_mp 0x5000a>, <&smmu_mp 0x5000b>,
+             <&smmu_mp 0x5000c>, <&smmu_mp 0x5000d>,
+             <&smmu_mp 0x5000e>, <&smmu_mp 0x5000f>;
+};
+
+&extal_clk {
+    xen,passthrough;
+};
+
+&extalr_clk {
+    xen,passthrough;
+};
+
+/ {
+    firmware {
+        xen,passthrough;
+    };
+
+    soc {
+        mfis_lock@189e0000 {
+            xen,passthrough;
+        };
+    };
+};
+
+&dummy_clk_sgasyncd4 {
+    xen,passthrough;
+};
+
+&dummy_clk_wdt {
+    xen,passthrough;
+};
+
+&rsw3_clk {
+    xen,passthrough;
+};
+
+&dummy_clk_wcrc {
+    xen,passthrough;
+};
+
+&pcie4_bus_clk {
+    xen,passthrough;
+};
+
+&pcie6_bus_clk {
+    xen,passthrough;
+};
+
+&mfis {
+    xen,passthrough;
+};
+
+&mailbox {
+    xen,passthrough;
+};
+
+&pfc {
+    xen,passthrough;
+};
+
+&i2c0 {
+    xen,passthrough;
+};
+
+&i2c1 {
+    xen,passthrough;
+};
+
+&i2c2 {
+    xen,passthrough;
+};
+
+&i2c3 {
+    xen,passthrough;
+};
+
+&i2c4 {
+    xen,passthrough;
+};
+
+&i2c5 {
+    xen,passthrough;
+};
+
+&i2c6 {
+    xen,passthrough;
+};
+
+&i2c7 {
+    xen,passthrough;
+};
+
+&i2c8 {
+    xen,passthrough;
+};
+
+&rwdt {
+    xen,passthrough;
+};
+
+&gpio0 {
+    xen,passthrough;
+};
+
+&gpio1 {
+    xen,passthrough;
+};
+
+&gpio2 {
+    xen,passthrough;
+};
+
+&gpio3 {
+    xen,passthrough;
+};
+
+&gpio4 {
+    xen,passthrough;
+};
+
+&gpio5 {
+    xen,passthrough;
+};
+
+&gpio6 {
+    xen,passthrough;
+};
+
+&gpio7 {
+    xen,passthrough;
+};
+
+&gpio8 {
+    xen,passthrough;
+};
+
+&gpio9 {
+    xen,passthrough;
+};
+
+&gpio10 {
+    xen,passthrough;
+};
+
+&crc0 {
+    xen,passthrough;
+};
+
+&crc1 {
+    xen,passthrough;
+};
+
+&crc2 {
+    xen,passthrough;
+};
+
+&crc3 {
+    xen,passthrough;
+};
+
+&crc4 {
+    xen,passthrough;
+};
+
+&crc5 {
+    xen,passthrough;
+};
+
+&crc6 {
+    xen,passthrough;
+};
+
+&crc7 {
+    xen,passthrough;
+};
+
+&crc8 {
+    xen,passthrough;
+};
+
+&crc9 {
+    xen,passthrough;
+};
+
+&crc10 {
+    xen,passthrough;
+};
+
+&kcrc0 {
+    xen,passthrough;
+};
+
+&kcrc1 {
+    xen,passthrough;
+};
+
+&kcrc2 {
+    xen,passthrough;
+};
+
+&kcrc3 {
+    xen,passthrough;
+};
+
+&kcrc4 {
+    xen,passthrough;
+};
+
+&kcrc5 {
+    xen,passthrough;
+};
+
+&kcrc6 {
+    xen,passthrough;
+};
+
+&kcrc7 {
+    xen,passthrough;
+};
+
+&kcrc8 {
+    xen,passthrough;
+};
+
+&kcrc9 {
+    xen,passthrough;
+};
+
+&kcrc10 {
+    xen,passthrough;
+};
+
+&wcrc0 {
+    xen,passthrough;
+};
+
+&wcrc1 {
+    xen,passthrough;
+};
+
+&wcrc2 {
+    xen,passthrough;
+};
+
+&wcrc3 {
+    xen,passthrough;
+};
+
+&wcrc4 {
+    xen,passthrough;
+};
+
+&wcrc5 {
+    xen,passthrough;
+};
+
+&wcrc6 {
+    xen,passthrough;
+};
+
+&wcrc7 {
+    xen,passthrough;
+};
+
+&wcrc8 {
+    xen,passthrough;
+};
+
+&wcrc9 {
+    xen,passthrough;
+};
+
+&wcrc10 {
+    xen,passthrough;
+};
+
+&sys_dmac00 {
+    xen,passthrough;
+};
+
+&sys_dmac10 {
+    xen,passthrough;
+};
+
+&sys_dmac11 {
+    xen,passthrough;
+};
+
+&sys_dmac12 {
+    xen,passthrough;
+};
+
+&rt_dmac0 {
+    xen,passthrough;
+};
+
+&rt_dmac1 {
+    xen,passthrough;
+};
+
+&rt_dmac2 {
+    xen,passthrough;
+};
+
+&rt_dmac3 {
+    xen,passthrough;
+};
+
+&audio_dmac0 {
+    xen,passthrough;
+};
+
+&audio_dmac1 {
+    xen,passthrough;
+};
+
+&audio_dmac2 {
+    xen,passthrough;
+};
+
+&audio_dmac3 {
+    xen,passthrough;
+};
+
+&scp_dmac0 {
+    xen,passthrough;
+};
+
+&scp_dmac1 {
+    xen,passthrough;
+};
+
+&rtt_dmac0 {
+    xen,passthrough;
+};
+
+&rtt_dmac1 {
+    xen,passthrough;
+};
+
+&scif0 {
+    xen,passthrough;
+};
+
+&scif1 {
+    xen,passthrough;
+};
+
+&scif3 {
+    xen,passthrough;
+};
+
+&scif4 {
+    xen,passthrough;
+};
+
+&hscif1 {
+    xen,passthrough;
+};
+
+&hscif2 {
+    xen,passthrough;
+};
+
+&hscif3 {
+    xen,passthrough;
+};
+
+&rpc {
+    xen,passthrough;
+};
+
+&ufs0 {
+    xen,passthrough;
+};
+
+&ufs1 {
+    xen,passthrough;
+};
+
+&scp {
+    xen,passthrough;
+};
+
+&rst {
+    xen,passthrough;
+};
+
+&mp_phy {
+    xen,passthrough;
+};
+
+&eth_pcs {
+    xen,passthrough;
+};
+
+&rswitch3 {
+    xen,passthrough;
+};
+
+&msiof0 {
+    xen,passthrough;
+};
+
+&msiof1 {
+    xen,passthrough;
+};
+
+&msiof2 {
+    xen,passthrough;
+};
+
+&msiof3 {
+    xen,passthrough;
+};
+
+&msiof4 {
+    xen,passthrough;
+};
+
+&msiof5 {
+    xen,passthrough;
+};
+
+&msiof6 {
+    xen,passthrough;
+};
+
+&msiof7 {
+    xen,passthrough;
+};
+
+&pciec40 {
+    xen,passthrough;
+};
+
+&pciec60 {
+    xen,passthrough;
+};
+
+&pciec60_ep {
+    xen,passthrough;
+};
+
+&pciec61_ep {
+    xen,passthrough;
+};
+
+&mmc0 {
+    xen,passthrough;
+};
+
+&ufs0_clk {
+    xen,passthrough;
+};
+
+&ufs1_clk {
+    xen,passthrough;
+};
+
+&reg_1p8v {
+    xen,passthrough;
+};
+
+&reg_3p3v {
+    xen,passthrough;
+};
+
+&dummy_clk {
+    xen,passthrough;
+};
+
+&gsx_opp0 {
+    xen,passthrough;
+};
+
+&gsx {
+    xen,passthrough;
+};
+
+&audio_clk_a {
+    xen,passthrough;
+};
+
+&audio_clk_b {
+    xen,passthrough;
+};
+
+&audio_clk_c {
+    xen,passthrough;
+};
+
+&dvc0 {
+    xen,passthrough;
+};
+
+&dvc1 {
+    xen,passthrough;
+};
+
+&mix0 {
+    xen,passthrough;
+};
+
+&mix0 {
+    xen,passthrough;
+};
+
+&ctu00 {
+    xen,passthrough;
+};
+
+&ctu01 {
+    xen,passthrough;
+};
+
+&ctu02 {
+    xen,passthrough;
+};
+
+&ctu03 {
+    xen,passthrough;
+};
+
+&ctu10 {
+    xen,passthrough;
+};
+
+&ctu11 {
+    xen,passthrough;
+};
+
+&ctu12 {
+    xen,passthrough;
+};
+
+&ctu13 {
+    xen,passthrough;
+};
+
+&src0 {
+    xen,passthrough;
+};
+
+&src1 {
+    xen,passthrough;
+};
+
+&src2 {
+    xen,passthrough;
+};
+
+&src3 {
+    xen,passthrough;
+};
+
+&src4 {
+    xen,passthrough;
+};
+
+&src5 {
+    xen,passthrough;
+};
+
+&src6 {
+    xen,passthrough;
+};
+
+&src7 {
+    xen,passthrough;
+};
+
+&src8 {
+    xen,passthrough;
+};
+
+&src9 {
+    xen,passthrough;
+};
+
+&ssiu00 {
+    xen,passthrough;
+};
+
+&ssiu01 {
+    xen,passthrough;
+};
+
+&ssiu02 {
+    xen,passthrough;
+};
+
+&ssiu03 {
+    xen,passthrough;
+};
+
+&ssiu04 {
+    xen,passthrough;
+};
+
+&ssiu05 {
+    xen,passthrough;
+};
+
+&ssiu06 {
+    xen,passthrough;
+};
+
+&ssiu07 {
+    xen,passthrough;
+};
+
+&ssiu10 {
+    xen,passthrough;
+};
+
+&ssiu11 {
+    xen,passthrough;
+};
+
+&ssiu12 {
+    xen,passthrough;
+};
+
+&ssiu13 {
+    xen,passthrough;
+};
+
+&ssiu14 {
+    xen,passthrough;
+};
+
+&ssiu15 {
+    xen,passthrough;
+};
+
+&ssiu16 {
+    xen,passthrough;
+};
+
+&ssiu17 {
+    xen,passthrough;
+};
+
+&ssiu20 {
+    xen,passthrough;
+};
+
+&ssiu21 {
+    xen,passthrough;
+};
+
+&ssiu22 {
+    xen,passthrough;
+};
+
+&ssiu23 {
+    xen,passthrough;
+};
+
+&ssiu24 {
+    xen,passthrough;
+};
+
+&ssiu25 {
+    xen,passthrough;
+};
+
+&ssiu26 {
+    xen,passthrough;
+};
+
+&ssiu27 {
+    xen,passthrough;
+};
+
+&ssiu30 {
+    xen,passthrough;
+};
+
+&ssiu31 {
+    xen,passthrough;
+};
+
+&ssiu32 {
+    xen,passthrough;
+};
+
+&ssiu33 {
+    xen,passthrough;
+};
+
+&ssiu34 {
+    xen,passthrough;
+};
+
+&ssiu35 {
+    xen,passthrough;
+};
+
+&ssiu36 {
+    xen,passthrough;
+};
+
+&ssiu37 {
+    xen,passthrough;
+};
+
+&ssiu40 {
+    xen,passthrough;
+};
+
+&ssiu41 {
+    xen,passthrough;
+};
+
+&ssiu42 {
+    xen,passthrough;
+};
+
+&ssiu43 {
+    xen,passthrough;
+};
+
+&ssiu44 {
+    xen,passthrough;
+};
+
+&ssiu45 {
+    xen,passthrough;
+};
+
+&ssiu46 {
+    xen,passthrough;
+};
+
+&ssiu47 {
+    xen,passthrough;
+};
+
+&ssiu50 {
+    xen,passthrough;
+};
+
+&ssiu60 {
+    xen,passthrough;
+};
+
+&ssiu70 {
+    xen,passthrough;
+};
+
+&ssiu80 {
+    xen,passthrough;
+};
+
+&ssiu90 {
+    xen,passthrough;
+};
+
+&ssiu91 {
+    xen,passthrough;
+};
+
+&ssiu92 {
+    xen,passthrough;
+};
+
+&ssiu93 {
+    xen,passthrough;
+};
+
+&ssiu94 {
+    xen,passthrough;
+};
+
+&ssiu95 {
+    xen,passthrough;
+};
+
+&ssiu96 {
+    xen,passthrough;
+};
+
+&ssiu97 {
+    xen,passthrough;
+};
+
+&ssi0 {
+    xen,passthrough;
+};
+
+&ssi1 {
+    xen,passthrough;
+};
+
+&ssi2 {
+    xen,passthrough;
+};
+
+&ssi3 {
+    xen,passthrough;
+};
+
+&ssi4 {
+    xen,passthrough;
+};
+
+&ssi5 {
+    xen,passthrough;
+};
+
+&ssi6 {
+    xen,passthrough;
+};
+
+&ssi7 {
+    xen,passthrough;
+};
+
+&ssi8 {
+    xen,passthrough;
+};
+
+&ssi9 {
+    xen,passthrough;
+};
+
+&ak4619 {
+    xen,passthrough;
+};
+
+&rcar_sound {
+    xen,passthrough;
+
+    rcar_sound,dvc {
+        xen,passthrough;
+    };
+
+    rcar_sound,mix {
+        xen,passthrough;
+    };
+
+    rcar_sound,ctu {
+        xen,passthrough;
+    };
+
+    rcar_sound,src {
+        xen,passthrough;
+    };
+
+    rcar_sound,dai {
+        xen,passthrough;
+
+        dai0 {
+            xen,passthrough;
+        };
+    };
+
+    rcar_sound,ssiu {
+        xen,passthrough;
+    };
+
+    rcar_sound,ssi {
+        xen,passthrough;
+    };
+};
+
+&usb30 {
+    xen,passthrough;
+
+    dwc3_usb30@c8800000 {
+        xen,passthrough;
+    };
+};
+
+&usb31 {
+    xen,passthrough;
+
+    dwc3_usb31@c8a00000 {
+        xen,passthrough;
+    };
+};
+
+&usb20 {
+    xen,passthrough;
+
+    dwc3_usb20@c8900000 {
+        xen,passthrough;
+    };
+};
+
+&usb21 {
+    xen,passthrough;
+
+    dwc3_usb21@c8b00000 {
+        xen,passthrough;
+    };
+};
+
+&cr52_rproc1 {
+    xen,passthrough;
+};
+
+&rpmsg_ipi0 {
+    xen,passthrough;
+};
+
+&rpmsg_shm0 {
+    xen,passthrough;
+};
+
+&rvgc {
+    xen,passthrough;
+};
+
+/ {
+    reserved-memory {
+        vdev_regions-domd {
+            reg = <0x0 0xa0000000 0x0 0x1000000>;
+            no-map;
+        };
+
+        vdev_region-domu {
+            reg = <0x0 0xa1000000 0x0 0x1000000>;
+            no-map;
+        };
+
+        rvgc_region-domu {
+            reg = <0x0 0xa2000000 0x0 0x10000000>;
+            no-map;
+        };
+
+        rvgc_region-domd {
+            reg = <0x0 0xb2000000 0x0 0xe000000>;
+            no-map;
+        };
+
+        pcires@50000000 {
+            no-map;
+            reg = <0x00 0x50000000 0x00 0x1000>;
+        };
+    };
+};
+
+&cr52_rproc2 {
+    xen,passthrough;
+};
+
+&mfis_ch2 {
+    xen,passthrough;
+};
