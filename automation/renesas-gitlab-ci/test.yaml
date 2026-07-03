@@ -5,3 +5,4 @@ include:
       - if: '$RUN_UBSAN == "true"'
   - local: 'automation/renesas-gitlab-ci/test/xtf.yaml'
   - local: 'automation/renesas-gitlab-ci/test/zephyr.yaml'
+  - local: 'automation/renesas-gitlab-ci/test/gen5.yaml'

@@ -1,0 +1,95 @@
+# ---------------------------------------------------------------------------
+# Gen5 hardware test template
+# Runs on etest (EPDEFRASD0001) via the 'epdefrans' shell executor.
+# See automation/renesas-scripts/gen5-zephyr.sh for details.
+# ---------------------------------------------------------------------------
+.gen5-zephyr:
+  extends: .test-jobs-common
+  # Single Gen5 board (BOARD_ID=1). resource_group serializes every gen5 job on
+  # it so concurrent jobs never contend for the same board / console.
+  resource_group: gen5-ironhide
+  variables:
+    LOGFILE: hw-zephyr-arm64.log
+    BOARD_ID: "1"
+  artifacts:
+    paths:
+      - '*.serial'
+      - '*.log'
+    when: always
+  tags:
+    - epdefrans
+
+# ---------------------------------------------------------------------------
+# Gen5 hardware XTF test template
+# Runs on etest (EPDEFRASD0001) via the 'epdefrans' shell executor.
+# XTF binary is built with Gen5 GIC config (0x39000000/0x39080000) and
+# deployed to TFTP_BASE/xtf-<name>/ for U-Boot to load via boot.scr.
+# The DomU Linux Image comes from the Linux image-export artifact.
+# ---------------------------------------------------------------------------
+.gen5-xtf:
+  extends: .test-jobs-common
+  # Single Gen5 board (BOARD_ID=1). resource_group serializes every gen5 job on
+  # it so concurrent jobs never contend for the same board / console.
+  resource_group: gen5-ironhide
+  variables:
+    LOGFILE: hw-xtf-arm64.log
+    BOARD_ID: "1"
+  artifacts:
+    paths:
+      - '*.serial'
+      - '*.log'
+    when: always
+  tags:
+    - epdefrans
+
+# Gen5 hardware XTF test jobs. One matrix instance per test; each copies its
+# uniquely named XTF binary (xtf-<name>, from the xtf-arm64-gen5 build matrix)
+# into place before the runner picks it up as binaries/xtf-test.
+gen5-xtf-tests:
+  extends: .gen5-xtf
+  parallel:
+    matrix:
+      - TEST:
+          - hyp-xen-version
+          - hyp-domctl-pausedomain
+          - hyp-domctl-destroydomain
+          - hyp-domctl-unpausedomain
+          - hyp-domctl-cacheflush
+          - hyp-domctl-createdomain
+          - hyp-domctl-getdomaininfo
+          - hyp-domctl-get-paging-mempool-size
+          - hyp-domctl-set-paging-mempool-size
+          - hyp-domctl-max-mem
+          - hyp-sysctl-physinfo
+          - hyp-sysctl-getdomaininfolist
+          - hyp-sysctl-sched-rtds-cmdline
+          - hyp-sysctl-sched-rtds-edf
+  script:
+    - cp "binaries/xtf-${TEST}" binaries/xtf-test
+    - ./automation/renesas-scripts/gen5-xtf.sh mmu64le ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - xen-atfe-arm64
+    - linux-6.6.86-image-export
+    - arm64-busybox-initrd-export
+    - xtf-arm64-gen5
+
+# Gen5 hardware Zephyr test jobs. One matrix instance per test; each copies its
+# uniquely named Dom0 image (dom0-<name>.bin, from the zephyr-gen5-build matrix)
+# into place before the runner picks it up as binaries/dom0.bin.
+gen5-zephyr-tests:
+  extends: .gen5-zephyr
+  parallel:
+    matrix:
+      - TEST:
+          - hyp-domctl-pausedomain
+          - hyp-domctl-unpausedomain
+          - hyp-domctl-resumedomain
+          - hyp-domctl-getvcpucontext
+          - hyp-domctl-setvcpucontext
+          - hyp-domctl-max-vcpus
+  script:
+    - cp "binaries/dom0-${TEST}.bin" binaries/dom0.bin
+    - ./automation/renesas-scripts/gen5-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - xen-atfe-arm64
+    - zephyr-gen5-build
