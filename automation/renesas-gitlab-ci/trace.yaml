@@ -1,3 +1,5 @@
+# Build the OpenFastTrace tool (oft.jar) and the trace.sh driver from the
+# rec-fusa/openfasttrace repo, and pass them to oft-trace as artifacts.
 oft-build:
   stage: trace
   image: maven:3.8.3-openjdk-17
@@ -14,9 +16,20 @@ oft-build:
   tags:
    - aws-arm64
   needs: []
+  # Run on every standard pipeline. Skip the instrumented UBSAN/COVERAGE
+  # variants - the trace is source-based and would be identical there.
+  # Non-gating: a missing deploy token or build hiccup must not block the
+  # pipeline (the trace report is informational, coverage is not enforced yet).
+  allow_failure: true
   rules:
-   - when: manual
+   - if: '$RUN_UBSAN == "true"'
+     when: never
+   - if: '$RUN_COVERAGE == "true"'
+     when: never
+   - when: on_success
 
+# Run OpenFastTrace over the requirements/spec/test repos and expose the
+# resulting report.html on the pipeline and merge request.
 oft-trace:
   stage: trace
   image: maven:3.8.3-openjdk-17
@@ -31,5 +44,10 @@ oft-trace:
    - aws-arm64
   needs:
     - oft-build
+  allow_failure: true
   rules:
+   - if: '$RUN_UBSAN == "true"'
+     when: never
+   - if: '$RUN_COVERAGE == "true"'
+     when: never
    - when: on_success
