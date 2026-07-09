@@ -171,9 +171,13 @@ pdu_benchwide_recover() {
 
     # RPi back first so the control SoCs have USB power when the boards come up.
     pdu rpi2 on || true
-    echo "waiting up to ${RPI_WAIT}s for testrpi2 ssh to return..."
-    local waited=0
-    until ssh -o BatchMode=yes -o ConnectTimeout=5 "${RPI_HOST}" true 2>/dev/null; do
+    echo "waiting up to ${RPI_WAIT}s for testrpi2 control to return..."
+    # Probe liveness with an allowed x5hctl verb (x5h status), NOT `ssh testrpi2
+    # true`: the CI key is pinned to a forced command that only permits
+    # `x5hctl <verb> <board>` and would reject a bare `true`.
+    local first_board waited=0
+    first_board=$(echo "${BOARDS}" | awk '{print $1}')
+    until x5h status "${first_board}" >/dev/null 2>&1; do
         sleep 5; waited=$((waited + 5))
         if [ "${waited}" -ge "${RPI_WAIT}" ]; then
             echo "testrpi2 did not come back within ${RPI_WAIT}s" >&2
