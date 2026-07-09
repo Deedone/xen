@@ -1,16 +1,43 @@
 # ---------------------------------------------------------------------------
+# Gen5 board selector (build stage)
+# Probes the Gen5 boards, recovers any that are wedged (two-tier, guarded PDU
+# escalation), and emits BOARD_ID via a dotenv artifact for the HW test jobs to
+# inherit. Runs in the build stage (needs no build artifacts) so its
+# probe/recover latency overlaps the builds and the cloud QEMU jobs.
+# See automation/renesas-scripts/gen5-board-select.sh for details.
+# ---------------------------------------------------------------------------
+gen5-board-select:
+  stage: build
+  image: xentroops/xen_rel
+  rules:
+    - when: on_success
+  variables:
+    # Candidate pool. Pin to a single board (e.g. "2") if one is known dead.
+    BOARDS: "1 2"
+  script:
+    - ./automation/renesas-scripts/gen5-board-select.sh
+  artifacts:
+    reports:
+      dotenv: build.env
+    paths:
+      - '*.serial'
+    when: always
+  tags:
+    - epdefrans
+
+# ---------------------------------------------------------------------------
 # Gen5 hardware test template
 # Runs on etest (EPDEFRASD0001) via the 'epdefrans' shell executor.
 # See automation/renesas-scripts/gen5-zephyr.sh for details.
 # ---------------------------------------------------------------------------
 .gen5-zephyr:
   extends: .test-jobs-common
-  # Single Gen5 board (BOARD_ID=1). resource_group serializes every gen5 job on
-  # it so concurrent jobs never contend for the same board / console.
+  # BOARD_ID is inherited from the gen5-board-select dotenv artifact (a healthy
+  # board chosen per pipeline). resource_group serializes every gen5 job so
+  # concurrent jobs never contend for the same board / console.
   resource_group: gen5-ironhide
   variables:
     LOGFILE: hw-zephyr-arm64.log
-    BOARD_ID: "1"
   artifacts:
     paths:
       - '*.serial'
@@ -28,12 +55,12 @@
 # ---------------------------------------------------------------------------
 .gen5-xtf:
   extends: .test-jobs-common
-  # Single Gen5 board (BOARD_ID=1). resource_group serializes every gen5 job on
-  # it so concurrent jobs never contend for the same board / console.
+  # BOARD_ID is inherited from the gen5-board-select dotenv artifact (a healthy
+  # board chosen per pipeline). resource_group serializes every gen5 job so
+  # concurrent jobs never contend for the same board / console.
   resource_group: gen5-ironhide
   variables:
     LOGFILE: hw-xtf-arm64.log
-    BOARD_ID: "1"
   artifacts:
     paths:
       - '*.serial'
@@ -79,8 +106,13 @@ gen5-xtf-tests:
           - hyp-sysctl-sched-rtds-edf
   script:
     - cp "binaries/xtf-${TEST}" binaries/xtf-test
-    - ./automation/renesas-scripts/gen5-xtf.sh mmu64le ${TEST} 2>&1 | tee ${LOGFILE}
+    # Hold the bench lock SHARED so gen5-board-select's bench-wide PDU recovery
+    # (exclusive, non-blocking) can never cold-cycle the bench mid-test.
+    - mkdir -p /tmp/gen5-bench-state
+    - flock -s /tmp/gen5-bench-state/bench.lock ./automation/renesas-scripts/gen5-xtf.sh mmu64le ${TEST} 2>&1 | tee ${LOGFILE}
   needs:
+    - job: gen5-board-select
+      artifacts: true
     - xen-atfe-arm64
     - linux-6.6.86-image-export
     - arm64-busybox-initrd-export
@@ -108,7 +140,12 @@ gen5-zephyr-tests:
           - hyp-domctl-max-vcpus
   script:
     - cp "binaries/dom0-${TEST}.bin" binaries/dom0.bin
-    - ./automation/renesas-scripts/gen5-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+    # Hold the bench lock SHARED so gen5-board-select's bench-wide PDU recovery
+    # (exclusive, non-blocking) can never cold-cycle the bench mid-test.
+    - mkdir -p /tmp/gen5-bench-state
+    - flock -s /tmp/gen5-bench-state/bench.lock ./automation/renesas-scripts/gen5-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
   needs:
+    - job: gen5-board-select
+      artifacts: true
     - xen-atfe-arm64
     - zephyr-gen5-build
