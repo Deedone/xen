@@ -29,13 +29,21 @@ qemu-zephyr-tests:
   parallel:
     matrix:
       - TEST:
+        # [XenValTestJob~~1->XenValTestCode~domctl_pausedomain_set~1]
         - "hyp-domctl-pausedomain"
+        # [XenValTestJob~~1->XenValTestCode~domctl_unpausedomain_set~1]
         - "hyp-domctl-unpausedomain"
+        # [XenValTestJob~~1->XenValTestCode~domctl_resumedomain_set~1]
         - "hyp-domctl-resumedomain"
+        # [XenValTestJob~~1->XenValTestCode~domctl_max_vcpus_set~1]
         - "hyp-domctl-max-vcpus"
+        # [XenValTestJob~~1->XenValTestCode~domctl_setvcpucontext_set~1]
         - "hyp-domctl-setvcpucontext"
+        # [XenValTestJob~~1->XenValTestCode~domctl_getvcpucontext_get~1]
         - "hyp-domctl-getvcpucontext"
+        # [XenValTestJob~~1->XenValTestCode~domctl_bind_pt_irq~1]
         - "hyp-domctl-bind-pt-irq"
+        # [XenValTestJob~~1->XenValTestCode~domctl_deassign_device_set~1]
         - "hyp-domctl-deassign-device"
   script:
     - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}

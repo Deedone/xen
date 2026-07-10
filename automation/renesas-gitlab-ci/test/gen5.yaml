@@ -50,19 +50,32 @@ gen5-xtf-tests:
   parallel:
     matrix:
       - TEST:
+          # hyp-xen-version, hyp-domctl-pausedomain and hyp-domctl-unpausedomain
+          # carry no XenValTestCode tag in xtf, so there is nothing to cover.
           - hyp-xen-version
           - hyp-domctl-pausedomain
+          # [XenValTestJob~~1->XenValTestCode~domctl_destroy_domain_using_domctl~1]
           - hyp-domctl-destroydomain
           - hyp-domctl-unpausedomain
+          # [XenValTestJob~~1->XenValTestCode~arm64_domctl_cacheflush~1]
           - hyp-domctl-cacheflush
+          # [XenValTestJob~~1->XenValTestCode~arm64_domctl_createdomain~1]
           - hyp-domctl-createdomain
+          # [XenValTestJob~~1->XenValTestCode~arm64_domctl_getdomaininfo_domain~1]
           - hyp-domctl-getdomaininfo
+          # [XenValTestJob~~1->XenValTestCode~arm64_domctl_get_paging_mempool_size~1]
           - hyp-domctl-get-paging-mempool-size
+          # [XenValTestJob~~1->XenValTestCode~arm64_domctl_set_paging_mempool_size~1]
           - hyp-domctl-set-paging-mempool-size
+          # [XenValTestJob~~1->XenValTestCode~domctl_max_mem~1]
           - hyp-domctl-max-mem
+          # [XenValTestJob~~1->XenValTestCode~arm64_sysctl_physinfo_host~1]
           - hyp-sysctl-physinfo
+          # [XenValTestJob~~1->XenValTestCode~sysctl_get_vmlist_using_sysctl~1]
           - hyp-sysctl-getdomaininfolist
+          # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
           - hyp-sysctl-sched-rtds-cmdline
+          # [XenValTestJob~~1->XenValTestCode~rtds_sched_vcpus_based_on_edf~1]
           - hyp-sysctl-sched-rtds-edf
   script:
     - cp "binaries/xtf-${TEST}" binaries/xtf-test
@@ -81,11 +94,17 @@ gen5-zephyr-tests:
   parallel:
     matrix:
       - TEST:
+          # [XenValTestJob~~1->XenValTestCode~domctl_pausedomain_set~1]
           - hyp-domctl-pausedomain
+          # [XenValTestJob~~1->XenValTestCode~domctl_unpausedomain_set~1]
           - hyp-domctl-unpausedomain
+          # [XenValTestJob~~1->XenValTestCode~domctl_resumedomain_set~1]
           - hyp-domctl-resumedomain
+          # [XenValTestJob~~1->XenValTestCode~domctl_getvcpucontext_get~1]
           - hyp-domctl-getvcpucontext
+          # [XenValTestJob~~1->XenValTestCode~domctl_setvcpucontext_set~1]
           - hyp-domctl-setvcpucontext
+          # [XenValTestJob~~1->XenValTestCode~domctl_max_vcpus_set~1]
           - hyp-domctl-max-vcpus
   script:
     - cp "binaries/dom0-${TEST}.bin" binaries/dom0.bin

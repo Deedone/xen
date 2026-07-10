@@ -54,9 +54,9 @@ qemu-xtf-tests:
         - "arm64 mmu64le hyp-domctl-get-paging-mempool-size"
         # [XenValTestJob~~1->XenValTestCode~domctl_max_mem~1]
         - "arm64 mmu64le hyp-domctl-max-mem"
-        # [XenValTestJob~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
+        # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
         - "arm64 mmu64le hyp-sysctl-sched-rtds-cmdline"
-        # [XenValTestJob~arm64_use_rtds_sched_if_set_in_boot_time_cpupool~1]
+        # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_set_in_boot_time_cpupool~1]
         - "arm64 mmu64le hyp-sysctl-sched-rtds-boot-cpupool"
         # [XenValTestJob~~1->XenValTestCode~arm64_assign_sched_to_boot_time_cpupool~1]
         - "arm64 mmu64le hyp-sysctl-cpupool-boot-sched"
@@ -64,9 +64,11 @@ qemu-xtf-tests:
         - "arm64 mmu64le hyp-sysctl-cpupool-default"
         # [XenValTestJob~~1->XenValTestCode~arm64_enforce_cpu0_in_boot_time_cpupool0~1]
         - "arm64 mmu64le hyp-sysctl-cpupool-cpu0"
-        # [XenValTestJob~arm64_use_rtds_sched_if_set_via_hypercall~1]
+        # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_set_via_hypercall~1]
         - "arm64 mmu64le hyp-sysctl-sched-rtds-create-cpupool"
+        # [XenValTestJob~~1->XenValTestCode~rtds_sched_vcpus_based_on_edf~1]
         - "arm64 mmu64le hyp-sysctl-sched-rtds-edf"
+        # [XenValTestJob~~1->XenValTestCode~rtds_sched_support_extratime~1]
         - "arm64 mmu64le hyp-sysctl-sched-rtds-extratime"
         # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_vcpu~1]
         - "arm64 mmu64le hyp-domctl-sched-rtds-params"
