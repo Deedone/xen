@@ -25,6 +25,7 @@ xen-gcc-arm64-fuzzer:
     paths:
       - 'binaries/xen'
       - 'binaries/xen-syms'
+      - 'intermediates/'
       - 'xen-config'
       - '*.log'
     when: always

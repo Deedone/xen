@@ -35,6 +35,7 @@
     paths:
       - binaries/xen
       - binaries/xen-syms
+      - intermediates/
       - xen-config
       - '*.log'
       - '*/*.log'
