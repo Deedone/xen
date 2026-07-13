@@ -5,6 +5,8 @@
   variables:
     ECLAIR_OUTPUT_DIR: "ECLAIR_out"
     ANALYSIS_KIND: "normal"
+    EXTRA_XEN_CONFIG: |
+      CONFIG_DEBUG_INFO=n
   before_script:
     # Kill eclair_report server (if running), because DB will be updated after analysis
     - pkill eclair_report || true
@@ -93,7 +95,7 @@ eclair-server-stop:
     EXTRA_XEN_CONFIG: |
       CONFIG_CMDLINE="xsm=flask flask=permissive"
       CONFIG_DEBUG=n
-      CONFIG_DEBUG_INFO=y
+      CONFIG_DEBUG_INFO=n
   before_script:
     - mkdir -p binaries
     - make -C xen defconfig 2>&1 | tee "${LOGFILE}"
