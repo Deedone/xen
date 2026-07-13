@@ -8,7 +8,6 @@
 # ---------------------------------------------------------------------------
 gen5-board-select:
   stage: build
-  image: xentroops/xen_rel
   rules:
     - when: on_success
   variables:
