@@ -25,6 +25,7 @@
       - "${ECLAIR_OUTPUT_DIR}/html/*"
       - "*.log"
       - "*.json"
+      - "intermediates/"
     reports:
       codequality: code-quality-report.json
   rules:
