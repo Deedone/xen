@@ -166,6 +166,7 @@ if [ ! -d imagebuilder ]; then
 fi
 
 local_num_domus="${XTF_NUM_DOMUS:-1}"
+local_domu_vcpus="${XTF_DOMU_VCPUS:-1}"
 
 cat > "${WORKDIR}/ib-config" <<IBEOF
 MEMORY_START="0x48000000"
@@ -190,6 +191,7 @@ for i in $(seq 0 $((local_num_domus - 1))); do
 DOMU_KERNEL[$i]="Image"
 DOMU_RAMDISK[$i]="domU-rootfs.cpio.gz"
 DOMU_MEM[$i]=128
+DOMU_VCPUS[$i]=${local_domu_vcpus}
 DOMUEOF
 done
 
