@@ -811,7 +811,7 @@ static int prepare_payload(struct payload *payload,
     sec = livepatch_elf_sec_by_name(elf, ".altinstructions");
     if ( sec )
     {
-#ifdef CONFIG_HAS_ALTERNATIVE
+#ifdef CONFIG_ALTERNATIVE
         /*
          * (As of April 2023), Alternatives are formed of:
          * - An .altinstructions section with an array of struct alt_instr's.

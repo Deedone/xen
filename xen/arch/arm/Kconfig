@@ -198,7 +198,7 @@ config HWDOM_VUART
 
 config ARM_SSBD
 	bool "Speculative Store Bypass Disable" if EXPERT
-	depends on HAS_ALTERNATIVE
+	depends on ALTERNATIVE
 	default y
 	help
 	  This enables mitigation of bypassing of previous stores by speculative
@@ -277,8 +277,14 @@ config PCI_PASSTHROUGH
 
 endmenu
 
-menu "ARM errata workaround via the alternative framework"
+config ALTERNATIVE
+	bool "Enable alternative framework"
 	depends on HAS_ALTERNATIVE
+	help
+	  This option enables Xen-self patching via alternative framework
+
+menu "ARM errata workaround via the alternative framework"
+	depends on ALTERNATIVE
 
 config ARM64_ERRATUM_827319
 	bool "Cortex-A53: 827319: Data cache clean instructions might cause overlapping transactions to the interconnect"
