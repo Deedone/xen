@@ -27,7 +27,7 @@ module "gitlab_runner_arm64" {
   }
 
   runner_manager = {
-    maximum_concurrent_jobs = 100
+    maximum_concurrent_jobs = 150
   }
 
   runner_worker = {
@@ -46,8 +46,8 @@ module "gitlab_runner_arm64" {
   runner_worker_docker_autoscaler = {
     fleeting_plugin_version = "1.1.0"
     connector_config_user   = "ubuntu"
-    max_use_count           = 200
-    capacity_per_instance   = 50
+    max_use_count           = 1000
+    capacity_per_instance   = 75
   }
 
   runner_worker_docker_autoscaler_ami_filter = {
@@ -105,7 +105,9 @@ module "gitlab_runner_arm64" {
     on_demand_base_capacity                  = 0
     on_demand_percentage_above_base_capacity = 0
     spot_allocation_strategy                 = "price-capacity-optimized"
+    spot_instance_pools                      = 0
     subnet_ids                               = aws_subnet.private[*].id
+    upgrade_strategy                         = "off"
   }
 
   # Terminate old manager quickly on replacement

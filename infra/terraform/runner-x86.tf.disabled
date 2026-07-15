@@ -86,7 +86,9 @@ module "gitlab_runner_x86" {
     on_demand_base_capacity                  = 0
     on_demand_percentage_above_base_capacity = 0
     spot_allocation_strategy                 = "price-capacity-optimized"
+    spot_instance_pools                      = 0
     subnet_ids                               = aws_subnet.private[*].id
+    upgrade_strategy                         = "off"
   }
 
   # Terminate old manager quickly on replacement

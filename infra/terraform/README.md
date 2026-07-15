@@ -32,7 +32,7 @@ GitLab Server (gitpct.epam.com)
 │  │         │ fleeting plugin           │            │
 │  │  ┌──────▼──────┐                    │            │
 │  │  │ Worker ASG  │  Spot (multi-AZ)   │            │
-│  │  │ m7g/c7g/r7g │  50 jobs/instance  │            │
+│  │  │ m7g/c7g/r7g │  75 jobs/instance  │            │
 │  │  │ max: 2      │  idle 3min         │            │
 │  │  └─────────────┘                    │            │
 │  └─────────────────────────────────────┘            │
@@ -119,11 +119,11 @@ through the NAT gateway → internet gateway path.
 | `capacity_per_instance` | `runner_worker_docker_autoscaler` block | How many jobs run in parallel on a single worker instance (separate Docker containers) |
 | `max_use_count` | `runner_worker_docker_autoscaler` block | Total jobs an instance handles before being replaced (fresh instance) |
 
-### Example: 50 parallel jobs on 2 instances
+### Example: 75 parallel jobs on 2 instances
 
 ```hcl
 runner_manager = {
-  maximum_concurrent_jobs = 50   # accept 50 jobs from GitLab
+  maximum_concurrent_jobs = 150  # accept 150 jobs from GitLab
 }
 
 runner_worker = {
@@ -132,12 +132,12 @@ runner_worker = {
 }
 
 runner_worker_docker_autoscaler = {
-  capacity_per_instance = 50     # 50 jobs per instance
-  max_use_count         = 200    # replace instance after 200 total jobs
+  capacity_per_instance = 75     # 75 jobs per instance
+  max_use_count         = 1000   # replace instance after 1000 total jobs
 }
 ```
 
-Total capacity: `max_jobs × capacity_per_instance` = 2 × 50 = 100 concurrent jobs.
+Total capacity: `max_jobs × capacity_per_instance` = 2 × 75 = 150 concurrent jobs.
 
 ## Instance Size
 
