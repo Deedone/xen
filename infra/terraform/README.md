@@ -14,13 +14,16 @@ GitLab Server (gitpct.epam.com)
 │  Default VPC  172.31.0.0/16  (eu-central-1)         │
 │                                                     │
 │  ┌─────────────────────────────────────┐            │
-│  │ Public Subnet  172.31.96.0/24       │            │
+│  │ Public Subnet  172.31.96.0/24  (1a) │            │
 │  │   NAT Gateway ← EIP (fixed IP)     │            │
 │  │   (uses existing IGW)               │            │
 │  └─────────────────────────────────────┘            │
 │                                                     │
 │  ┌─────────────────────────────────────┐            │
-│  │ Private Subnet  172.31.97.0/24      │            │
+│  │ Private Subnets (multi-AZ)          │            │
+│  │   172.31.97.0/24 (1a)               │            │
+│  │   172.31.98.0/24 (1b)               │            │
+│  │   172.31.99.0/24 (1c)               │            │
 │  │                                     │            │
 │  │  ┌──────────────┐                   │            │
 │  │  │ Manager      │  t4g.nano         │            │
@@ -28,9 +31,9 @@ GitLab Server (gitpct.epam.com)
 │  │  └──────┬───────┘                   │            │
 │  │         │ fleeting plugin           │            │
 │  │  ┌──────▼──────┐                    │            │
-│  │  │ Worker ASG  │  Spot instances    │            │
-│  │  │ m7g.8xl    │  50 jobs/instance  │            │
-│  │  │ max: 2      │  idle 3min        │            │
+│  │  │ Worker ASG  │  Spot (multi-AZ)   │            │
+│  │  │ m7g/c7g/r7g │  50 jobs/instance  │            │
+│  │  │ max: 2      │  idle 3min         │            │
 │  │  └─────────────┘                    │            │
 │  └─────────────────────────────────────┘            │
 │                                                     │
@@ -79,7 +82,7 @@ Note: Lambda VPC ENIs take up to 20 minutes to detach after destroy. Be patient.
 |---|---|
 | Default VPC `172.31.0.0/16` | Existing VPC, reused |
 | Public subnet `172.31.96.0/24` | Hosts only the NAT gateway |
-| Private subnet `172.31.97.0/24` | Manager + Worker instances |
+| Private subnets `172.31.97-99.0/24` (3 AZs) | Manager + Worker instances (multi-AZ for Spot) |
 | NAT Gateway + EIP | Single fixed outbound IP for all traffic |
 | S3 VPC Endpoint | Cache bucket traffic stays in AWS (no NAT cost) |
 

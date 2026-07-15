@@ -5,7 +5,7 @@ module "gitlab_runner_arm64" {
   environment = "ci-arm"
 
   vpc_id    = data.aws_vpc.default.id
-  subnet_id = aws_subnet.private.id
+  subnet_id = aws_subnet.private[0].id
 
   # Runner manager instance — private only, reaches GitLab via NAT gateway
   runner_instance = {
@@ -104,8 +104,8 @@ module "gitlab_runner_arm64" {
     enable_mixed_instances_policy            = true
     on_demand_base_capacity                  = 0
     on_demand_percentage_above_base_capacity = 0
-    spot_allocation_strategy                 = "lowest-price"
-    subnet_ids                               = [aws_subnet.private.id]
+    spot_allocation_strategy                 = "price-capacity-optimized"
+    subnet_ids                               = aws_subnet.private[*].id
   }
 
   # Terminate old manager quickly on replacement

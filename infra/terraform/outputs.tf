@@ -8,9 +8,9 @@ output "nat_gateway_public_ip" {
   value       = aws_eip.nat.public_ip
 }
 
-output "private_subnet_id" {
-  description = "Private subnet ID where runners operate"
-  value       = aws_subnet.private.id
+output "private_subnet_ids" {
+  description = "Private subnet IDs where runners operate (multi-AZ)"
+  value       = aws_subnet.private[*].id
 }
 
 output "cache_bucket_arm64" {

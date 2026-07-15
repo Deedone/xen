@@ -10,10 +10,10 @@ variable "public_subnet_cidr" {
   default     = "172.31.96.0/24"
 }
 
-variable "private_subnet_cidr" {
-  description = "CIDR for the private subnet where runners operate"
-  type        = string
-  default     = "172.31.97.0/24"
+variable "private_subnet_cidrs" {
+  description = "CIDRs for private subnets (multi-AZ, runners and workers live here)"
+  type        = list(string)
+  default     = ["172.31.97.0/24", "172.31.98.0/24", "172.31.99.0/24"]
 }
 
 variable "environment" {
@@ -29,9 +29,9 @@ variable "gitlab_url" {
 }
 
 variable "worker_arm64_instance_types" {
-  description = "Instance types for arm64 Spot workers (priority order)"
+  description = "Instance types for arm64 Spot workers (priority order, more = better Spot availability)"
   type        = list(string)
-  default     = ["m7g.8xlarge", "m6g.8xlarge"]
+  default     = ["m7g.8xlarge", "m6g.8xlarge", "c7g.8xlarge", "c6g.8xlarge", "r7g.8xlarge"]
 }
 
 variable "worker_max_count_arm64" {
