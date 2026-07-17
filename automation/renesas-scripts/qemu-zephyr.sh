@@ -35,7 +35,7 @@ export PREBUILT_IMAGES=${WORKDIR}
 
 rm -f ${QEMU_LOG}
 
-git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git -b safety-staging
+git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git -b "${ZEPHYR_BRANCH:-safety-staging}"
 
 cd ${ZEPHYR_SDK_INSTALL_DIR}
 
