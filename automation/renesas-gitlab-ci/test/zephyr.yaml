@@ -42,6 +42,8 @@
     - "hyp-domctl-bind-pt-irq"
     # [XenValTestJob~~1->XenValTestCode~domctl_deassign_device_set~1]
     - "hyp-domctl-deassign-device"
+    # [XenValTestJob~~1->XenValTestCode~domctl_assign_device_set~1]
+    - "hyp-domctl-assign-device"
     # [XenValTestJob~~1->XenValTestCode~arm64_get_cpupool_info~1]
     - "hyp-sysctl-cpupool-getinfo"
 
