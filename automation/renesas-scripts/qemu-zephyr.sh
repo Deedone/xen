@@ -30,12 +30,22 @@ if [ -n "${MCDC_CONF:-}" ]; then
     rm -f "${MCDC_TRACE}"
 fi
 
+export TEST_DIR="${ZTESTS_ROOT}/testcases/${APP_NAME}"
+
+# Number of pCPUs exposed to QEMU. A test needing more can raise it in test.env.
+export SMP="${SMP:-2}"
+
 # Set artifacts path (replacing prebuilt images)
 export PREBUILT_IMAGES=${WORKDIR}
 
 rm -f ${QEMU_LOG}
 
 git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git -b "${ZEPHYR_BRANCH:-safety-staging}"
+
+# Per-test overrides (SMP, ...)
+if [ -f "${TEST_DIR}/test.env" ]; then
+    source "${TEST_DIR}/test.env"
+fi
 
 cd ${ZEPHYR_SDK_INSTALL_DIR}
 
@@ -72,8 +82,15 @@ fi
 west build -p always -b qemu_cortex_a53 -S xen_dom0 -S xen_dom0_overlay ${ZTESTS_ROOT}/testcases/${APP_NAME}
 cp build/zephyr/zephyr.bin ${WORKDIR}/${APP_NAME}.bin
 
-# Recompile xen.dtb from xen.dts to ensure it's up-to-date
-dtc -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen.dtb
+# Recompile xen.dtb from xen.dts to ensure it's up-to-date. A test may ship an
+# xen.overlay (extra pCPUs, boot-time cpupools, ...) applied on top of it.
+if [ -f "${TEST_DIR}/xen.overlay" ]; then
+    dtc -@ -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen-base.dtb
+    dtc -@ -I dts -O dtb ${TEST_DIR}/xen.overlay -o ${WORKDIR}/xen.dtbo
+    fdtoverlay -i ${WORKDIR}/xen-base.dtb -o ${WORKDIR}/xen.dtb ${WORKDIR}/xen.dtbo
+else
+    dtc -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen.dtb
+fi
 
 REG_ADDR=0x41000000
 REG_SIZE=$(printf "0x%x" "$(stat -c '%s' "${WORKDIR}/${APP_NAME}.bin")")
@@ -86,7 +103,7 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a57 \
     -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
     -m 2048 \
-    -smp 2 \
+    -smp ${SMP} \
     -no-reboot \
     -nodefaults \
     -display none \
