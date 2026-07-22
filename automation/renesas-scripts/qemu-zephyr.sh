@@ -98,6 +98,31 @@ REG_SIZE=$(printf "0x%x" "$(stat -c '%s' "${WORKDIR}/${APP_NAME}.bin")")
 fdtput -t x ${WORKDIR}/xen.dtb /chosen/module@41000000 reg ${REG_ADDR} ${REG_SIZE}
 fdtget -t x ${WORKDIR}/xen.dtb /chosen/module@41000000 reg
 
+# dom0less domains: DOM0LESS_DOMUS lists one kernel per /chosen/domU<n> node
+# of the test's xen.dts, in ascending <n> order. Each kernel is loaded at
+# DOM0LESS_ADDR + <n> * DOM0LESS_STEP and its module node is pointed at it.
+DOM0LESS_ADDR=$((0x42000000))
+DOM0LESS_STEP=$((0x01000000))
+DOM0LESS_LOADERS=()
+BUILT_DOMUS=""
+IDX=1
+
+for domu in ${DOM0LESS_DOMUS}; do
+    if [[ " ${BUILT_DOMUS} " != *" ${domu} "* ]]; then
+        west build -p always -b xenvm/xenvm/gicv3 "${ZTESTS_ROOT}/testcases/${domu}"
+        cp build/zephyr/zephyr.bin "${WORKDIR}/${domu}.bin"
+        BUILT_DOMUS="${BUILT_DOMUS} ${domu}"
+    fi
+
+    ADDR=$(printf "0x%x" $((DOM0LESS_ADDR + (IDX - 1) * DOM0LESS_STEP)))
+    SIZE=$(printf "0x%x" "$(stat -Lc '%s' "${WORKDIR}/${domu}.bin")")
+
+    fdtput -t x ${WORKDIR}/xen.dtb /chosen/domU${IDX}/module@${ADDR#0x} reg \
+        ${ADDR} ${SIZE}
+    DOM0LESS_LOADERS+=(-device "loader,file=${WORKDIR}/${domu}.bin,addr=${ADDR}")
+    IDX=$((IDX + 1))
+done
+
 # Run QEMU
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a57 \
@@ -111,6 +136,7 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -serial stdio \
     -device loader,file=${WORKDIR}/${APP_NAME}.bin,addr=${REG_ADDR} \
     ${QEMU_PLUGIN_ARGS} \
+    "${DOM0LESS_LOADERS[@]}" \
     -kernel ${XEN_BIN} -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
 
 #Print the captured logs to the job output

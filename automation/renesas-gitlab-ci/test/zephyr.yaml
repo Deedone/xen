@@ -46,6 +46,8 @@
     - "hyp-domctl-assign-device"
     # [XenValTestJob~~1->XenValTestCode~arm64_get_cpupool_info~1]
     - "hyp-sysctl-cpupool-getinfo"
+    # [XenValTestJob~~1->XenValTestCode~arm64_add_domain_to_cpupool~1]
+    - "hyp-domctl-createdomain-cpupool"
 
 # Test jobs
 
