@@ -1,6 +1,5 @@
 # Dockerfile for Xen test artifacts, use Alpine
-
-ARG TARGETPLATFORM
+ARG TARGETPLATFORM=linux/arm64
 
 # Builder image
 FROM --platform=$TARGETPLATFORM registry.gitlab.com/xen-project/hardware/test-artifacts/alpine:3.18-arm64-build AS kernel-builder
