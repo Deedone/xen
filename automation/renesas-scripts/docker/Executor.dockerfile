@@ -36,17 +36,13 @@ RUN apt-get update && \
 FROM builder AS qemu_build
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG QEMU_VERSION=10.2.2
-ARG QEMU_URL=https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz
+ARG QEMU_VERSION=v11.0.2-xt
+ARG QEMU_URL=https://github.com/xen-troops/qemu.git
 
 WORKDIR /tmp
 
-COPY 0001-contrib-plugins-drcov-add-support-system-mode.patch /tmp
-
-RUN wget --progress=bar:force:noscroll ${QEMU_URL} \
-    && tar xf qemu-${QEMU_VERSION}.tar.xz \
-    && cd qemu-${QEMU_VERSION} \
-    && patch -p1 < /tmp/0001-contrib-plugins-drcov-add-support-system-mode.patch \
+RUN git clone -b ${QEMU_VERSION} --single-branch ${QEMU_URL} \
+    && cd qemu \
     && ./configure \
         --prefix=/opt/qemu \
         --target-list=aarch64-softmmu \

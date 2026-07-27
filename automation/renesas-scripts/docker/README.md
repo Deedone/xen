@@ -4,7 +4,6 @@
 docker/
 ├── Artifacts.dockerfile                                                # Dockerfile for Xen test artifacts
 ├── Executor.dockerfile                                                 # Dockerfile for Xen certification tasks
-├── 0001-contrib-plugins-drcov-add-support-system-mode.patch            # Patch for QEMU (code coverage)
 └── README.md                                                           # This file
 ```
 
@@ -28,7 +27,7 @@ DOCKER_BUILDKIT=1 docker build --platform linux/arm64 --progress=plain -t xentro
 The Executor image is a full ARM64 CI/testing environment based on Debian.
 It integrates:
 
- - QEMU v10.2.2 (system-mode + plugins)
+ - xen-troops QEMU v11.0.2-xt (system-mode + plugins + system SMMUv3 model)
  - LLVM toolchain (Clang, LLD, LLDB via Arm Toolchain 22.1.0)
  - Utilities for Xen running/testing/debugging
 
