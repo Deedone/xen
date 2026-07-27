@@ -17,6 +17,19 @@ export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 
 export PASSED="${PASSED:-TESTSUITE .* succeeded}"
 
+# Xen image to boot. MC/DC runs point this at the instrumented build.
+export XEN_BIN="${XEN_BIN:-${WORKDIR}/xen}"
+
+# When MCDC_CONF is set, attach the brtrace QEMU plugin and generate an MC/DC
+# report from the collected trace after the run.
+QEMU_PLUGIN_ARGS=""
+if [ -n "${MCDC_CONF:-}" ]; then
+    export MCDC_PLUGIN="${MCDC_PLUGIN:-/usr/local/lib/qemu-plugins/libbrtrace.so}"
+    export MCDC_TRACE="${MCDC_TRACE:-${XEN_ROOT}/brtrace.dat}"
+    QEMU_PLUGIN_ARGS="-plugin ${MCDC_PLUGIN},config=${MCDC_CONF},tracefile=${MCDC_TRACE}"
+    rm -f "${MCDC_TRACE}"
+fi
+
 # Set artifacts path (replacing prebuilt images)
 export PREBUILT_IMAGES=${WORKDIR}
 
@@ -68,12 +81,22 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -monitor none \
     -serial stdio \
     -device loader,file=${WORKDIR}/${APP_NAME}.bin,addr=${REG_ADDR} \
-    -kernel ${WORKDIR}/xen -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
+    ${QEMU_PLUGIN_ARGS} \
+    -kernel ${XEN_BIN} -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
 
 #Print the captured logs to the job output
 cat ${QEMU_LOG} || true
 
+# Generate MCDC report only if test was passed
+do_mcdc_report() {
+    # MC/DC report generation from the trace collected during this run.
+    if [ -n "${MCDC_CONF:-}" ]; then
+        ( cd "${XEN_ROOT}" &&
+        ./automation/renesas-scripts/mcdc-report.sh "${APP_NAME}" ) || true
+    fi
+}
+
 # Test validation
-grep -qE "${PASSED}" "${QEMU_LOG}" && { echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
+grep -qE "${PASSED}" "${QEMU_LOG}" && { do_mcdc_report; echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
 echo -e "\e[31m***NOT FOUND EXPECTED TEST STRING***\e[0m"
 exit 1

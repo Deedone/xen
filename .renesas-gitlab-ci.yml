@@ -53,6 +53,8 @@ include:
       - if: '$RUN_FUZZER != "true"'
   - local: 'automation/renesas-gitlab-ci/build.yaml'
     rules: *standard_pipeline
+  - local: 'automation/renesas-gitlab-ci/mcdc.yaml'
+    rules: *standard_pipeline
   - local: 'automation/renesas-gitlab-ci/test.yaml'
     rules: *standard_pipeline
   - local: 'automation/renesas-gitlab-ci/trace.yaml'

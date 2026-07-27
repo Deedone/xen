@@ -1,0 +1,69 @@
+# MC/DC (Modified Condition/Decision Coverage) infrastructure.
+#
+# Two build-stage jobs feed the per-test MC/DC runs defined in the zephyr test
+# stage (see test/zephyr.yaml, qemu-zephyr-mcdc):
+#   * mcdc-qemu-plugin  - builds the brtrace QEMU plugin (libbrtrace.so)
+#   * xen-mcdc-arm64    - builds an unoptimised clang Xen and pre-computes the
+#                         plugin.conf / xen-dwarf.pickle. This is per-binary,
+#                         not per-test, so it runs once and is shared.
+#
+# The MC/DC tool lives in its own repo (github.com/xen-troops/clang-qemu-mcdc)
+# and is cloned by the jobs that need it; it is never vendored into this tree.
+
+variables:
+  MCDC_TOOL_URI: "https://github.com/xen-troops/clang-qemu-mcdc.git"
+  MCDC_TOOL_BRANCH: "master"
+
+mcdc-qemu-plugin:
+  stage: build
+  image: xentroops/xen_rel
+  tags:
+    - aws-arm64
+  needs: []
+  rules:
+    - if: '$RUN_UBSAN == "true"'
+      when: never
+    - if: '$RUN_COVERAGE == "true"'
+      when: never
+    - when: on_success
+  script:
+    - mkdir -p binaries
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
+    - make -C clang-qemu-mcdc/qemu-plugin
+    - cp clang-qemu-mcdc/qemu-plugin/libbrtrace.so binaries/libbrtrace.so
+  artifacts:
+    paths:
+      - binaries/libbrtrace.so
+    when: always
+
+xen-mcdc-arm64:
+  stage: build
+  image: xentroops/xen_rel
+  tags:
+    - aws-arm64
+  needs: []
+  rules:
+    - if: '$RUN_UBSAN == "true"'
+      when: never
+    - if: '$RUN_COVERAGE == "true"'
+      when: never
+    - when: on_success
+  variables:
+    CC: clang
+    CXX: clang++
+    HOSTCC: gcc
+    HOSTCXX: g++
+    clang: y
+    llvm: y
+    XEN_TARGET_ARCH: arm64
+  script:
+    - ./automation/renesas-scripts/mcdc-build.sh 2>&1 | tee mcdc-build.log
+  artifacts:
+    paths:
+      - binaries/xen
+      - binaries/xen-syms
+      - binaries/plugin.conf
+      - binaries/xen-dwarf.pickle
+      - xen-mcdc-config
+      - '*.log'
+    when: always

@@ -22,30 +22,57 @@
   tags:
     - aws-arm64
 
+# Define Zephyr test list for the normal run (qemu-zephyr-tests) and the
+# MC/DC run (qemu-zephyr-mcdc).
+.zephyr-test-matrix: &zephyr-test-matrix
+  - TEST:
+    # [XenValTestJob~~1->XenValTestCode~domctl_pausedomain_set~1]
+    - "hyp-domctl-pausedomain"
+    # [XenValTestJob~~1->XenValTestCode~domctl_unpausedomain_set~1]
+    - "hyp-domctl-unpausedomain"
+    # [XenValTestJob~~1->XenValTestCode~domctl_resumedomain_set~1]
+    - "hyp-domctl-resumedomain"
+    # [XenValTestJob~~1->XenValTestCode~domctl_max_vcpus_set~1]
+    - "hyp-domctl-max-vcpus"
+    # [XenValTestJob~~1->XenValTestCode~domctl_setvcpucontext_set~1]
+    - "hyp-domctl-setvcpucontext"
+    # [XenValTestJob~~1->XenValTestCode~domctl_getvcpucontext_get~1]
+    - "hyp-domctl-getvcpucontext"
+    # [XenValTestJob~~1->XenValTestCode~domctl_bind_pt_irq~1]
+    - "hyp-domctl-bind-pt-irq"
+    # [XenValTestJob~~1->XenValTestCode~domctl_deassign_device_set~1]
+    - "hyp-domctl-deassign-device"
+    # [XenValTestJob~~1->XenValTestCode~arm64_get_cpupool_info~1]
+    - "hyp-sysctl-cpupool-getinfo"
+
 # Test jobs
 
 qemu-zephyr-tests:
   extends: .qemu-arm64
   parallel:
-    matrix:
-      - TEST:
-        # [XenValTestJob~~1->XenValTestCode~domctl_pausedomain_set~1]
-        - "hyp-domctl-pausedomain"
-        # [XenValTestJob~~1->XenValTestCode~domctl_unpausedomain_set~1]
-        - "hyp-domctl-unpausedomain"
-        # [XenValTestJob~~1->XenValTestCode~domctl_resumedomain_set~1]
-        - "hyp-domctl-resumedomain"
-        # [XenValTestJob~~1->XenValTestCode~domctl_max_vcpus_set~1]
-        - "hyp-domctl-max-vcpus"
-        # [XenValTestJob~~1->XenValTestCode~domctl_setvcpucontext_set~1]
-        - "hyp-domctl-setvcpucontext"
-        # [XenValTestJob~~1->XenValTestCode~domctl_getvcpucontext_get~1]
-        - "hyp-domctl-getvcpucontext"
-        # [XenValTestJob~~1->XenValTestCode~domctl_bind_pt_irq~1]
-        - "hyp-domctl-bind-pt-irq"
-        # [XenValTestJob~~1->XenValTestCode~domctl_deassign_device_set~1]
-        - "hyp-domctl-deassign-device"
+    matrix: *zephyr-test-matrix
   script:
     - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
   needs:
     - *arm64-zephyr-test-needs
+
+# Run under the MC/DC-instrumented Xen with the brtrace QEMU
+# plugin attached.
+qemu-zephyr-mcdc:
+  extends: .qemu-arm64
+  allow_failure: true
+  variables:
+    LOGFILE: qemu-mcdc-arm64.log
+    XEN_BIN: "${CI_PROJECT_DIR}/binaries/xen"
+    MCDC_CONF: "${CI_PROJECT_DIR}/binaries/plugin.conf"
+    MCDC_PLUGIN: "${CI_PROJECT_DIR}/binaries/libbrtrace.so"
+    MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
+    MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
+  parallel:
+    matrix: *zephyr-test-matrix
+  script:
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
+    - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - xen-mcdc-arm64
+    - mcdc-qemu-plugin
