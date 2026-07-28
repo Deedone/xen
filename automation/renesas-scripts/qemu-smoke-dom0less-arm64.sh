@@ -83,7 +83,7 @@ fi
 
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a53 \
-    -machine virt,virtualization=true,gic-version=$gic_version \
+    -machine virt,virtualization=true,gic-version=$gic_version,iommu=smmuv3 \
     -m 2048 \
     -smp 2 \
     -machine dumpdtb=binaries/virt.dtb
@@ -234,7 +234,7 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 rm -f smoke.serial
 export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a53 \
-    -machine virt,virtualization=true,gic-version=$gic_version \
+    -machine virt,virtualization=true,gic-version=$gic_version,iommu=smmuv3 \
     -accel tcg,thread=multi \
     -m 2048 \
     -smp 2 \

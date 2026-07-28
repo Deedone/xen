@@ -69,7 +69,7 @@ EOF
     # Generate virt-gicv3.dtb
     ${QEMU_PREFIX}qemu-system-aarch64 \
         -cpu cortex-a53 \
-        -machine virt,virtualization=true,gic-version=3 \
+        -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
         -m 2048 \
         -smp ${smp} \
         -machine dumpdtb=${WORKDIR}/virt-gicv3.dtb
@@ -85,7 +85,7 @@ EOF
 
     export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
         -cpu cortex-a53 \
-        -machine virt,virtualization=true,gic-version=3 \
+        -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
         -m 2048 \
         -smp ${smp} \
         -no-reboot \
