@@ -17,6 +17,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get --quiet --yes --no-install-recommends install \
     acpica-tools=20200925* \
+    bear=3.1* \
     bison=2:3.8.2* \
     busybox-static=1:1.35.0* \
     ca-certificates=20230311* \
@@ -66,6 +67,8 @@ RUN apt-get update && \
 COPY --from=qemu_source /opt/qemu/bin/qemu-system-aarch64 /usr/local/bin/qemu-system-aarch64
 COPY --from=qemu_source /opt/qemu/share/qemu/efi-virtio.rom /usr/local/share/qemu/efi-virtio.rom
 COPY --from=qemu_source /opt/qemu/lib/qemu-plugins /usr/local/lib/qemu-plugins
+# qemu-plugin.h header so the MC/DC brtrace plugin can be built against this QEMU
+COPY --from=qemu_source /opt/qemu/include/qemu-plugin.h /usr/include/qemu-plugin.h
 
 # Copy ATfE artifacts from pre-built image
 COPY --from=atfe_source /opt/atfe /usr/local
@@ -78,6 +81,7 @@ ENV ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 RUN pip3 install --break-system-packages \
     west \
     pyelftools \
+    capstone \
     PyYAML \
     packaging \
     pykwalify \
