@@ -4,8 +4,8 @@ manifest:
 
   projects:
     - name: zephyr
-      url: https://github.com/zephyrproject-rtos/zephyr.git
-      revision: "v4.4-branch"
+      url: https://github.com/xen-troops/zephyr.git
+      revision: "zephyr-v4.4.0-xt"
       path: zephyr
       west-commands: scripts/west-commands.yml
     - name: zephyr-xenlib
