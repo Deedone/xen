@@ -48,7 +48,55 @@
     - "hyp-sysctl-cpupool-getinfo"
     # [XenValTestJob~~1->XenValTestCode~arm64_add_domain_to_cpupool~1]
     - "hyp-domctl-createdomain-cpupool"
-
+    - "hyp-xen-version"
+    # [XenValTestJob~~1->XenValTestCode~arm64_sysctl_physinfo_host~1]
+    - "hyp-sysctl-physinfo"
+    # [XenValTestJob~~1->XenValTestCode~sysctl_get_vmlist_using_sysctl~1]
+    - "hyp-sysctl-getdomaininfolist"
+    # [XenValTestJob~~1->XenValTestCode~arm64_domctl_getdomaininfo_domain~1]
+    - "hyp-domctl-getdomaininfo"
+    # [XenValTestJob~~1->XenValTestCode~arm64_domctl_createdomain~1]
+    - "hyp-domctl-createdomain"
+    # [XenValTestJob~~1->XenValTestCode~domctl_destroy_domain_using_domctl~1]
+    - "hyp-domctl-destroydomain"
+    # [XenValTestJob~~1->XenValTestCode~arm64_domctl_cacheflush~1]
+    - "hyp-domctl-cacheflush"
+    # [XenValTestJob~~1->XenValTestCode~domctl_max_mem~1]
+    - "hyp-domctl-max-mem"
+    # [XenValTestJob~~1->XenValTestCode~arm64_domctl_get_paging_mempool_size~1]
+    - "hyp-domctl-get-paging-mempool-size"
+    # [XenValTestJob~~1->XenValTestCode~arm64_domctl_set_paging_mempool_size~1]
+    - "hyp-domctl-set-paging-mempool-size"
+    # [XenValTestJob~~1->XenValTestCode~arm64_boot_time_cpupool_cpus~1]
+    - "hyp-sysctl-cpupool-info"
+    # [XenValTestJob~~1->XenValTestCode~arm64_create_default_boot_time_cpupool0~1]
+    - "hyp-sysctl-cpupool-default"
+    # [XenValTestJob~~1->XenValTestCode~arm64_enforce_cpu0_in_boot_time_cpupool0~1]
+    - "hyp-sysctl-cpupool-cpu0"
+    # [XenValTestJob~~1->XenValTestCode~arm64_assign_sched_to_boot_time_cpupool~1]
+    - "hyp-sysctl-cpupool-boot-sched"
+    # [XenValTestJob~~1->XenValTestCode~arm64_use_credit2_sched_by_default~1]
+    - "hyp-sysctl-sched-credit2-default"
+    # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_selected_via_xen_cmd_line~1]
+    - "hyp-sysctl-sched-rtds-cmdline"
+    # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_set_in_boot_time_cpupool~1]
+    - "hyp-sysctl-sched-rtds-boot-cpupool"
+    # [XenValTestJob~~1->XenValTestCode~arm64_use_rtds_sched_if_set_via_hypercall~1]
+    - "hyp-sysctl-sched-rtds-create-cpupool"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_vcpus_based_on_edf~1]
+    - "hyp-sysctl-sched-rtds-edf"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_support_extratime~1]
+    - "hyp-sysctl-sched-rtds-extratime"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_tickle_pcpus~1]
+    - "hyp-sysctl-sched-rtds-tickle"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_assign_new_vcpu_to_pcpu~1]
+    - "hyp-sysctl-sched-rtds-assign-vcpu"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_deassign_offline_vcpu_from_pcpu~1]
+    - "hyp-sysctl-sched-rtds-deassign-vcpu"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_vcpu~1]
+    - "hyp-domctl-sched-rtds-params"
+    # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_domain~1]
+    - "hyp-domctl-sched-rtds-params-dom"
 # Test jobs
 
 qemu-zephyr-tests:
