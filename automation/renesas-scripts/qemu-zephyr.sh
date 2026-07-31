@@ -39,6 +39,18 @@ git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-
 
 cd ${ZEPHYR_SDK_INSTALL_DIR}
 
+do_zephyr_fetch()
+{
+    pushd $1
+    git fetch --depth 1 origin $2
+    git checkout $2
+    popd
+}
+
+do_zephyr_fetch zephyr zephyr-v4.4.0-xt
+
+do_zephyr_fetch zephyr-xenlib main
+
 # Auto-detect and build DomU dependencies
 DOMAIN_BINS_S="${ZTESTS_ROOT}/testcases/${APP_NAME}/src/domain_bins.S"
 if [ -f "${DOMAIN_BINS_S}" ]; then
