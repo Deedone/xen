@@ -158,7 +158,7 @@ function xtf_coverage_setup()
 function xtf_coverage_result()
 {
     if [ "$RUN_COVERAGE" == "true" ]; then
-        XEN_ELF="${XEN_SYMS}" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${XTF_NAME}.cov.info \
+        ELF="${XEN_SYMS}" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${XTF_NAME}.cov.info \
             lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
         > ${LLDB_COV_LOG} 2>&1
     fi

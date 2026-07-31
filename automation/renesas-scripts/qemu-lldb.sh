@@ -101,7 +101,7 @@ cat ${QEMU_LOG} || true
 cat ${LLDB_LOG} || true
 
 if [ "$RUN_COVERAGE" == "true" ]; then
-    XEN_ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${LLDB_SCRIPT}.cov.info \
+    ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${LLDB_SCRIPT}.cov.info \
         lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
 	> ${LLDB_COV_LOG} 2>&1
 fi

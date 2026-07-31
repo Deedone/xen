@@ -56,6 +56,54 @@ def parse_drcov_v2(input_path):
 
 coverage_results = {}
 
+def add_coverage_line(file_spec, line, is_hit):
+    if not file_spec.IsValid() or line == 0:
+        return
+
+    directory = file_spec.GetDirectory()
+    filename = file_spec.GetFilename()
+
+    if directory:
+        full_path = os.path.normpath(os.path.join(directory, filename))
+    else:
+        full_path = filename
+
+    if full_path not in coverage_results:
+        coverage_results[full_path] = {}
+
+    if line not in coverage_results[full_path]:
+        coverage_results[full_path][line] = False
+
+    if is_hit:
+        coverage_results[full_path][line] = True
+
+def process_inlines(target, start_addr, is_hit):
+    """
+    Traverses the DWARF inline stack for a given address and records
+    execution hits for all parent call site lines.
+    """
+    addr = target.ResolveFileAddress(start_addr)
+    if not addr.IsValid():
+        return
+
+    block = addr.GetBlock()
+    if not block.IsValid():
+        return
+
+    inlined_block = block.GetContainingInlinedBlock()
+
+    while inlined_block.IsValid():
+        file_spec = inlined_block.GetInlinedCallSiteFile()
+        line = inlined_block.GetInlinedCallSiteLine()
+
+        add_coverage_line(file_spec, line, is_hit)
+
+        parent_block = inlined_block.GetParent()
+        if parent_block.IsValid():
+            inlined_block = parent_block.GetContainingInlinedBlock()
+        else:
+            break
+
 def generate_lcov_report(elf_file, lcov_report):
     debugger = lldb.SBDebugger.Create()
 
@@ -85,34 +133,17 @@ def generate_lcov_report(elf_file, lcov_report):
                 continue
 
             file_spec = line_entry.GetFileSpec()
-            directory = file_spec.GetDirectory()
-            filename = file_spec.GetFilename()
 
-            if directory:
-                file_name = os.path.normpath(os.path.join(directory, filename))
-            else:
-                file_name = filename
-
-            if file_name not in coverage_results:
-                coverage_results[file_name] = {}
-            if line_num not in coverage_results[file_name]:
-                coverage_results[file_name][line_num] = {"ranges": []}
-
-            column = line_entry.GetColumn()
-
-            range_was_hit = False
+            is_hit = False
             for instr_pc in range(start_addr, end_addr, 4):
                 if instr_pc in executed_addresses:
-                    log.debug(f"Select line {file_name}:{line_num} executed by instr_pc: 0x{instr_pc:x}")
-                    range_was_hit = True
+                    log.debug(f"Select line {file_spec.GetFilename()}:{line_num} executed by instr_pc: 0x{instr_pc:x}")
+                    is_hit = True
                     break
 
-            coverage_results[file_name][line_num]["ranges"].append({
-                "hit": 1 if range_was_hit else 0,
-                "col": column,
-                "start": start_addr,
-                "end": end_addr
-            })
+            add_coverage_line(file_spec, line_num, is_hit)
+
+            process_inlines(target, start_addr, is_hit)
 
     log.info(f"Writing report to {lcov_report}...")
 
@@ -120,25 +151,8 @@ def generate_lcov_report(elf_file, lcov_report):
         for file_name, lines in coverage_results.items():
             out_file.write(f"SF:{file_name}\n")
 
-            for line_num, stats in sorted(lines.items()):
-                ranges = stats["ranges"]
-                total = len(ranges)
-
-                if total == 0:
-                    continue
-
-                total_line_hits = sum(r["hit"] for r in ranges)
-
-                out_file.write(f"DA:{line_num},{1 if total_line_hits > 0 else 0}\n")
-
-                if total == 1:
-                    continue
-
-                for hit_id, r in enumerate(ranges):
-                    col_str = f"col_{r['col']}"
-                    hover_text = f"{col_str}_[0x{r['start']:x}-0x{r['end']:x})"
-
-                    out_file.write(f"BRDA:{line_num},0,{hover_text},{r['hit']}\n")
+            for line_num, is_hit in sorted(lines.items()):
+                out_file.write(f"DA:{line_num},{1 if is_hit else 0}\n")
 
             out_file.write("end_of_record\n")
 
@@ -147,7 +161,7 @@ def generate_lcov_report(elf_file, lcov_report):
 drcov_file_path = os.environ.get("COV_INPUT", "drcov.trace")
 parse_drcov_v2(drcov_file_path)
 
-elf_path = os.environ.get("XEN_ELF", "xen-syms")
+elf_path = os.environ.get("ELF", "xen-syms")
 lcov_report = os.environ.get("LCOV_OUT", "coverage.info")
 
 generate_lcov_report(elf_path, lcov_report)
