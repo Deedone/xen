@@ -52,6 +52,9 @@ elif [ "$RUN_COVERAGE" == "true" ]; then
     mkdir -p ${COVERAGE_OUT}
 fi
 
+export QEMU_TRACE="${QEMU_TRACE:-${XEN_ROOT}/qemu.trace}"
+rm -f ${QEMU_TRACE}
+
 export TEST_DIR="${ZTESTS_ROOT}/testcases/${APP_NAME}"
 
 # Number of pCPUs exposed to QEMU. A test needing more can raise it in test.env.
@@ -145,6 +148,18 @@ for domu in ${DOM0LESS_DOMUS}; do
     IDX=$((IDX + 1))
 done
 
+# A testcase may ship a qemu-extra-args file (extra QEMU arguments, one per
+# line) and a check-trace.py (host-side validation of what QEMU recorded), for
+# properties that cannot be observed from inside the guest.
+
+QEMU_EXTRA_ARGS=()
+if [ -f "${TEST_DIR}/qemu-extra-args" ]; then
+    while IFS= read -r line; do
+        case "${line}" in ''|\#*) continue ;; esac
+        eval "QEMU_EXTRA_ARGS+=(${line})"
+    done < "${TEST_DIR}/qemu-extra-args"
+fi
+
 # Run QEMU
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a57 \
@@ -162,6 +177,7 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -device loader,file=${WORKDIR}/${APP_NAME}.bin,addr=${REG_ADDR} \
     ${QEMU_PLUGIN_ARGS} \
     "${DOM0LESS_LOADERS[@]}" \
+    "${QEMU_EXTRA_ARGS[@]}" \
     -kernel ${XEN_BIN} -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
 
 #Print the captured logs to the job output
@@ -180,6 +196,14 @@ do_coverage_report() {
         > ${LLDB_COV_LOG} 2>&1
     fi
 }
+
+if [ -f "${TEST_DIR}/check-trace.py" ]; then
+    if ! python3 "${TEST_DIR}/check-trace.py" "${QEMU_LOG}" "${QEMU_TRACE}"; then
+        echo -e "\e[31m***TRACE VALIDATION FAILED***\e[0m"
+        exit 1
+    fi
+    echo -e "\e[32m***TRACE VALIDATION PASSED***\e[0m"
+fi
 
 # Test validation
 grep -qE "${PASSED}" "${QEMU_LOG}" && { do_coverage_report; echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
