@@ -4,11 +4,6 @@
   rules:
   - when: on_success
 
-.arm64-xtf-test-needs: &arm64-xtf-test-needs
-  - xen-atfe-arm64
-  - linux-6.6.86-image-export
-  - alpine-3.18-xen-tools-export
-
 .qemu-arm64:
   extends: .test-jobs-common
   variables:
@@ -43,4 +38,4 @@ qemu-lldb-tests:
   script:
     - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
   needs:
-    - *arm64-xtf-test-needs
+    - xen-atfe-arm64
