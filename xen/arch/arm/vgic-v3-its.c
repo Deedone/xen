@@ -690,7 +690,12 @@ static int its_handle_invall(struct virt_its *its, uint64_t *cmdptr)
 
 #ifdef CONFIG_GICV4
     if ( gicv4_supports_vlpis() )
-        return gicv4_its_handle_invall(its->d, vcpu);
+    {
+        int err = gicv4_its_handle_invall(its->d, vcpu);
+
+        if ( err )
+            return err;
+    }
 #endif
 
     return ret;

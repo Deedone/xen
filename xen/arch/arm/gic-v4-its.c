@@ -294,6 +294,7 @@ static int its_send_cmd_vmapp(struct host_its *its, struct its_vpe *vpe,
     uint64_t cmd[4];
     uint16_t vpeid = vpe->vpe_id;
     uint64_t vpt_addr, vprop_addr;
+    unsigned long flags = 0;
     int ret;
 
     cmd[0] = GITS_CMD_VMAPP;
@@ -303,12 +304,15 @@ static int its_send_cmd_vmapp(struct host_its *its, struct its_vpe *vpe,
 
     if ( its->is_v4_1 )
     {
-        int count = atomic_read(&vpe->vmapp_count);
+        spin_lock_irqsave(&vpe->vpe_lock, flags);
 
-        if ( !valid && !count )
-            return -EINVAL;
+        if ( !valid && !vpe->vmapp_count )
+        {
+            ret = -EINVAL;
+            goto out_unlock;
+        }
 
-        if ( valid ? count == 0 : count == 1 )
+        if ( valid ? vpe->vmapp_count == 0 : vpe->vmapp_count == 1 )
             cmd[0] |= GITS_ALLOC_BIT;
     }
 
@@ -333,18 +337,19 @@ static int its_send_cmd_vmapp(struct host_its *its, struct its_vpe *vpe,
 
  out:
     ret = its_send_command(its, cmd);
-    if ( ret )
-        return ret;
-
-    if ( its->is_v4_1 )
+    if ( !ret && its->is_v4_1 )
     {
         if ( valid )
-            atomic_inc(&vpe->vmapp_count);
+            vpe->vmapp_count++;
         else
-            (void)atomic_dec_return(&vpe->vmapp_count);
+            vpe->vmapp_count--;
     }
 
-    return 0;
+ out_unlock:
+    if ( its->is_v4_1 )
+        spin_unlock_irqrestore(&vpe->vpe_lock, flags);
+
+    return ret;
 }
 
 static int its_send_cmd_vinvall(struct host_its *its, struct its_vpe *vpe)
@@ -402,7 +407,17 @@ static int its_map_vpe(struct host_its *its, struct its_vpe *vpe)
     return 0;
 
  rollback:
-    (void)its_unmap_vpe(its, vpe);
+    {
+        int rollback_ret = its_unmap_vpe(its, vpe);
+
+        if ( rollback_ret )
+        {
+            vpe->cleanup_failed = true;
+            printk(XENLOG_WARNING
+                   "ITS: failed to roll back vPE mapping: %d\n",
+                   rollback_ret);
+        }
+    }
 
     return ret;
 }
@@ -436,10 +451,10 @@ static int gicv4_vpe_db_proxy_unmap_locked(struct its_vpe *vpe)
     return 0;
 }
 
-static void gicv4_vpe_db_proxy_unmap(struct its_vpe *vpe)
+static int gicv4_vpe_db_proxy_unmap(struct its_vpe *vpe)
 {
     if ( gic_has_v4_1_extension() )
-        return;
+        return 0;
 
     if ( !gic_support_directLPI() )
     {
@@ -453,7 +468,11 @@ static void gicv4_vpe_db_proxy_unmap(struct its_vpe *vpe)
         if ( ret )
             printk(XENLOG_WARNING
                    "ITS: failed to unmap GICv4 VPE proxy event: %d\n", ret);
+
+        return ret;
     }
+
+    return 0;
 }
 
 /*
@@ -588,9 +607,9 @@ static int its_vpe_init(struct its_vpe *vpe)
 
     /* Allocate VPT */
     vpendpage = lpi_allocate_pendtable();
-    if ( !vpendpage )
+    if ( IS_ERR(vpendpage) )
     {
-        rc = -ENOMEM;
+        rc = PTR_ERR(vpendpage);
         goto fail;
     }
     vpendtable = page_to_virt(vpendpage);
@@ -603,7 +622,7 @@ static int its_vpe_init(struct its_vpe *vpe)
     spin_lock_init(&vpe->vpe_lock);
     vpe->vpendtable = vpendtable;
     if ( gic_has_v4_1_extension() )
-        atomic_set(&vpe->vmapp_count, 0);
+        vpe->vmapp_count = 0;
     else
         vpe->vpe_proxy_event = -1;
     /*
@@ -630,7 +649,23 @@ static int its_vpe_init(struct its_vpe *vpe)
             break;
 
         if ( rollback_its->has_vlpis )
-            (void)its_unmap_vpe(rollback_its, vpe);
+        {
+            int rollback_ret = its_unmap_vpe(rollback_its, vpe);
+
+            if ( rollback_ret )
+            {
+                vpe->cleanup_failed = true;
+                printk(XENLOG_WARNING
+                       "ITS: failed to roll back vPE mapping: %d\n",
+                       rollback_ret);
+            }
+        }
+    }
+
+    if ( vpe->cleanup_failed )
+    {
+        vpe->its_vm->teardown_failed = true;
+        return rc;
     }
 
     vpe->vpendtable = NULL;
@@ -912,16 +947,35 @@ static int its_vpe_unmask_db(struct its_vpe *vpe)
 static void its_vpe_teardown(struct its_vpe *vpe)
 {
     struct host_its *hw_its;
+    int ret;
 
     if ( !vpe )
         return;
 
-    gicv4_vpe_db_proxy_unmap(vpe);
+    ret = gicv4_vpe_db_proxy_unmap(vpe);
+    if ( ret )
+        vpe->cleanup_failed = true;
 
     list_for_each_entry(hw_its, &host_its_list, entry)
     {
         if ( hw_its->has_vlpis )
-            (void)its_unmap_vpe(hw_its, vpe);
+        {
+            ret = its_unmap_vpe(hw_its, vpe);
+            if ( ret )
+            {
+                vpe->cleanup_failed = true;
+                printk(XENLOG_WARNING
+                       "ITS: failed to unmap vPE %u: %d\n",
+                       vpe->vpe_id, ret);
+            }
+        }
+    }
+
+    if ( vpe->cleanup_failed )
+    {
+        /* Keep every object which the ITS may still reference allocated. */
+        vpe->its_vm->teardown_failed = true;
+        return;
     }
 
     if ( vpe->vpe_id != INVALID_VPEID )
@@ -1002,8 +1056,17 @@ int vgic_v4_its_vm_init(struct domain *d)
 void vgic_v4_free_its_vm(struct domain *d)
 {
     struct its_vm *its_vm = d->arch.vgic.its_vm;
+
     if ( !its_vm )
         return;
+
+    if ( its_vm->teardown_failed )
+    {
+        printk(XENLOG_WARNING
+               "d%d: leaking GICv4 VM tables still referenced by an ITS\n",
+               d->domain_id);
+        return;
+    }
 
     if ( its_vm->db_lpi_bases )
     {
@@ -1053,7 +1116,8 @@ int vgic_v4_its_vpe_init(struct vcpu *vcpu)
     ret = its_vpe_init(vpe);
     if ( ret )
     {
-        xfree(vpe);
+        if ( !vpe->cleanup_failed )
+            xfree(vpe);
         return ret;
     }
 
@@ -1594,26 +1658,19 @@ static int its_wait_vpt_parse_complete(void __iomem *vlpi_base)
     return read_vpend_dirty_clean(vlpi_base, 500, &val);
 }
 
-static int its_clear_vpend_valid(void __iomem *vlpi_base, uint64_t *val)
-{
-    unsigned int count = GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US;
-
-    if ( !gits_clear_vpendbaser_valid(vlpi_base + GICR_VPENDBASER) )
-        return -ETIMEDOUT;
-
-    (void)read_vpend_dirty_clean(vlpi_base, count, val);
-
-    return 0;
-}
-
 static int its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
                                       uint64_t set, uint64_t *val)
 {
     void __iomem *vpendbaser = vlpi_base + GICR_VPENDBASER;
     unsigned int count = GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US;
     uint64_t tmp;
+    int ret;
 
-    tmp = gits_read_vpendbaser(vpendbaser);
+    /* Wait for the redistributor to finish its initial VPT scan. */
+    ret = read_vpend_dirty_clean(vlpi_base, count, &tmp);
+    if ( ret )
+        return ret;
+
     if ( tmp & GICR_VPENDBASER_Valid )
     {
         tmp &= ~clr;
@@ -1634,9 +1691,18 @@ static int its_clear_vpend_valid_bits(void __iomem *vlpi_base, uint64_t clr,
         } while ( tmp & GICR_VPENDBASER_Valid );
     }
 
-    (void)read_vpend_dirty_clean(vlpi_base, count, val);
+    ret = read_vpend_dirty_clean(vlpi_base,
+                                 GICR_VPENDBASER_DIRTY_POLL_TIMEOUT_US,
+                                 val);
+    if ( ret )
+        return ret;
 
     return 0;
+}
+
+static int its_clear_vpend_valid(void __iomem *vlpi_base, uint64_t *val)
+{
+    return its_clear_vpend_valid_bits(vlpi_base, 0, 0, val);
 }
 
 static int its_make_vpe_resident(struct its_vpe *vpe, unsigned int cpu)
@@ -1688,14 +1754,14 @@ static int its_make_vpe_non_resident(struct its_vpe *vpe, unsigned int cpu)
 static int its_make_vpe_4_1_resident(struct its_vpe *vpe, unsigned int cpu)
 {
     void __iomem *vlpi_base = gic_data_rdist_vlpi_base(cpu);
-    uint64_t old, val = 0;
+    uint64_t val;
     int ret;
 
-    ret = its_clear_vpend_valid_bits(vlpi_base, 0, 0, &old);
+    ret = its_clear_vpend_valid_bits(vlpi_base, 0, 0, &val);
     if ( ret )
         return ret;
 
-    val |= GICR_VPENDBASER_Valid;
+    val = GICR_VPENDBASER_Valid;
     /* PendingLast is RES1 when GICR_VPENDBASER.Valid is written 0->1. */
     val |= GICR_VPENDBASER_PendingLast;
     val |= GICR_VPENDBASER_4_1_VGRP1EN;
@@ -1725,15 +1791,13 @@ static int its_make_vpe_4_1_non_resident(struct its_vpe *vpe,
     else
     {
         /*
-         * We are not arming a default doorbell. Let the implementation
-         * report whether pending enabled vLPIs remain instead of forcing
-         * PendingLast to 1.
+         * We are not arming a default doorbell, so leave PendingLast set to
+         * indicate that the vPE will become resident again without one.
          */
         ret = its_clear_vpend_valid_bits(vlpi_base, GICR_VPENDBASER_4_1_DB,
-                                         0, &val);
+                                         GICR_VPENDBASER_PendingLast, &val);
         if ( !ret )
-            write_atomic(&vpe->pending_last,
-                         !!(val & GICR_VPENDBASER_PendingLast));
+            write_atomic(&vpe->pending_last, true);
     }
 
     return ret;
@@ -1850,15 +1914,15 @@ int allocate_vpe_l1_table(void)
     unsigned int epp, esz;
     unsigned int order;
     void *buffer;
+    int ret;
 
     if ( !gic_has_v4_1_extension() )
         return 0;
 
-    val = gits_read_vpendbaser(vlpi_base + GICR_VPENDBASER);
-    if ( val & GICR_VPENDBASER_Valid )
-        writeq_relaxed((val | GICR_VPENDBASER_PendingLast) &
-                       ~GICR_VPENDBASER_Valid,
-                       vlpi_base + GICR_VPENDBASER);
+    ret = its_clear_vpend_valid_bits(vlpi_base, 0,
+                                     GICR_VPENDBASER_PendingLast, &val);
+    if ( ret )
+        return ret;
 
     val = inherit_vpe_l1_table_from_rd();
     if ( val & GICR_VPROPBASER_4_1_VALID )
@@ -1923,6 +1987,12 @@ int allocate_vpe_l1_table(void)
         clean_and_invalidate_dcache_va_range(buffer, npg * psz);
 
     pa = virt_to_maddr(buffer);
+    if ( pa & ~GENMASK(51, 12) )
+    {
+        free_xenheap_pages(buffer, order);
+        return -ERANGE;
+    }
+
     val |= MASK_INSR(pa >> 12, GICR_VPROPBASER_4_1_ADDR);
     val |= gicv3_its_get_cacheability() <<
            GICR_VPROPBASER_INNER_CACHEABILITY_SHIFT;
@@ -2446,6 +2516,7 @@ void vgic_v4_load(struct vcpu *vcpu)
         printk(XENLOG_WARNING
                "%pv: GICv4 failed to mask vPE doorbell before load: %d\n",
                vcpu, ret);
+        return;
     }
 
     ret = its_make_vpe_resident(vpe, vcpu->processor);

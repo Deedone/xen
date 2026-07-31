@@ -269,7 +269,9 @@ void gicv3_do_LPI(unsigned int lpi)
         vgic_vcpu_inject_lpi(d, hlpi.virt_lpi);
     }
 
+#ifdef CONFIG_GICV4
 unlock:
+#endif
     rcu_unlock_domain(d);
 
 out:
@@ -786,8 +788,7 @@ int gicv3_allocate_host_lpi_block(struct domain *d, uint32_t *first_lpi)
          * Enable this host LPI, so we don't have to do this during the
          * guest's runtime.
          */
-        lpi_write_config(lpi_data.lpi_property, lpi + i + LPI_OFFSET, 0xff,
-                         LPI_PROP_ENABLED);
+        lpi_data.lpi_property[lpi + i] |= LPI_PROP_ENABLED;
     }
 
     lpi_data.next_free_lpi = lpi + LPI_BLOCK;

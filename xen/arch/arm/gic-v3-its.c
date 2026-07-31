@@ -222,12 +222,13 @@ int gicv3_its_wait_commands(struct host_its *hw_its)
      */
     s_time_t deadline = NOW() + MILLISECS(100);
     uint64_t readp, writep;
+    unsigned long flags;
 
     do {
-        spin_lock(&hw_its->cmd_lock);
+        spin_lock_irqsave(&hw_its->cmd_lock, flags);
         readp = readq_relaxed(hw_its->its_base + GITS_CREADR) & BUFPTR_MASK;
         writep = readq_relaxed(hw_its->its_base + GITS_CWRITER) & BUFPTR_MASK;
-        spin_unlock(&hw_its->cmd_lock);
+        spin_unlock_irqrestore(&hw_its->cmd_lock, flags);
 
         if ( readp == writep )
             return 0;
@@ -879,30 +880,42 @@ static int gicv3_its_init_single_its(struct host_its *hw_its)
 
 static void its_free_device(struct its_device *dev);
 
+static int its_unmap_device(struct its_device *dev)
+{
+    int ret;
+
+    if ( !dev->hw_its )
+        return 0;
+
+    /* MAPD also discards all events with this device ID. */
+    ret = its_send_cmd_mapd(dev->hw_its, dev->host_devid, 0, 0, false);
+    if ( !ret )
+        ret = gicv3_its_wait_commands(dev->hw_its);
+
+    return ret;
+}
+
 /*
  * TODO: Investigate the interaction when a guest removes a device while
  * some LPIs are still in flight.
  */
 static int remove_mapped_guest_device(struct its_device *dev)
 {
-    int ret = 0;
+    int ret = its_unmap_device(dev);
 
-    if ( dev->hw_its )
-        /* MAPD also discards all events with this device ID. */
-        ret = its_send_cmd_mapd(dev->hw_its, dev->host_devid, 0, 0, false);
-
-    /* Make sure the MAPD command above is really executed. */
-    if ( !ret )
-        ret = gicv3_its_wait_commands(dev->hw_its);
-
-    /* This should never happen, but just in case ... */
-    if ( ret && printk_ratelimit() )
-        printk(XENLOG_WARNING "Can't unmap host ITS device 0x%x\n",
-               dev->host_devid);
+    if ( ret )
+    {
+        /* Keep memory which the ITS may still reference allocated. */
+        if ( printk_ratelimit() )
+            printk(XENLOG_WARNING
+                   "Can't unmap host ITS device 0x%x: %d\n",
+                   dev->host_devid, ret);
+        return ret;
+    }
 
     its_free_device(dev);
 
-    return 0;
+    return ret;
 }
 
 static struct host_its *gicv3_its_find_by_doorbell(paddr_t doorbell_address)
@@ -1120,6 +1133,7 @@ int gicv3_its_map_guest_device(struct domain *d,
     struct host_its *hw_its;
     struct its_device *dev = NULL;
     struct rb_node **new = &d->arch.vgic.its_devices.rb_node, *parent = NULL;
+    bool published = false;
     int i, ret = -ENOENT;      /* "i" must be signed to check for >= 0 below. */
 
     hw_its = gicv3_its_find_by_doorbell(host_doorbell);
@@ -1218,6 +1232,7 @@ int gicv3_its_map_guest_device(struct domain *d,
 
     rb_link_node(&dev->rbnode, parent, new);
     rb_insert_color(&dev->rbnode, &d->arch.vgic.its_devices);
+    published = true;
 
     spin_unlock(&d->arch.vgic.its_devices_lock);
 
@@ -1238,20 +1253,7 @@ int gicv3_its_map_guest_device(struct domain *d,
     }
 
     if ( ret )
-    {
-        int unmap_ret;
-
-        /*
-         * Unmapping the device will discard all LPIs mapped so far.
-         * We are already on the failing path, so no error checking to
-         * not mask the original error value. This should never fail anyway.
-         */
-        unmap_ret = its_send_cmd_mapd(hw_its, host_devid, 0, 0, false);
-        if ( !unmap_ret )
-            (void)gicv3_its_wait_commands(hw_its);
-
         goto out;
-    }
 
     return 0;
 
@@ -1260,7 +1262,27 @@ out_unlock:
 
 out:
     if ( dev )
-        its_free_device(dev);
+    {
+        int unmap_ret;
+
+        if ( published )
+        {
+            spin_lock(&d->arch.vgic.its_devices_lock);
+            rb_erase(&dev->rbnode, &d->arch.vgic.its_devices);
+            spin_unlock(&d->arch.vgic.its_devices_lock);
+        }
+
+        unmap_ret = its_unmap_device(dev);
+        if ( unmap_ret )
+        {
+            /* Keep memory which the ITS may still reference allocated. */
+            printk(XENLOG_WARNING
+                   "Can't roll back host ITS device 0x%x: %d\n",
+                   dev->host_devid, unmap_ret);
+        }
+        else
+            its_free_device(dev);
+    }
 
     return ret;
 }

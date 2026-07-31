@@ -9,8 +9,6 @@
 #ifndef ARM_GIC_V4_ITS_H
 #define ARM_GIC_V4_ITS_H
 
-#include <xen/delay.h>
-#include <xen/atomic.h>
 #include <xen/lib.h>
 #include <xen/spinlock.h>
 #include <xen/types.h>
@@ -45,6 +43,8 @@ struct its_vm {
     /* Property table per VM. */
     void *vproptable;
     uint64_t vpropbaser;
+    /* An ITS still references one or more VM-owned tables. */
+    bool teardown_failed;
 };
 
 struct its_vpe {
@@ -56,6 +56,7 @@ struct its_vpe {
     struct its_vm *its_vm;
     unsigned int col_idx;
     bool resident;
+    bool cleanup_failed;
     /* Pending VLPIs hint shared between IRQ and schedule paths. */
     bool            pending_last;
     struct {
@@ -64,7 +65,7 @@ struct its_vpe {
         /* VPE proxy mapping */
         int vpe_proxy_event;
         /* Number of active v4.1 VMAPP mappings for this VPE. */
-        atomic_t vmapp_count;
+        unsigned int vmapp_count;
     };
     struct {
         uint8_t priority;
@@ -123,8 +124,6 @@ int direct_lpi_inv(struct its_device *dev, uint32_t eventid,
 #define GICR_VPENDBASER_OUTER_CACHEABILITY_SHIFT         56
 #define GICR_VPENDBASER_SHAREABILITY_SHIFT               10
 #define GICR_VPENDBASER_INNER_CACHEABILITY_SHIFT          7
-#define GICR_VPENDBASER_POLL_TIMEOUT_US             100000U
-
 /*
  * GICv4.1 VPENDBASER, used for VPE residency. On top of these fields,
  * also use the above Valid, PendingLast and Dirty bits.
@@ -151,36 +150,6 @@ int direct_lpi_inv(struct its_device *dev, uint32_t eventid,
 #define gits_read_vpropbaser(c)         readq_relaxed(c)
 #define gits_write_vpropbaser(v, c)     \
     do { writeq_relaxed(v, c); } while ( 0 )
-
-/*
- * Clearing GICR_VPENDBASER.Valid is an explicit state transition and should
- * only be attempted once the caller expects the VPE to become non-resident.
- */
-static inline bool gits_clear_vpendbaser_valid(void __iomem *addr)
-{
-    uint64_t tmp;
-    unsigned int timeout = GICR_VPENDBASER_POLL_TIMEOUT_US;
-
-    tmp = readq_relaxed(addr);
-    if ( !(tmp & GICR_VPENDBASER_Valid) )
-        return true;
-
-    writeq_relaxed(tmp & ~GICR_VPENDBASER_Valid, addr);
-
-    do {
-        if ( !timeout-- )
-        {
-            printk(XENLOG_WARNING
-                   "GICv4: timeout clearing GICR_VPENDBASER.Valid\n");
-            return false;
-        }
-
-        udelay(1);
-        tmp = readq_relaxed(addr);
-    } while ( tmp & GICR_VPENDBASER_Valid );
-
-    return true;
-}
 
 static inline void gits_write_vpendbaser(uint64_t val, void __iomem *addr)
 {

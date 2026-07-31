@@ -72,7 +72,7 @@ bool gic_support_directLPI(void)
 
 bool gic_support_vlpis(void)
 {
-    return gicv4.has_vlpis;
+    return gicv4.has_vlpis && opt_direct_lpi;
 }
 
 bool gic_support_vptValidDirty(void)
