@@ -289,6 +289,13 @@ config ARM64_SPIN_TABLE
 
 	  If unsure, say Y.
 
+config ARM64_AARCH32
+	bool "AArch32 Guests support on ARM64 (UNSUPPORTED)" if UNSUPPORTED
+	depends on ARM_64
+	default y
+	help
+	  This option enables AArch32 Guests on ARM64.
+
 endmenu
 
 config ALTERNATIVE
