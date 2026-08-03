@@ -131,6 +131,12 @@ qemu-zephyr-mcdc:
     MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
   parallel:
     matrix: *zephyr-test-matrix
+  rules:
+    - if: '$RUN_UBSAN == "true"'
+      when: never
+    - if: '$RUN_COVERAGE == "true"'
+      when: never
+    - when: on_success
   script:
     - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
     - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
