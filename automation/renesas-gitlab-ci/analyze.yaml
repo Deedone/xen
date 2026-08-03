@@ -163,6 +163,7 @@ gen_coverage_report:
       - coverage-report.tar.gz
   needs:
     - qemu-lldb-tests
+    - qemu-zephyr-tests
   rules:
     - if: '$RUN_COVERAGE == "true"'
       when: always

@@ -28,6 +28,28 @@ if [ -n "${MCDC_CONF:-}" ]; then
     export MCDC_TRACE="${MCDC_TRACE:-${XEN_ROOT}/brtrace.dat}"
     QEMU_PLUGIN_ARGS="-plugin ${MCDC_PLUGIN},config=${MCDC_CONF},tracefile=${MCDC_TRACE}"
     rm -f "${MCDC_TRACE}"
+elif [ "$RUN_COVERAGE" == "true" ]; then
+    echo "Running QEMU with coverage plugin."
+
+    export LLDB_COV_LOG="${LLDB_COV_LOG:-${XEN_ROOT}/lldb_coverage.log}"
+    export QEMU_COV_TRACE="${QEMU_COV_TRACE:-${XEN_ROOT}/trace.drcov}"
+    export COVERAGE_OUT="${COVERAGE_OUT:-${XEN_ROOT}/coverage_data}"
+
+    START_HEX=$(readelf -s "${WORKDIR}/xen-syms" | grep ' _stext$' | awk '{print $2}')
+    END_HEX=$(readelf -s "${WORKDIR}/xen-syms" | awk '$NF == "_einittext" {print $2}')
+
+    START_CODE="0x${START_HEX}"
+    END_CODE="0x${END_HEX}"
+
+    QEMU_PLUGIN_ARGS="-plugin /usr/local/lib/qemu-plugins/libdrcov.so"
+    QEMU_PLUGIN_ARGS+=",filename=${QEMU_COV_TRACE}"
+    QEMU_PLUGIN_ARGS+=",start_code=${START_CODE}"
+    QEMU_PLUGIN_ARGS+=",end_code=${END_CODE}"
+    QEMU_PLUGIN_ARGS+=",bin_path=${WORKDIR}/xen-syms "
+
+    rm -f ${QEMU_COV_TRACE}
+
+    mkdir -p ${COVERAGE_OUT}
 fi
 
 export TEST_DIR="${ZTESTS_ROOT}/testcases/${APP_NAME}"
@@ -145,16 +167,21 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
 #Print the captured logs to the job output
 cat ${QEMU_LOG} || true
 
-# Generate MCDC report only if test was passed
-do_mcdc_report() {
+# Generate coverage report only if test was passed
+do_coverage_report() {
     # MC/DC report generation from the trace collected during this run.
     if [ -n "${MCDC_CONF:-}" ]; then
         ( cd "${XEN_ROOT}" &&
         ./automation/renesas-scripts/mcdc-report.sh "${APP_NAME}" ) || true
+    elif [ "$RUN_COVERAGE" == "true" ]; then
+        ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} \
+        LCOV_OUT=${COVERAGE_OUT}/${APP_NAME}.cov.info \
+        lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
+        > ${LLDB_COV_LOG} 2>&1
     fi
 }
 
 # Test validation
-grep -qE "${PASSED}" "${QEMU_LOG}" && { do_mcdc_report; echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
+grep -qE "${PASSED}" "${QEMU_LOG}" && { do_coverage_report; echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
 echo -e "\e[31m***NOT FOUND EXPECTED TEST STRING***\e[0m"
 exit 1
