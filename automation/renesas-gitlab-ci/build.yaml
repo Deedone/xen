@@ -108,6 +108,20 @@
 xen-atfe-arm64:
   extends: .atfe-arm64-build
 
+tf-a-qemu:
+  stage: build
+  image: xentroops/xen_rel
+  script:
+    - ./automation/renesas-scripts/build-tfa-qemu.sh 2>&1 | tee tfa-build.log
+  artifacts:
+    paths:
+      - binaries/qemu_fw.bios
+      - tfa-build.log
+    when: always
+  needs: []
+  tags:
+    - aws-arm64
+
 xen-atfe-arm64-earlyprintk:
   extends: .atfe-arm64-build
   variables:
