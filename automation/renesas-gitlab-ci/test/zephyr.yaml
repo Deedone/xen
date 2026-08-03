@@ -97,6 +97,15 @@
     - "hyp-domctl-sched-rtds-params"
     # [XenValTestJob~~1->XenValTestCode~rtds_sched_configure_params_per_domain~1]
     - "hyp-domctl-sched-rtds-params-dom"
+    # [XenVerTestJob~~1->XenVerTestCode~vpci_dom0~1]
+    - "hyp-vpci-dom0"
+    # [XenVerTestJob~~1->XenVerTestCode~vpci_dom0_msix~1]
+    - "hyp-vpci-dom0-msix"
+    # [XenVerTestJob~~1->XenVerTestCode~vpci_dom0_sriov~1]
+    - "hyp-vpci-dom0-sriov"
+    # [XenVerTestJob~~1->XenVerTestCode~vpci_domu~1]
+    - "hyp-vpci-domu"
+
 # Test jobs
 
 qemu-zephyr-tests:

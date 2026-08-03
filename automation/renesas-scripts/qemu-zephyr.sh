@@ -134,6 +134,9 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -display none \
     -monitor none \
     -serial stdio \
+    -netdev user,id=net1,hostfwd=tcp::2223-:22 -device igb,netdev=net1 \
+    -netdev user,id=net2,hostfwd=tcp::2224-:23 -device e1000e,netdev=net2,romfile= \
+    -device edu \
     -device loader,file=${WORKDIR}/${APP_NAME}.bin,addr=${REG_ADDR} \
     ${QEMU_PLUGIN_ARGS} \
     "${DOM0LESS_LOADERS[@]}" \
