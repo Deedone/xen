@@ -213,10 +213,7 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     ${QEMU_PLUGIN_ARGS} \
     "${DOM0LESS_LOADERS[@]}" \
     "${QEMU_EXTRA_ARGS[@]}" \
-    -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
-
-#Print the captured logs to the job output
-cat ${QEMU_LOG} || true
+    -dtb ${WORKDIR}/xen.dtb 2>&1 | tee "${QEMU_LOG}"
 
 # Generate coverage report only if test was passed
 do_coverage_report() {

@@ -93,7 +93,7 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -serial file:${XEN_LOG} \
     ${PLUGIN_ARGS} \
     "${QEMU_BOOT_ARGS[@]}" \
-    -dtb ${WORKDIR}/virt-gicv4.dtb > ${QEMU_LOG} 2>&1 &
+    -dtb ${WORKDIR}/virt-gicv4.dtb > >(tee "${QEMU_LOG}") 2>&1 &
 
 QEMU_PID=$!
 sleep 1
