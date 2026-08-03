@@ -11,7 +11,8 @@
 #include <public/bootfdt.h>
 #include <public/domctl.h>
 
-#include <security.h>
+int security_context_to_sid(const char *scontext, u32 scontext_len,
+                            u32 *out_sid);
 
 int __init parse_dom0less_node(struct dt_device_node *node,
                                struct boot_domain *bd)
