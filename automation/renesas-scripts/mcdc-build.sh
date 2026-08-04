@@ -25,6 +25,7 @@ CONFIG_EXPERT=y
 CONFIG_NO_OPTIMIZE=y
 CONFIG_FRAME_POINTER=y
 CONFIG_DEBUG_INFO=y
+CONFIG_CMDLINE="xsm=flask flask=permissive"
 EOF
 make XEN_TARGET_ARCH=arm64 olddefconfig
 cp .config "${XEN_ROOT}/xen-mcdc-config"
