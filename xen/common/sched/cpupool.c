@@ -571,6 +571,37 @@ static int cpupool_unassign_cpu_start(struct cpupool *c, unsigned int cpu)
     return ret;
 }
 
+/*
+ * Undo cpupool_cpu_remove_prologue() when the removal it prepared for never
+ * happened. The cpu never left its scheduler, so unlike cpupool_cpu_add()
+ * this must not run it through schedule_cpu_add() again.
+ */
+static void cpupool_unassign_cpu_cancel(unsigned int cpu)
+{
+    struct cpupool *c;
+    const cpumask_t *cpus;
+
+    spin_lock(&cpupool_lock);
+
+    cpumask_clear_cpu(cpu, &cpupool_locked_cpus);
+
+    c = cpupool_cpu_moving;
+    if ( (cpupool_moving_cpu == cpu) && c )
+    {
+        rcu_read_lock(&sched_res_rculock);
+        cpus = get_sched_res(cpu)->cpus;
+        cpumask_or(c->cpu_valid, c->cpu_valid, cpus);
+        cpumask_and(c->res_valid, c->cpu_valid, &sched_res_mask);
+        rcu_read_unlock(&sched_res_rculock);
+
+        cpupool_moving_cpu = -1;
+        cpupool_put(c);
+        cpupool_cpu_moving = NULL;
+    }
+
+    spin_unlock(&cpupool_lock);
+}
+
 #ifdef CONFIG_SYSCTL
 static long cf_check cpupool_unassign_cpu_helper(void *info)
 {
@@ -1037,10 +1068,10 @@ static int cf_check cpu_callback(
         {
             if ( mem )
             {
-                free_cpu_rm_data(mem, cpu);
+                cancel_cpu_rm_data(mem, cpu);
                 mem = NULL;
             }
-            rc = cpupool_cpu_add(cpu);
+            cpupool_unassign_cpu_cancel(cpu);
         }
         break;
     case CPU_ONLINE:

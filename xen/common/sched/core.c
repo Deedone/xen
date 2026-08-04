@@ -3313,6 +3313,27 @@ void free_cpu_rm_data(struct cpu_rm_data *mem, unsigned int cpu)
 }
 
 /*
+ * Undo alloc_cpu_rm_data() when schedule_cpu_rm() did not run. The cpu is
+ * still driven by its old scheduler and keeps using ppriv_old/vpriv_old, so
+ * only what alloc_cpu_rm_data() allocated itself may be released.
+ */
+void cancel_cpu_rm_data(struct cpu_rm_data *mem, unsigned int cpu)
+{
+    unsigned int idx;
+
+    rcu_read_lock(&sched_res_rculock);
+    idx = get_sched_res(cpu)->granularity - 1;
+    rcu_read_unlock(&sched_res_rculock);
+
+    while ( idx > 0 )
+        sched_res_free(&mem->sr[--idx]->rcu);
+
+    free_affinity_masks(&mem->affinity);
+
+    xfree(mem);
+}
+
+/*
  * Remove a pCPU from its cpupool. Its scheduler becomes &sched_idle_ops
  * (the idle scheduler).
  * The cpu is already marked as "free" and not valid any longer for its
