@@ -6,7 +6,7 @@ CONFIG_XEN_INSTALL_SUFFIX :=
 CFLAGS += #-marm -march= -mcpu= etc
 
 ifeq ($(clang),y)
-CFLAGS += -target aarch64 -march=armv8-a
+CFLAGS += --target=aarch64-none-elf -march=armv9.2-a
 endif
 
 # Use only if calling $(LD) directly.
