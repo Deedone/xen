@@ -59,7 +59,7 @@ do_zephyr_fetch()
 
 do_zephyr_fetch zephyr zephyr-v4.4.0-xt
 
-do_zephyr_fetch zephyr-xenlib main
+do_zephyr_fetch zephyr-xenlib xen-4.21-testing-dev
 
 # Auto-detect and build DomU dependencies
 DOMAIN_BINS_S="${ZTESTS_ROOT}/testcases/${APP_NAME}/src/domain_bins.S"
