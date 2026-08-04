@@ -105,6 +105,8 @@
     - "hyp-vpci-dom0-sriov"
     # [XenVerTestJob~~1->XenVerTestCode~vpci_domu~1]
     - "hyp-vpci-domu"
+    # [XenVerTestJob~~1->XenVerTestCode~sysctl_cpu_hotplug~1]
+    - "hyp-sysctl-cpu-hotplug"
 
 # Test jobs
 
