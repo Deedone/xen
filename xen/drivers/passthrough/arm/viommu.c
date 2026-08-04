@@ -16,7 +16,8 @@ static const struct viommu_desc __ro_after_init *cur_viommu;
 
 /* Common function for adding to host_iommu_list */
 void add_to_host_iommu_list(paddr_t addr, paddr_t size,
-                            const struct dt_device_node *node)
+                            const struct dt_device_node *node,
+                            uint32_t features)
 {
     struct host_iommu *iommu_data;
 
@@ -27,6 +28,7 @@ void add_to_host_iommu_list(paddr_t addr, paddr_t size,
     iommu_data->addr = addr;
     iommu_data->size = size;
     iommu_data->dt_node = node;
+    iommu_data->features = features;
     iommu_data->irq = platform_get_irq(node, 0);
     if ( iommu_data->irq < 0 )
     {

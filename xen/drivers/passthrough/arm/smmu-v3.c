@@ -2453,6 +2453,37 @@ arm_smmu_device_reset(struct arm_smmu_device *smmu)
 	return 0;
 }
 
+static void arm_smmu_device_iidr_probe(struct arm_smmu_device *smmu)
+{
+	u32 reg;
+	unsigned int implementer, productid, variant, revision;
+
+	reg = readl_relaxed(smmu->base + ARM_SMMU_IIDR);
+	implementer = FIELD_GET(IIDR_IMPLEMENTER, reg);
+	productid = FIELD_GET(IIDR_PRODUCTID, reg);
+	variant = FIELD_GET(IIDR_VARIANT, reg);
+	revision = FIELD_GET(IIDR_REVISION, reg);
+
+	switch (implementer) {
+	case IIDR_IMPLEMENTER_ARM:
+		switch (productid) {
+		case IIDR_PRODUCTID_ARM_MMU_600:
+			/* Arm erratum 1076982 */
+			if (variant == 0 && revision <= 2)
+				smmu->features &= ~ARM_SMMU_FEAT_SEV;
+			/* Arm erratum 1209401 */
+			if (variant < 2)
+				smmu->features &= ~ARM_SMMU_FEAT_NESTING;
+			break;
+		case IIDR_PRODUCTID_ARM_MMU_700:
+			/* Arm errata 2268618, 2812531 */
+			smmu->features &= ~ARM_SMMU_FEAT_NESTING;
+			break;
+		}
+		break;
+	}
+}
+
 static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 {
 	u32 reg;
@@ -2541,8 +2572,10 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 	switch (FIELD_GET(IDR0_TTF, reg)) {
 	case IDR0_TTF_AARCH32_64:
 		smmu->ias = 40;
+		smmu->features |= ARM_SMMU_FEAT_TTF_AARCH32_64;
 		fallthrough;
 	case IDR0_TTF_AARCH64:
+		smmu->features |= ARM_SMMU_FEAT_TTF_AARCH64;
 		break;
 	default:
 		dev_err(smmu->dev, "AArch64 table format not supported!\n");
@@ -2551,6 +2584,8 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 
 	/* ASID/VMID sizes */
 	smmu->vmid_bits = reg & IDR0_VMID16 ? 16 : 8;
+	if (reg & IDR0_ASID16)
+		smmu->features |= ARM_SMMU_FEAT_ASID_16;
 
 	/* IDR1 */
 	reg = readl_relaxed(smmu->base + ARM_SMMU_IDR1);
@@ -2590,12 +2625,18 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 	smmu->evtq.max_stalls = FIELD_GET(IDR5_STALL_MAX, reg);
 
 	/* Page sizes */
-	if (reg & IDR5_GRAN64K)
+	if (reg & IDR5_GRAN64K) {
 		smmu->pgsize_bitmap |= SZ_64K | SZ_512M;
-	if (reg & IDR5_GRAN16K)
+		smmu->features |= ARM_SMMU_FEAT_GRAN64K;
+	}
+	if (reg & IDR5_GRAN16K) {
 		smmu->pgsize_bitmap |= SZ_16K | SZ_32M;
-	if (reg & IDR5_GRAN4K)
+		smmu->features |= ARM_SMMU_FEAT_GRAN16K;
+	}
+	if (reg & IDR5_GRAN4K) {
 		smmu->pgsize_bitmap |= SZ_4K | SZ_2M | SZ_1G;
+		smmu->features |= ARM_SMMU_FEAT_GRAN4K;
+	}
 
 	/* Input address size */
 	if (FIELD_GET(IDR5_VAX, reg) == IDR5_VAX_52_BIT)
@@ -2605,21 +2646,27 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 	switch (FIELD_GET(IDR5_OAS, reg)) {
 	case IDR5_OAS_32_BIT:
 		smmu->oas = 32;
+		smmu->features |= ARM_SMMU_FEAT_OAS_32_BIT;
 		break;
 	case IDR5_OAS_36_BIT:
 		smmu->oas = 36;
+		smmu->features |= ARM_SMMU_FEAT_OAS_36_BIT;
 		break;
 	case IDR5_OAS_40_BIT:
 		smmu->oas = 40;
+		smmu->features |= ARM_SMMU_FEAT_OAS_40_BIT;
 		break;
 	case IDR5_OAS_42_BIT:
 		smmu->oas = 42;
+		smmu->features |= ARM_SMMU_FEAT_OAS_42_BIT;
 		break;
 	case IDR5_OAS_44_BIT:
 		smmu->oas = 44;
+		smmu->features |= ARM_SMMU_FEAT_OAS_44_BIT;
 		break;
 	case IDR5_OAS_52_BIT:
 		smmu->oas = 52;
+		smmu->features |= ARM_SMMU_FEAT_OAS_52_BIT;
 		smmu->pgsize_bitmap |= 1ULL << 42; /* 4TB */
 		break;
 	default:
@@ -2628,6 +2675,7 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 		fallthrough;
 	case IDR5_OAS_48_BIT:
 		smmu->oas = 48;
+		smmu->features |= ARM_SMMU_FEAT_OAS_48_BIT;
 		break;
 	}
 
@@ -2636,6 +2684,12 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 
 	/* Xen: Set maximum Stage-2 input size supported by the SMMU. */
 	p2m_restrict_ipa_bits(smmu->ias);
+
+	if ((smmu->features & ARM_SMMU_FEAT_TRANS_S1) &&
+		(smmu->features & ARM_SMMU_FEAT_TRANS_S2))
+		smmu->features |= ARM_SMMU_FEAT_NESTING;
+
+	arm_smmu_device_iidr_probe(smmu);
 
 	dev_info(smmu->dev, "ias %lu-bit, oas %lu-bit (features 0x%08x)\n",
 		 smmu->ias, smmu->oas, smmu->features);
@@ -2844,9 +2898,10 @@ static int __init arm_smmu_device_probe(struct platform_device *pdev)
 	spin_lock(&arm_smmu_devices_lock);
 	list_add(&smmu->devices, &arm_smmu_devices);
 	spin_unlock(&arm_smmu_devices_lock);
-
+#ifdef CONFIG_ARM_VIRTUAL_IOMMU
 	/* Add to host IOMMU list to initialize vIOMMU for dom0 */
-	add_to_host_iommu_list(ioaddr, iosize, dev_to_dt(pdev));
+	add_to_host_iommu_list(ioaddr, iosize, dev_to_dt(pdev), smmu->features);
+#endif
 
 	return 0;
 

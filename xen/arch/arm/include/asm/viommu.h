@@ -18,6 +18,7 @@ struct host_iommu {
     paddr_t addr;
     paddr_t size;
     uint32_t irq;
+    uint32_t features;
 };
 
 struct viommu_ops {
@@ -48,7 +49,8 @@ int domain_viommu_init(struct domain *d, uint8_t viommu_type);
 int viommu_relinquish_resources(struct domain *d);
 uint8_t viommu_get_type(void);
 void add_to_host_iommu_list(paddr_t addr, paddr_t size,
-                            const struct dt_device_node *node);
+                            const struct dt_device_node *node,
+                            uint32_t features);
 void set_cur_viommu(const struct viommu_desc *desc);
 unsigned int domain_viommu_get_num_mmio_handlers(struct domain *d);
 
@@ -73,7 +75,8 @@ static inline int viommu_relinquish_resources(struct domain *d)
 }
 
 static inline void add_to_host_iommu_list(paddr_t addr, paddr_t size,
-                                          const struct dt_device_node *node)
+                                          const struct dt_device_node *node,
+                                          uint32_t features)
 {
     return;
 }

@@ -60,6 +60,16 @@
 #define IDR5_VAX			GENMASK(11, 10)
 #define IDR5_VAX_52_BIT			1
 
+#define ARM_SMMU_IIDR			0x18
+#define IIDR_PRODUCTID			GENMASK(31, 20)
+#define IIDR_VARIANT			GENMASK(19, 16)
+#define IIDR_REVISION			GENMASK(15, 12)
+#define IIDR_IMPLEMENTER		GENMASK(11, 0)
+
+#define IIDR_IMPLEMENTER_ARM		0x43b
+#define IIDR_PRODUCTID_ARM_MMU_600	0x483
+#define IIDR_PRODUCTID_ARM_MMU_700	0x487
+
 #define ARM_SMMU_CR0			0x20
 #define CR0_ATSCHK			(1 << 4)
 #define CR0_CMDQEN			(1 << 3)
@@ -602,10 +612,24 @@ struct arm_smmu_device {
 #define ARM_SMMU_FEAT_COHERENCY		(1 << 8)
 #define ARM_SMMU_FEAT_TRANS_S1		(1 << 9)
 #define ARM_SMMU_FEAT_TRANS_S2		(1 << 10)
-#define ARM_SMMU_FEAT_STALLS		(1 << 11)
-#define ARM_SMMU_FEAT_HYP		(1 << 12)
-#define ARM_SMMU_FEAT_STALL_FORCE	(1 << 13)
-#define ARM_SMMU_FEAT_VAX		(1 << 14)
+#define ARM_SMMU_FEAT_NESTING	    (1 << 11)
+#define ARM_SMMU_FEAT_STALLS		(1 << 12)
+#define ARM_SMMU_FEAT_HYP		(1 << 13)
+#define ARM_SMMU_FEAT_STALL_FORCE	(1 << 14)
+#define ARM_SMMU_FEAT_VAX		(1 << 15)
+#define ARM_SMMU_FEAT_ASID_16		(1 << 16)
+#define ARM_SMMU_FEAT_TTF_AARCH64		(1 << 17)
+#define ARM_SMMU_FEAT_TTF_AARCH32_64	(1 << 18)
+#define ARM_SMMU_FEAT_GRAN64K	(1 << 19)
+#define ARM_SMMU_FEAT_GRAN16K	(1 << 20)
+#define ARM_SMMU_FEAT_GRAN4K	(1 << 21)
+#define ARM_SMMU_FEAT_OAS_32_BIT	(1 << 22)
+#define ARM_SMMU_FEAT_OAS_36_BIT	(1 << 23)
+#define ARM_SMMU_FEAT_OAS_40_BIT	(1 << 24)
+#define ARM_SMMU_FEAT_OAS_42_BIT	(1 << 25)
+#define ARM_SMMU_FEAT_OAS_44_BIT	(1 << 26)
+#define ARM_SMMU_FEAT_OAS_48_BIT	(1 << 27)
+#define ARM_SMMU_FEAT_OAS_52_BIT	(1 << 28)
 	u32				features;
 
 #define ARM_SMMU_OPT_SKIP_PREFETCH	(1 << 0)
