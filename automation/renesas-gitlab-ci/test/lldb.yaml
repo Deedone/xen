@@ -21,6 +21,8 @@
 
 qemu-lldb-tests:
   extends: .qemu-arm64
+  variables:
+    USE_TFA: "true"
   parallel:
     matrix:
       - TEST_SCRIPT:
@@ -39,3 +41,4 @@ qemu-lldb-tests:
     - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
   needs:
     - xen-atfe-arm64
+    - tf-a-qemu

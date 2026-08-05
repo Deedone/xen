@@ -13,6 +13,8 @@ export LLDB_SCRIPT="$1"
 export XEN_ROOT="${PWD}"
 export WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
 export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
+export TFA_BIN="${TFA_BIN:-${WORKDIR}/qemu_fw.bios}"
+export USE_TFA="${USE_TFA:-false}"
 
 export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 export LLDB_LOG="${LLDB_LOG:-${XEN_ROOT}/lldb.serial}"
@@ -56,10 +58,19 @@ rm -f ${QEMU_LOG}
 rm -f ${LLDB_LOG}
 rm -f ${XEN_LOG}
 
+QEMU_BOOT_ARGS=(-kernel "${WORKDIR}/xen")
+
+if [ "${USE_TFA}" = "true" ]; then
+    QEMU_BOOT_ARGS=(
+        -device "loader,file=${WORKDIR}/xen,addr=0x40080000,force-raw=on"
+        -bios "${TFA_BIN}"
+    )
+fi
+
 # Generate base device tree from QEMU
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a710 \
-    -machine virt,virtualization=true,gic-version=4,iommu=smmuv3 \
+    -machine virt,secure=${USE_TFA},virtualization=true,gic-version=4,iommu=smmuv3 \
     -m 2048 \
     -smp 2 \
     -machine dumpdtb=${WORKDIR}/virt-gicv4.dtb
@@ -68,11 +79,11 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
 fdtput -c ${WORKDIR}/virt-gicv4.dtb /chosen 2>/dev/null || true
 fdtput -t s ${WORKDIR}/virt-gicv4.dtb /chosen xen,xen-bootargs "${XEN_CMDLINE}"
 
-# Run QEMU in background, LLDB conflicts with "-serial stdio", so write Xen logs into file
+# Run QEMU in background, LLDB conflicts with "-serial stdio", so write Xen logs into file.
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -s -S \
     -cpu cortex-a710 \
-    -machine virt,virtualization=true,gic-version=4,iommu=smmuv3 \
+    -machine virt,secure=${USE_TFA},virtualization=true,gic-version=4,iommu=smmuv3 \
     -m 2048 \
     -smp 2 \
     -no-reboot \
@@ -81,7 +92,8 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -monitor none \
     -serial file:${XEN_LOG} \
     ${PLUGIN_ARGS} \
-    -kernel ${WORKDIR}/xen -dtb ${WORKDIR}/virt-gicv4.dtb > ${QEMU_LOG} 2>&1 &
+    "${QEMU_BOOT_ARGS[@]}" \
+    -dtb ${WORKDIR}/virt-gicv4.dtb > ${QEMU_LOG} 2>&1 &
 
 QEMU_PID=$!
 sleep 1

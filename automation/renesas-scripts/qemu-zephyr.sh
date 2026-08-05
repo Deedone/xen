@@ -12,6 +12,17 @@ export XEN_ROOT="${PWD}"
 export WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
 export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
 export ZTESTS_ROOT=${XEN_ROOT}/zephyr_tests
+export TFA_BIN="${TFA_BIN:-${WORKDIR}/qemu_fw.bios}"
+
+# TF-A/QEMU Zephyr test memory layout:
+#   0x40000000              device tree
+#   0x40080000              Xen (preloaded BL33)
+#   0x41000000              Zephyr Dom0 boot module
+#   0x42000000 and above    DomU boot modules, 16 MiB apart
+#   0x48000000              Dom0 allocation guard
+#   0x58000000-0x60000000   Dom0 RAM expected by the Zephyr build
+DOM0_LAYOUT_RESERVE_ADDR=0x48000000
+DOM0_LAYOUT_RESERVE_SIZE=0x1000
 
 export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 
@@ -60,6 +71,9 @@ export TEST_DIR="${ZTESTS_ROOT}/testcases/${APP_NAME}"
 # Number of pCPUs exposed to QEMU. A test needing more can raise it in test.env.
 export SMP="${SMP:-2}"
 
+# Boot directly unless a test opts into TF-A in test.env.
+export USE_TFA="${USE_TFA:-false}"
+
 # Set artifacts path (replacing prebuilt images)
 export PREBUILT_IMAGES=${WORKDIR}
 
@@ -67,7 +81,7 @@ rm -f ${QEMU_LOG}
 
 git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git -b "${ZEPHYR_BRANCH:-safety-staging}"
 
-# Per-test overrides (SMP, ...)
+# Per-test overrides (SMP, TF-A, ...)
 if [ -f "${TEST_DIR}/test.env" ]; then
     source "${TEST_DIR}/test.env"
 fi
@@ -117,6 +131,26 @@ else
     dtc -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen.dtb
 fi
 
+QEMU_BOOT_ARGS=(-kernel "${XEN_BIN}")
+
+if [ "${USE_TFA}" = "true" ]; then
+    QEMU_BOOT_ARGS=(
+        -device "loader,file=${XEN_BIN},addr=0x40080000,force-raw=on"
+        -bios "${TFA_BIN}"
+    )
+
+    # Direct kernel boot placed the DTB at 0x48000000, causing Xen to skip that
+    # 128 MiB-aligned bank and allocate Dom0 at 0x58000000. TF-A keeps the DTB at
+    # 0x40000000, so reserve one page at the old address to preserve the placement
+    # expected by the Zephyr xen_dom0_overlay snippet.
+    DOM0_LAYOUT_RESERVE_NODE="/reserved-memory/zephyr-dom0-layout"
+    DOM0_LAYOUT_RESERVE_NODE+="@${DOM0_LAYOUT_RESERVE_ADDR#0x}"
+    fdtput -p -t x ${WORKDIR}/xen.dtb /reserved-memory '#address-cells' 2
+    fdtput -p -t x ${WORKDIR}/xen.dtb /reserved-memory '#size-cells' 2
+    fdtput -p -t x ${WORKDIR}/xen.dtb ${DOM0_LAYOUT_RESERVE_NODE} reg \
+        0 ${DOM0_LAYOUT_RESERVE_ADDR} 0 ${DOM0_LAYOUT_RESERVE_SIZE}
+fi
+
 REG_ADDR=0x41000000
 REG_SIZE=$(printf "0x%x" "$(stat -c '%s' "${WORKDIR}/${APP_NAME}.bin")")
 
@@ -163,7 +197,7 @@ fi
 # Run QEMU
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -cpu cortex-a710 \
-    -machine virt,virtualization=true,gic-version=4,iommu=smmuv3 \
+    -machine virt,secure=${USE_TFA},virtualization=true,gic-version=4,iommu=smmuv3 \
     -m 2048 \
     -smp ${SMP} \
     -no-reboot \
@@ -175,10 +209,11 @@ ${QEMU_PREFIX}qemu-system-aarch64 \
     -netdev user,id=net2,hostfwd=tcp::2224-:23 -device e1000e,netdev=net2,romfile= \
     -device edu \
     -device loader,file=${WORKDIR}/${APP_NAME}.bin,addr=${REG_ADDR} \
+    "${QEMU_BOOT_ARGS[@]}" \
     ${QEMU_PLUGIN_ARGS} \
     "${DOM0LESS_LOADERS[@]}" \
     "${QEMU_EXTRA_ARGS[@]}" \
-    -kernel ${XEN_BIN} -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
+    -dtb ${WORKDIR}/xen.dtb > ${QEMU_LOG} 2>&1
 
 #Print the captured logs to the job output
 cat ${QEMU_LOG} || true

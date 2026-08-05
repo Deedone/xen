@@ -6,6 +6,7 @@
 
 .arm64-zephyr-test-needs: &arm64-zephyr-test-needs
   - xen-atfe-arm64
+  - tf-a-qemu
 
 .qemu-arm64:
   extends: .test-jobs-common
@@ -145,3 +146,4 @@ qemu-zephyr-mcdc:
   needs:
     - xen-mcdc-arm64
     - mcdc-qemu-plugin
+    - tf-a-qemu
