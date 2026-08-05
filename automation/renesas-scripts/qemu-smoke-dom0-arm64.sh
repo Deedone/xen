@@ -91,7 +91,7 @@ find . | cpio -R 0:0 -H newc -o | gzip >> ../dom0-rootfs.cpio.gz
 cd ../..
 
 ${QEMU_PREFIX}qemu-system-aarch64 \
-   -cpu cortex-a53 \
+   -cpu cortex-a710 \
    -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
    -m 2048 \
    -smp 2 \
@@ -123,7 +123,7 @@ bash imagebuilder/scripts/uboot-script-gen -t tftp -d binaries/ -c binaries/conf
 # Run the test
 rm -f smoke.serial
 export TEST_CMD="${QEMU_PREFIX}qemu-system-aarch64 \
-    -cpu cortex-a53 \
+    -cpu cortex-a710 \
     -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
     -accel tcg,thread=multi \
     -m 2048 \

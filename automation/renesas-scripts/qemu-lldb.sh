@@ -58,7 +58,7 @@ rm -f ${XEN_LOG}
 
 # Generate base device tree from QEMU
 ${QEMU_PREFIX}qemu-system-aarch64 \
-    -cpu cortex-a57 \
+    -cpu cortex-a710 \
     -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
     -m 2048 \
     -smp 2 \
@@ -71,7 +71,7 @@ fdtput -t s ${WORKDIR}/virt-gicv3.dtb /chosen xen,xen-bootargs "${XEN_CMDLINE}"
 # Run QEMU in background, LLDB conflicts with "-serial stdio", so write Xen logs into file
 ${QEMU_PREFIX}qemu-system-aarch64 \
     -s -S \
-    -cpu cortex-a57 \
+    -cpu cortex-a710 \
     -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
     -m 2048 \
     -smp 2 \

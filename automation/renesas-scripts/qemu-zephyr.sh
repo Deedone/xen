@@ -162,7 +162,7 @@ fi
 
 # Run QEMU
 ${QEMU_PREFIX}qemu-system-aarch64 \
-    -cpu cortex-a57 \
+    -cpu cortex-a710 \
     -machine virt,virtualization=true,gic-version=3,iommu=smmuv3 \
     -m 2048 \
     -smp ${SMP} \
