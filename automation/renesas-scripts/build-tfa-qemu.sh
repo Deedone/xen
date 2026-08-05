@@ -15,6 +15,7 @@ make -C "${TFA_ROOT}" -j"${JOBS:-$(nproc)}" \
     PLAT=qemu \
     CC=gcc \
     QEMU_USE_GIC_DRIVER=QEMU_GICV3 \
+    GIC_ENABLE_V4_EXTN=1 \
     PRELOADED_BL33_BASE=0x40080000 \
     ARM_LINUX_KERNEL_AS_BL33=1 \
     qemu_fw.bios
