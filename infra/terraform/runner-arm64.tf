@@ -22,12 +22,12 @@ module "gitlab_runner_arm64" {
   # GitLab connection
   runner_gitlab = {
     url                                           = var.gitlab_url
-    runner_version                                = "17.4.0"
+    runner_version                                = "18.11.3"
     preregistered_runner_token_ssm_parameter_name = "/xen-ci/runner-token-arm64"
   }
 
   runner_manager = {
-    maximum_concurrent_jobs = 150
+    maximum_concurrent_jobs = 375
   }
 
   runner_worker = {
@@ -44,7 +44,7 @@ module "gitlab_runner_arm64" {
 
   # Fleeting plugin (docker-autoscaler)
   runner_worker_docker_autoscaler = {
-    fleeting_plugin_version = "1.1.0"
+    fleeting_plugin_version = "1.3.0"
     connector_config_user   = "ubuntu"
     max_use_count           = 1000
     capacity_per_instance   = 75
@@ -108,6 +108,7 @@ module "gitlab_runner_arm64" {
     spot_instance_pools                      = 0
     subnet_ids                               = aws_subnet.private[*].id
     upgrade_strategy                         = "off"
+    max_size                                 = var.worker_max_count_arm64
   }
 
   # Terminate old manager quickly on replacement

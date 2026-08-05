@@ -12,7 +12,7 @@ private_subnet_cidrs = ["172.31.97.0/24", "172.31.98.0/24", "172.31.99.0/24"]
 #   /xen-ci/runner-token-arm64 (SecureString)
 
 # arm64 fleet
-worker_max_count_arm64      = 10
+worker_max_count_arm64      = 5
 worker_arm64_instance_types = ["m7g.8xlarge", "m6g.8xlarge", "c7g.8xlarge", "c6g.8xlarge", "r7g.8xlarge"]
 
 # x86_64 fleet
