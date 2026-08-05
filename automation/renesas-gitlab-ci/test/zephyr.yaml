@@ -108,6 +108,14 @@
     - "hyp-vpci-domu"
     # [XenVerTestJob~~1->XenVerTestCode~sysctl_cpu_hotplug~1]
     - "hyp-sysctl-cpu-hotplug"
+    # [XenValTestJob~~1->XenValTestCode~arm64_virt_psci_system_suspend_explicit_resume~1]
+    - "vpsci/system-suspend/explicit-resume"
+    # [XenValTestJob~~1->XenValTestCode~arm64_virt_psci_system_suspend_inval_epoint~1]
+    - "vpsci/system-suspend/invalid-entry"
+    # [XenValTestJob~~1->XenValTestCode~arm64_virt_psci_system_suspend_32_bit_call_conv~1]
+    - "vpsci/system-suspend/32-bit-arguments"
+    # [XenValTestJob~~1->XenValTestCode~arm64_virt_psci_system_suspend_rej_secondaty_cpu_online~1]
+    - "vpsci/system-suspend/secondary-online"
 
 # Test jobs
 

@@ -7,7 +7,7 @@ if [ $# -lt 1 ]; then
     exit 0
 fi
 
-export APP_NAME="$1"
+export APP_NAME="${1//\//-}"
 export XEN_ROOT="${PWD}"
 export WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
 export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
@@ -66,7 +66,7 @@ fi
 export QEMU_TRACE="${QEMU_TRACE:-${XEN_ROOT}/qemu.trace}"
 rm -f ${QEMU_TRACE}
 
-export TEST_DIR="${ZTESTS_ROOT}/testcases/${APP_NAME}"
+export TEST_DIR="${ZTESTS_ROOT}/testcases/${1}"
 
 # Number of pCPUs exposed to QEMU. A test needing more can raise it in test.env.
 export SMP="${SMP:-2}"
@@ -81,7 +81,11 @@ rm -f ${QEMU_LOG}
 
 git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git -b "${ZEPHYR_BRANCH:-safety-staging}"
 
-# Per-test overrides (SMP, TF-A, ...)
+# Per-test overrides (SMP, TF-A, Dom0/DomU build source and arguments, ...)
+DOM0_BUILD_SOURCE="${TEST_DIR}"
+DOM0_BUILD_ARGS=()
+DOMU_BUILD_SOURCE=""
+DOMU_BUILD_ARGS=()
 if [ -f "${TEST_DIR}/test.env" ]; then
     source "${TEST_DIR}/test.env"
 fi
@@ -101,7 +105,7 @@ do_zephyr_fetch zephyr zephyr-v4.4.0-xt
 do_zephyr_fetch zephyr-xenlib safety-staging
 
 # Auto-detect and build DomU dependencies
-DOMAIN_BINS_S="${ZTESTS_ROOT}/testcases/${APP_NAME}/src/domain_bins.S"
+DOMAIN_BINS_S="${DOM0_BUILD_SOURCE}/src/domain_bins.S"
 if [ -f "${DOMAIN_BINS_S}" ]; then
     EXTRA_DOMUS=$(grep '\.incbin.*"domu-[^"]*\.bin"' "${DOMAIN_BINS_S}" | \
         sed -n 's/.*\.incbin[[:space:]]*"\(domu-[^"]*\)\.bin".*/\1/p' | \
@@ -118,7 +122,8 @@ fi
 
 # Dom0 builds: use qemu_cortex_a53 with xen_dom0 snippet for privileged domain features
 # and use application level DTS overlay xen_dom0_overlay snippet, which adds "hypervisor" node
-west build -p always -b qemu_cortex_a53 -S xen_dom0 -S xen_dom0_overlay ${ZTESTS_ROOT}/testcases/${APP_NAME}
+west build -p always -b qemu_cortex_a53 -S xen_dom0 -S xen_dom0_overlay \
+    "${DOM0_BUILD_SOURCE}" "${DOM0_BUILD_ARGS[@]}"
 cp build/zephyr/zephyr.bin ${WORKDIR}/${APP_NAME}.bin
 
 # Recompile xen.dtb from xen.dts to ensure it's up-to-date. A test may ship an
@@ -167,8 +172,10 @@ BUILT_DOMUS=""
 IDX=1
 
 for domu in ${DOM0LESS_DOMUS}; do
+    DOMU_SOURCE="${DOMU_BUILD_SOURCE:-${ZTESTS_ROOT}/testcases/${domu}}"
     if [[ " ${BUILT_DOMUS} " != *" ${domu} "* ]]; then
-        west build -p always -b xenvm/xenvm/gicv3 "${ZTESTS_ROOT}/testcases/${domu}"
+        west build -p always -b xenvm/xenvm/gicv3 \
+            "${DOMU_SOURCE}" "${DOMU_BUILD_ARGS[@]}"
         cp build/zephyr/zephyr.bin "${WORKDIR}/${domu}.bin"
         BUILT_DOMUS="${BUILT_DOMUS} ${domu}"
     fi
