@@ -196,8 +196,53 @@ if [ -f "${TEST_DIR}/qemu-extra-args" ]; then
     done < "${TEST_DIR}/qemu-extra-args"
 fi
 
+if [ -n "${LLDB_SCRIPT:-}" ]; then
+    # LLDB needs QEMU's GDB stub listening before any vCPU starts.
+    QEMU_EXTRA_ARGS+=(-s -S)
+fi
+
+run_qemu()
+{
+    if [ -z "${LLDB_SCRIPT:-}" ]; then
+        "$@"
+        return
+    fi
+
+    if [ -z "${LLDB_PASSED:-}" ]; then
+        echo "LLDB_PASSED must be set when LLDB_SCRIPT is used"
+        return 1
+    fi
+
+    (
+        local lldb_log="${LLDB_LOG:-${XEN_ROOT}/lldb.serial}"
+        local lldb_rc=0 qemu_pid qemu_rc=0
+
+        "$@" </dev/null &
+        qemu_pid=$!
+        trap 'kill "${qemu_pid}" 2>/dev/null || true;
+              wait "${qemu_pid}" 2>/dev/null || true' EXIT
+        sleep 1
+
+        PYTHONPATH="${XEN_ROOT}/automation/renesas-scripts/lldb/:${PYTHONPATH:-}" \
+            XEN_ELF="${WORKDIR}/xen-syms" XEN_PORT="1234" \
+            lldb --batch -o "command script import ${LLDB_SCRIPT}" \
+            > "${lldb_log}" 2>&1 || lldb_rc=$?
+        cat "${lldb_log}" || true
+
+        if [ "${lldb_rc}" -ne 0 ] || \
+           ! grep -qF -- "${LLDB_PASSED}" "${lldb_log}"; then
+            [ "${lldb_rc}" -ne 0 ] || lldb_rc=1
+            exit "${lldb_rc}"
+        fi
+
+        wait "${qemu_pid}" || qemu_rc=$?
+        trap - EXIT
+        exit "${qemu_rc}"
+    )
+}
+
 # Run QEMU
-${QEMU_PREFIX}qemu-system-aarch64 \
+run_qemu "${QEMU_PREFIX}qemu-system-aarch64" \
     -cpu cortex-a710 \
     -machine virt,secure=${USE_TFA},virtualization=true,gic-version=4,iommu=smmuv3 \
     -m 2048 \
