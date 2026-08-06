@@ -74,12 +74,22 @@ static struct {
 } lpi_data;
 
 struct lpi_redist_data {
-    paddr_t             redist_addr;
-    unsigned int        redist_id;
     void                *pending_table;
 };
 
 static DEFINE_PER_CPU(struct lpi_redist_data, lpi_redist);
+
+struct lpi_redist_address {
+    paddr_t             address;
+    unsigned int        id;
+};
+
+/*
+ * Keep redistributor addresses available after a CPU's per-CPU area has been
+ * released.  A vPE can still refer to its old redistributor while the vCPU is
+ * being migrated away from an offline CPU.
+ */
+static struct lpi_redist_address lpi_redist_addresses[NR_CPUS];
 
 #define MAX_NR_HOST_LPIS   (lpi_data.max_host_lpi_ids - LPI_OFFSET)
 #define HOST_LPIS_PER_PAGE      (PAGE_SIZE / sizeof(union host_lpi))
@@ -118,12 +128,15 @@ static union host_lpi *gic_get_host_lpi(uint32_t plpi)
  * the CPU number) or by its MMIO address. This is a hardware implementation
  * choice, so we have to cope with both approaches. The GICv3 code calculates
  * both values and calls this function to let the ITS store them when it's
- * later required to provide them. This is done in a per-CPU variable.
+ * later required to provide them.  These values describe the hardware and
+ * remain valid while the CPU is offline, so keep them outside per-CPU memory.
  */
 void gicv3_set_redist_address(paddr_t address, unsigned int redist_id)
 {
-    this_cpu(lpi_redist).redist_addr = address;
-    this_cpu(lpi_redist).redist_id = redist_id;
+    unsigned int cpu = smp_processor_id();
+
+    lpi_redist_addresses[cpu].address = address;
+    lpi_redist_addresses[cpu].id = redist_id;
 }
 
 /*
@@ -133,10 +146,12 @@ void gicv3_set_redist_address(paddr_t address, unsigned int redist_id)
  */
 uint64_t gicv3_get_redist_address(unsigned int cpu, bool use_pta)
 {
+    ASSERT(cpu < nr_cpu_ids);
+
     if ( use_pta )
-        return per_cpu(lpi_redist, cpu).redist_addr & GENMASK(51, 16);
+        return lpi_redist_addresses[cpu].address & GENMASK(51, 16);
     else
-        return per_cpu(lpi_redist, cpu).redist_id << 16;
+        return (uint64_t)lpi_redist_addresses[cpu].id << 16;
 }
 
 void vgic_vcpu_inject_lpi(struct domain *d, unsigned int virq)

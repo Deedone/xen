@@ -2381,7 +2381,7 @@ static int gicv4_vpe_db_proxy_move(struct its_vpe *vpe, unsigned int from,
     {
         void __iomem *rdbase;
 
-        rdbase = per_cpu(rbase, from);
+        rdbase = gicv3_get_redist_base(from);
 
         ret = wait_for_syncr(rdbase, "CLRLPIR pre-check");
         if ( ret )

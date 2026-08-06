@@ -272,6 +272,9 @@ struct rdist_region {
 
 /* per-cpu re-distributor base */
 DECLARE_PER_CPU(void __iomem*, rbase);
+#ifdef CONFIG_GICV4
+void __iomem *gicv3_get_redist_base(unsigned int cpu);
+#endif
 
 #define GICD_RDIST_BASE             (this_cpu(rbase))
 #define GICD_RDIST_BASE_CPU(cpu)    (per_cpu(rbase, cpu))

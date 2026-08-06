@@ -121,6 +121,20 @@ static void gicv4_update_lpi_properties(void __iomem *ptr)
            typer & GICR_TYPER_DIRTY ? "" : "no ",
            typer & GICR_TYPER_RVPEID ? "" : "no ");
 }
+
+/*
+ * Unlike the per-CPU area, redistributor mappings remain valid while a CPU is
+ * offline.  GICv4 can need the old redistributor after vCPU migration has
+ * completed, so retain a copy for the lifetime of Xen.
+ */
+static void __iomem *redist_bases[NR_CPUS];
+
+void __iomem *gicv3_get_redist_base(unsigned int cpu)
+{
+    ASSERT(cpu < nr_cpu_ids);
+
+    return redist_bases[cpu];
+}
 #endif
 
 /* per-cpu re-distributor base */
@@ -1005,6 +1019,7 @@ static int gicv3_populate_rdist(void)
                 this_cpu(rbase) = ptr;
 
 #ifdef CONFIG_GICV4
+                redist_bases[smp_processor_id()] = ptr;
                 gicv4_update_lpi_properties(ptr);
 #endif
 
