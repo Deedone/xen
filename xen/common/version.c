@@ -210,11 +210,11 @@ void __init xen_build_init(void)
             {
                 xen_build_id = info->signature;
                 xen_build_id_len = sizeof(info->signature);
-                rc = 0;
             }
         }
     }
 #endif /* CONFIG_X86 */
+    (void) rc;
 }
 #endif /* BUILD_ID */
 

@@ -1752,12 +1752,11 @@ int policydb_read(struct policydb *p, void *fp)
     struct ocontext *l, *c, **pn;
     int i, j, rc;
     __le32 buf[8];
-    u32 len, /*len2,*/ config, nprim, nel /*, nel2*/;
+    u32 len, /*len2,*/ nprim, nel /*, nel2*/;
     char *policydb_str;
     struct policydb_compat_info *info;
     struct range_trans *rt, *lrt;
 
-    config = 0;
     rc = policydb_init(p);
     if ( rc )
         goto out;
@@ -1837,7 +1836,6 @@ int policydb_read(struct policydb *p, void *fp)
             goto bad;
         }
         flask_mls_enabled = 1;
-        config |= POLICYDB_CONFIG_MLS;
 
         if ( p->policyvers < POLICYDB_VERSION_MLS )
         {

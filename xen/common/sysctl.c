@@ -478,7 +478,6 @@ long do_sysctl(XEN_GUEST_HANDLE_PARAM(xen_sysctl_t) u_sysctl)
     case XEN_SYSCTL_cpu_hotplug:
     {
         unsigned int hp_op = op->u.cpu_hotplug.op;
-        bool plug;
         long (*fn)(void *data);
         void *hcpu = _p(op->u.cpu_hotplug.cpu);
 
@@ -489,12 +488,10 @@ long do_sysctl(XEN_GUEST_HANDLE_PARAM(xen_sysctl_t) u_sysctl)
         switch ( hp_op )
         {
         case XEN_SYSCTL_CPU_HOTPLUG_ONLINE:
-            plug = true;
             fn = cpu_up_helper;
             break;
 
         case XEN_SYSCTL_CPU_HOTPLUG_OFFLINE:
-            plug = false;
             fn = cpu_down_helper;
             break;
 
