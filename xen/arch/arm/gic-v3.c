@@ -1610,7 +1610,7 @@ static void __init gicv3_dt_init(void)
                               &vbase, &vsize);
 }
 
-
+#ifdef CONFIG_ACPI
 static int gicv3_iomem_deny_access(struct domain *d)
 {
     int rc, i;
@@ -1654,7 +1654,6 @@ static int gicv3_iomem_deny_access(struct domain *d)
     return 0;
 }
 
-#ifdef CONFIG_ACPI
 static void __init
 gic_acpi_add_rdist_region(paddr_t base, paddr_t size, bool single_rdist)
 {
@@ -2511,9 +2510,8 @@ static const struct gic_hw_operations gicv3_ops = {
 #ifdef CONFIG_ACPI
     .make_hwdom_madt     = gicv3_make_hwdom_madt,
     .get_hwdom_extra_madt_size = gicv3_get_hwdom_extra_madt_size,
+    .iomem_deny_access   = gicv3_iomem_deny_access,
 #endif
-    .iomem_deny_access   = IS_ENABLED(CONFIG_ACPI) ?
-                           gicv3_iomem_deny_access : NULL,
     .do_LPI              = gicv3_do_LPI,
 #ifdef CONFIG_SYSTEM_SUSPEND
     .suspend             = gicv3_suspend,
