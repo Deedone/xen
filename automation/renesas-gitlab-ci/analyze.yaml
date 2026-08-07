@@ -167,3 +167,27 @@ gen_coverage_report:
   rules:
     - if: '$RUN_COVERAGE == "true"'
       when: always
+
+gen_mcdc_report:
+  stage: analyze
+  tags:
+    - aws-arm64
+  variables:
+    MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
+    MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
+  needs:
+    - xen-mcdc-arm64
+    - qemu-zephyr-mcdc
+  image: xentroops/xen_rel
+  script:
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
+    - QEMU_TRACES=$(find ./ -name "*brtrace.dat" -print )
+    - ./automation/renesas-scripts/mcdc-report.sh $QEMU_TRACES
+  artifacts:
+    paths:
+      - coverage_data/combined_report/
+    when: always
+  rules:
+    - if: '$RUN_COVERAGE == "true"'
+      when: never
+    - when: always

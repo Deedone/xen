@@ -36,7 +36,7 @@ export XEN_BIN="${XEN_BIN:-${WORKDIR}/xen}"
 QEMU_PLUGIN_ARGS=""
 if [ -n "${MCDC_CONF:-}" ]; then
     export MCDC_PLUGIN="${MCDC_PLUGIN:-/usr/local/lib/qemu-plugins/libbrtrace.so}"
-    export MCDC_TRACE="${MCDC_TRACE:-${XEN_ROOT}/brtrace.dat}"
+    export MCDC_TRACE="${MCDC_TRACE:-${XEN_ROOT}/${APP_NAME}-brtrace.dat}"
     QEMU_PLUGIN_ARGS="-plugin ${MCDC_PLUGIN},config=${MCDC_CONF},tracefile=${MCDC_TRACE}"
     rm -f "${MCDC_TRACE}"
 elif [ "$RUN_COVERAGE" == "true" ]; then
@@ -227,7 +227,7 @@ do_coverage_report() {
     # MC/DC report generation from the trace collected during this run.
     if [ -n "${MCDC_CONF:-}" ]; then
         ( cd "${XEN_ROOT}" &&
-        ./automation/renesas-scripts/mcdc-report.sh "${APP_NAME}" ) || true
+        ./automation/renesas-scripts/mcdc-report.sh -n "${APP_NAME}" ) || true
     elif [ "$RUN_COVERAGE" == "true" ]; then
         ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} \
         LCOV_OUT=${COVERAGE_OUT}/${APP_NAME}.cov.info \
