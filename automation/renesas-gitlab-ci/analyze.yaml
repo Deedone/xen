@@ -162,7 +162,7 @@ gen_coverage_report:
       - coverage_data
       - coverage-report.tar.gz
   dependencies:
-    - qemu-lldb-tests
+    - qemu-lldb-lcov
     - qemu-zephyr-mcdc
   rules:
     - when: always

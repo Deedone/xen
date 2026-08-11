@@ -19,26 +19,45 @@
 
 # Test jobs
 
+.lldb-test-matrix: &lldb-test-matrix
+  - TEST_SCRIPT:
+    - "sched_core_scheduler_init.py"
+    - "sched_core_scheduler_init_cpu_sched_up_fail.py"
+    - "sched_core_scheduler_init_domain_create_fail.py"
+    - "sched_core_scheduler_init_get_by_name_default_fail.py"
+    - "sched_core_scheduler_init_global_init_fail.py"
+    - "sched_core_scheduler_init_nr_cpu_ids_fail.py"
+    - "sched_core_scheduler_init_sched_init_fail.py"
+    - "sched_core_scheduler_init_sched_ratelimit_max.py"
+    - "sched_core_scheduler_init_sched_ratelimit_min.py"
+    - "sched_core_scheduler_init_test_func_fail.py"
+    - "sched_core_scheduler_init_vcpu_create_fail.py"
+
 qemu-lldb-tests:
   extends: .qemu-arm64
   variables:
     USE_TFA: "true"
   parallel:
-    matrix:
-      - TEST_SCRIPT:
-        - "sched_core_scheduler_init.py"
-        - "sched_core_scheduler_init_cpu_sched_up_fail.py"
-        - "sched_core_scheduler_init_domain_create_fail.py"
-        - "sched_core_scheduler_init_get_by_name_default_fail.py"
-        - "sched_core_scheduler_init_global_init_fail.py"
-        - "sched_core_scheduler_init_nr_cpu_ids_fail.py"
-        - "sched_core_scheduler_init_sched_init_fail.py"
-        - "sched_core_scheduler_init_sched_ratelimit_max.py"
-        - "sched_core_scheduler_init_sched_ratelimit_min.py"
-        - "sched_core_scheduler_init_test_func_fail.py"
-        - "sched_core_scheduler_init_vcpu_create_fail.py"
+    matrix: *lldb-test-matrix
   script:
     - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
   needs:
     - xen-atfe-arm64
+    - tf-a-qemu
+
+qemu-lldb-lcov:
+  extends: .qemu-arm64
+  variables:
+    RUN_COVERAGE: "true"
+    USE_TFA: "true"
+  parallel:
+    matrix: *lldb-test-matrix
+  rules:
+    - if: '$RUN_UBSAN == "true"'
+      when: never
+    - when: on_success
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
+  needs:
+    - xen-mcdc-arm64
     - tf-a-qemu
