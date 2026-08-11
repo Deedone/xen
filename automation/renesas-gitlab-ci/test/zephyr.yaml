@@ -17,6 +17,7 @@
       - '*.serial'
       - '*.log'
       - 'coverage_data'
+      - 'coverage_mcdc'
       - 'binaries/*.bin'
       - 'binaries/*.dtb'
     when: always

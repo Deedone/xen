@@ -34,7 +34,7 @@ else
     TRACE_FILES=("$@")
 fi
 
-OUT_DIR="${XEN_ROOT}/coverage_data/${REPORT_NAME}"
+OUT_DIR="${XEN_ROOT}/coverage_mcdc/${REPORT_NAME}"
 mkdir -p "${OUT_DIR}"
 
 for trace_file in "${TRACE_FILES[@]}"; do
