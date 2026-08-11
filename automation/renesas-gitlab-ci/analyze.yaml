@@ -165,8 +165,7 @@ gen_coverage_report:
     - qemu-lldb-tests
     - qemu-zephyr-tests
   rules:
-    - if: '$RUN_COVERAGE == "true"'
-      when: always
+    - when: always
 
 gen_mcdc_report:
   stage: analyze
@@ -188,6 +187,4 @@ gen_mcdc_report:
       - coverage_data/combined_report/
     when: always
   rules:
-    - if: '$RUN_COVERAGE == "true"'
-      when: never
     - when: always

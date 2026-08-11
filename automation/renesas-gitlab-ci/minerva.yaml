@@ -28,7 +28,7 @@
 # .arm64-build debug:n + clang vars). Kept in sync with build.yaml manually.
 # The before_script preserves the CUSTOM_XEN_CONFIG input knob so the
 # minerva-specific options survive into .config (UBSAN/COVERAGE handling is
-# dropped: neither RUN_UBSAN nor RUN_COVERAGE is set in a RUN_MINERVA run).
+# dropped: RUN_UBSAN is not set in a RUN_MINERVA run).
 .minerva-build-tmpl:
   stage: build
   image: xentroops/xen_rel

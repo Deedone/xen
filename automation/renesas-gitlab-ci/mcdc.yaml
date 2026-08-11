@@ -23,8 +23,6 @@ mcdc-qemu-plugin:
   rules:
     - if: '$RUN_UBSAN == "true"'
       when: never
-    - if: '$RUN_COVERAGE == "true"'
-      when: never
     - when: on_success
   script:
     - mkdir -p binaries
@@ -44,8 +42,6 @@ xen-mcdc-arm64:
   needs: []
   rules:
     - if: '$RUN_UBSAN == "true"'
-      when: never
-    - if: '$RUN_COVERAGE == "true"'
       when: never
     - when: on_success
   variables:

@@ -24,8 +24,6 @@ oft-build:
   rules:
    - if: '$RUN_UBSAN == "true"'
      when: never
-   - if: '$RUN_COVERAGE == "true"'
-     when: never
    - when: on_success
 
 # Run OpenFastTrace over the requirements/spec/test repos and expose the
@@ -47,7 +45,5 @@ oft-trace:
   allow_failure: true
   rules:
    - if: '$RUN_UBSAN == "true"'
-     when: never
-   - if: '$RUN_COVERAGE == "true"'
      when: never
    - when: on_success
