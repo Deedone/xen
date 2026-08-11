@@ -13,13 +13,6 @@
 #
 # Prerequisites:
 #   - binaries/xen      : Xen binary from xen-atfe-arm64 CI artifact
-#   - binaries/dom0.bin : Zephyr Dom0 from zephyr-gen5-build-<test-name> artifact
-#                         Built on aws-arm64 with:
-#                           west build -b qemu_cortex_a53 \
-#                             -S xen_dom0 -S xen_dom0_overlay \
-#                             -S xen_dom0_overlay_gen5_ironhide \
-#                             zephyr_tests/testcases/<test-name>
-#   - imagebuilder      : cloned locally or present in CWD
 #   - mkimage, dtc      : u-boot-tools, device-tree-compiler
 #   - TFTP_BASE writable by CI runner user (e.g. /srv/tftp/ci)
 #   - ssh access from the runner to ${RPI_HOST} (default testrpi2), which hosts
@@ -46,6 +39,9 @@ else
     BOARD_ID="$1"
     TEST_NAME="$2"
 fi
+
+TEST_PATH="${TEST_NAME}"
+TEST_NAME="${TEST_NAME//\//-}"
 
 # Board CONTROL moved off etest onto the RPi (testrpi2): the CP2102N control
 # adapters now live there as /dev/ttyUSB0/1, driven by /home/testrpi2/bin/x5hctl
@@ -79,47 +75,68 @@ GEN5_BASE_DTS="${GEN5_BASE_DTS:-${XEN_ROOT}/automation/device-tree/r8a78000-iron
 
 export XEN_BINARY="${XEN_BINARY:-${WORKDIR}/xen}"
 # Drive the Gen5 UART by explicit node path /soc/serial@c0710000 (prefer the
-# explicit path over the serial0 alias for Xen's dtuart). No maxcpus cap - the
-# real DTS declares GICv3 with 32 redistributor frames.
-export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all dom0_mem=128M noreboot console_timestamps=boot console=dtuart dtuart=/soc/serial@c0710000 xsm=flask flask=permissive}"
+# explicit path over the serial0 alias for Xen's dtuart).
+export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all dom0_mem=128M noreboot console_timestamps=boot console=dtuart dtuart=/soc/serial@c0710000}"
 
-cd "$(dirname "$0")"
+export ZEPHYR_SDK_INSTALL_DIR=/home/gitlab-runner/zephyr-sdk-1.0.1
+export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
+export ZEPHYR_SOURCES_INSTALL_DIR=/home/gitlab-runner/zephyr #(zephyr RTOS, zephyr-xenlib)
 
-# ---------------------------------------------------------------------------
-# 1. Verify pre-built Zephyr Dom0 artifact is present
-#    The binary is produced by the zephyr-gen5-build-<test-name> CI job
-#    running on aws-arm64 (Zephyr SDK required; not available on epdefrans).
-# ---------------------------------------------------------------------------
-if [ ! -f "${WORKDIR}/dom0.bin" ]; then
-    echo "ERROR: ${WORKDIR}/dom0.bin not found - add zephyr-gen5-build-${TEST_NAME} to CI needs" >&2
-    exit 1
-fi
+# Zephyr app binaries for Gen5 hardware tests
+# Built on epdefrans (Zephyr SDK 1.0.1, /home/gitlab-runner/zephyr/manifest/west.yml)
+# App uses qemu_cortex_a53 board with xen_dom0 + xen_dom0_overlay snippets
+# and xen_dom0_overlay_gen5_ironhide for Gen5 grant table / extended region
+# addresses. Snippet defined in zephyr_tests/testcases/snippets/.
 
-# ---------------------------------------------------------------------------
+git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@gitpct.epam.com/rec-fusa/zephyr_tests.git -b "${ZEPHYR_BRANCH:-safety-staging}"
+
+cd ${ZEPHYR_SOURCES_INSTALL_DIR}
+
+# Fetch the latest sources
+do_zephyr_fetch()
+{
+    pushd $1
+    git fetch --depth 1 origin $2
+    git checkout $2
+    popd
+}
+do_zephyr_fetch zephyr zephyr-v4.4.0-xt
+do_zephyr_fetch zephyr-xenlib safety-staging
+
+west build -p always -b xenvm "${CI_PROJECT_DIR}/zephyr_tests/testcases/domu-basic"
+cp build/zephyr/zephyr.bin "${CI_PROJECT_DIR}/binaries/domu-basic.bin"
+cp build/domu-basic.dtb "${CI_PROJECT_DIR}/binaries/domu-basic.dtb"
+export PREBUILT_IMAGES="${CI_PROJECT_DIR}/binaries"
+west build -p always -b qemu_cortex_a53 -S xen_dom0 -S xen_dom0_overlay_gen5_ironhide "${CI_PROJECT_DIR}/zephyr_tests/testcases/${TEST_PATH}"
+cp build/zephyr/zephyr.bin "${CI_PROJECT_DIR}/binaries/${TEST_NAME}.bin"
+
+# Patch the arm64 boot-header image_size field (offset 0x10) to the real
+# .bin size so Xen's zImage loader copies the whole App. With CONFIG_XIP=n
+# there is no separate flash region, so Zephyr's _flash_used symbol (which
+# feeds image_size) ends up as an absolute link address instead of a size
+# (e.g. 0x40278000 for a 74000-byte image); without this Xen would copy ~1 GB.
+python3 -c "import struct,os; f=open('${CI_PROJECT_DIR}/binaries/${TEST_NAME}.bin','r+b'); sz=os.path.getsize('${CI_PROJECT_DIR}/binaries/${TEST_NAME}.bin'); f.seek(16); f.write(struct.pack('<Q',sz)); print(f'${TEST_NAME}.bin image_size patched to {sz} bytes')"
+
 # 2. Compile Gen5 base DTB
-# ---------------------------------------------------------------------------
 dtc -I dts -O dtb "${GEN5_BASE_DTS}" -o "${WORKDIR}/xen-base.dtb"
 
-# ---------------------------------------------------------------------------
 # 3. Generate boot script with fixed load addresses.
-#
 # Xen is loaded at 0x4b200000 so that after Xen self-relocates, the freed
 # pages become xenheap and the grant table is allocated at 0x4b200000 -
 # matching the hardcoded address in zephyr_tests xen_dom0_overlay_gen5_ironhide.
 # Letting imagebuilder pick addresses dynamically shifts the grant table and
 # breaks Zephyr's static DTS.
 #
-#   dom0.bin  -> 0x48400000  (Zephyr Dom0 kernel, ~72 KB)
+#   <test-name>.bin  -> 0x48400000  (Zephyr kernel)
 #   xen       -> 0x4b200000  (Xen hypervisor; grant table lands here)
 #   xen-base.dtb -> 0x4d000000  (above the extended region boundary 0x4b400000)
 #   boot.scr  -> 0x50000000  (loaded by UBOOT_CMD before sourcing)
-# ---------------------------------------------------------------------------
 _rel="${TFTP_BASE#${TFTP_ROOT}}"; _rel="${_rel#/}"
 TFTP_SUBDIR="${_rel:+${_rel}/}zephyr-${TEST_NAME}"
 
-DOM0_SIZE=$(stat -L --printf=%s "${WORKDIR}/dom0.bin")
+TEST_APP_SIZE=$(stat -L --printf=%s "${WORKDIR}/${TEST_NAME}.bin")
 
-# Optional XSM/Flask policy module. Loaded at 0x49000000 (between dom0 at
+# 4. Optional XSM/Flask policy module. Loaded at 0x49000000 (between app at
 # 0x48400000 and Xen at 0x4b200000). Guarded: a no-op unless a policy binary is
 # present - provide binaries/xenpolicy via a CI artifact, or set XEN_POLICY_FILE.
 # Without it, xsm=flask runs permissive with the built-in bootstrap policy.
@@ -137,7 +154,7 @@ fdt set /chosen/xsm-policy@49000000 reg <0x0 0x49000000 0x0 $(printf '0x%x' "${P
 fi
 
 cat > "${WORKDIR}/boot.source" <<BSEOF
-tftpb 0x48400000 ${TFTP_SUBDIR}/dom0.bin
+tftpb 0x48400000 ${TFTP_SUBDIR}/${TEST_NAME}.bin
 tftpb 0x4b200000 ${TFTP_SUBDIR}/xen
 tftpb 0x4d000000 ${TFTP_SUBDIR}/xen-base.dtb
 ${_policy_tftpb}
@@ -148,7 +165,7 @@ fdt set /chosen \\#size-cells <0x2>
 fdt set /chosen xen,xen-bootargs "${XEN_CMDLINE}"
 fdt mknod /chosen dom0@48400000
 fdt set /chosen/dom0@48400000 compatible  "xen,linux-zimage" "xen,multiboot-module" "multiboot,module"
-fdt set /chosen/dom0@48400000 reg <0x0 0x48400000 0x0 $(printf '0x%x' "${DOM0_SIZE}") >
+fdt set /chosen/dom0@48400000 reg <0x0 0x48400000 0x0 $(printf '0x%x' "${TEST_APP_SIZE}") >
 fdt set /chosen xen,dom0-bootargs "console=hvc0"
 ${_policy_fdt}
 setenv fdt_high 0xffffffffffffffff
@@ -158,28 +175,22 @@ BSEOF
 mkimage -A arm64 -T script -C none -n "gen5 zephyr boot" \
     -d "${WORKDIR}/boot.source" "${WORKDIR}/boot.scr"
 
-# ---------------------------------------------------------------------------
 # 5. Deploy to TFTP
-# ---------------------------------------------------------------------------
 TFTP_DIR="${TFTP_BASE}/zephyr-${TEST_NAME}"
 mkdir -p "${TFTP_DIR}"
 
 cp "${XEN_BINARY}"            "${TFTP_DIR}/xen"
 cp "${WORKDIR}/xen-base.dtb" "${TFTP_DIR}/xen-base.dtb"
-cp "${WORKDIR}/dom0.bin"      "${TFTP_DIR}/dom0.bin"
+cp "${WORKDIR}/${TEST_NAME}.bin"      "${TFTP_DIR}/${TEST_NAME}.bin"
 cp "${WORKDIR}/boot.scr"      "${TFTP_DIR}/boot.scr"
 [ -f "${WORKDIR}/xenpolicy" ] && cp "${WORKDIR}/xenpolicy" "${TFTP_DIR}/xenpolicy"
 
-# ---------------------------------------------------------------------------
 # 6. Power-cycle the board
 #    x5h_boot = POWER#OFF + MD#26149 (normal boot mode) + POWER#ON + I2C init
-# ---------------------------------------------------------------------------
 x5h ctrl_conf
 x5h boot
 
-# ---------------------------------------------------------------------------
 # 7. Watch console - U-Boot loads boot.scr directly from TFTP
-# ---------------------------------------------------------------------------
 export TEST_CMD="picocom -b 1843200 --imap lfcrlf ${CONSOLE_DEV}"
 # MAC is hardware-specific per board; the IP is derived per board
 # (board k -> 10.13.64.(210+k): board1=.211, board2=.212) so boards booting in
@@ -199,11 +210,10 @@ export UBOOT_CMD="tftpb 0x50000000 ${TFTP_SUBDIR}/boot.scr; source 0x50000000"
 # Drive the board console with expect (console.exp spawns picocom at 1843200,
 # interrupts U-Boot autoboot, sends UBOOT_NET_CMD then UBOOT_CMD, and matches
 # BOOT_MSG / PASSED).
+cd ${XEN_ROOT}/automation/renesas-scripts
 ./console.exp |& sed 's/\r\+$//'
 
-# ---------------------------------------------------------------------------
 # 8. Power off
-# ---------------------------------------------------------------------------
 x5h off
 
 echo "Zephyr test ${TEST_NAME} on board ${BOARD_ID}: PASSED"

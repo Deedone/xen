@@ -5,7 +5,7 @@
 # two-tier, guarded PDU escalation, then writes BOARD_ID to a dotenv artifact.
 #
 # Runs in the *build* stage (needs no build artifacts) so its probe/recover
-# latency overlaps the Xen/Linux/XTF builds and the cloud QEMU jobs. The gen5
+# latency overlaps the Xen builds and the cloud QEMU jobs. The gen5
 # test jobs add `needs: [gen5-board-select]` and inherit BOARD_ID via dotenv.
 #
 # Usage:
@@ -26,7 +26,7 @@
 #                            control for BOTH boards) so it is GUARDED by an flock
 #                            and fires at most once per run.
 #
-# Power/control planes (see automation/renesas-scripts/gen5-{xtf,zephyr}.sh):
+# Power/control planes (see automation/renesas-scripts/gen5-zephyr.sh):
 #   - Wall power (hard) : /usr/local/bin/board {ih0|ih1|rpi2} {on|off|status}
 #                         (PDU pduboard1 @ 10.13.64.210). id 1 -> ih0, 2 -> ih1.
 #   - Soft power        : ssh ${RPI_HOST} ${X5HCTL} <verb> <id>  (POWER#/MD#/I2C)

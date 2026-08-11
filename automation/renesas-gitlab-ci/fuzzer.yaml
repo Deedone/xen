@@ -11,7 +11,6 @@ xen-gcc-arm64-fuzzer:
     KBUILD_DEFCONFIG: rel_arm64_defconfig
     EXTRA_XEN_CONFIG: |
       CONFIG_CMDLINE="xsm=flask flask=permissive"
-      CONFIG_MGMT_HYPERCALLS=y
       CONFIG_LIVEPATCH=n
       CONFIG_COVERAGE=y
       CONFIG_CONDITION_COVERAGE=y
@@ -19,7 +18,6 @@ xen-gcc-arm64-fuzzer:
       CONFIG_FUZZER_LIBAFL_QEMU=y
       CONFIG_FUZZER_PASS_BLOCKING=y
   script:
-    - mkdir -p binaries
     - ./automation/renesas-scripts/build 2>&1 | tee build.log
   artifacts:
     paths:
@@ -30,23 +28,19 @@ xen-gcc-arm64-fuzzer:
       - '*.log'
     when: always
   needs: []
-  rules:
-    - when: always
   tags:
     - epdefrans_docker
 
 fuzzer_run:
   stage: test
   image: xentroops/xen-fuzzer:v2
-  variables:
-    LOGFILE: fuzzer-run.log
   script:
-    - ./automation/renesas-scripts/fuzzer.sh 2>&1 | tee ${LOGFILE}
+    - ./automation/renesas-scripts/fuzzer.sh 2>&1 | tee fuzzer-run.log
   timeout: 24h
   artifacts:
     paths:
       - '*.serial'
-      - ${LOGFILE}
+      - 'fuzzer-run.log'
       - 'crashes/'
     when: always
   rules:

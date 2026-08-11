@@ -1,0 +1,36 @@
+# Test jobs
+
+qemu-lldb-tests:
+  extends:
+    - .test-job-qemu-arm64
+    - .lldb-test-matrix
+  variables:
+    USE_TFA: "true"
+  rules:
+    - when: on_success
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
+  needs:
+    - xen-atfe-arm64
+    - tf-a-qemu
+
+qemu-lldb-mcdc:
+  extends:
+    - .test-job-qemu-arm64
+    - .lldb-test-matrix
+  variables:
+    MCDC_CONF: "${CI_PROJECT_DIR}/binaries/plugin.conf"
+    MCDC_PLUGIN: "${CI_PROJECT_DIR}/binaries/libbrtrace.so"
+    MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
+    MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
+    RUN_COVERAGE: "true"
+    USE_TFA: "true"
+  rules:
+    - when: on_success
+  script:
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
+    - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
+  needs:
+    - xen-mcdc-arm64
+    - mcdc-qemu-plugin
+    - tf-a-qemu

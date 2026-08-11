@@ -1,0 +1,36 @@
+# Test jobs
+
+qemu-zephyr-tests:
+  extends:
+    - .test-job-qemu-arm64
+    - .zephyr-test-matrix
+  script:
+    - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - xen-atfe-arm64
+    - tf-a-qemu
+
+# Run under the MC/DC-instrumented Xen with the brtrace QEMU plugin attached.
+
+qemu-zephyr-mcdc:
+  extends:
+    - .test-job-qemu-arm64
+    - .zephyr-test-matrix
+  allow_failure: true
+  variables:
+    LOGFILE: qemu-mcdc-arm64.log
+    XEN_BIN: "${CI_PROJECT_DIR}/binaries/xen"
+    MCDC_CONF: "${CI_PROJECT_DIR}/binaries/plugin.conf"
+    MCDC_PLUGIN: "${CI_PROJECT_DIR}/binaries/libbrtrace.so"
+    MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
+    MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
+    RUN_COVERAGE: "true"
+  rules:
+    - when: on_success
+  script:
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
+    - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - xen-mcdc-arm64
+    - mcdc-qemu-plugin
+    - tf-a-qemu

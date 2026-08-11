@@ -1,0 +1,32 @@
+# Xen binary with UBSAN configs
+
+xen-atfe-ubsan-arm64:
+  extends: .atfe-arm64-build
+  variables:
+    CUSTOM_XEN_CONFIG: |
+      CONFIG_UBSAN=y
+      CONFIG_UBSAN_FATAL=y
+
+# Test jobs
+
+qemu-zephyr-tests:
+  extends:
+    - .test-job-qemu-arm64
+    - .zephyr-test-matrix
+  variables:
+    USE_TFA: "false"
+  script:
+    - ./automation/renesas-scripts/qemu-zephyr.sh ${TEST} 2>&1 | tee ${LOGFILE}
+  needs:
+    - xen-atfe-ubsan-arm64
+
+qemu-lldb-tests:
+  extends:
+    - .test-job-qemu-arm64
+    - .lldb-test-matrix
+  variables:
+    USE_TFA: "false"
+  script:
+    - ./automation/renesas-scripts/qemu-lldb.sh ${TEST_SCRIPT}
+  needs:
+    - xen-atfe-ubsan-arm64

@@ -2,24 +2,22 @@ variables:
   GIT_STRATEGY: clone
   GIT_DEPTH: 1
 
+  PIPELINE_MODE:
+    value: "RELEASE+COVERAGE"
+    options:
+      - "RELEASE+COVERAGE"
+      - "UBSAN"
+      - "FUZZER"
+      - "MINERVA"
+      - "HW"
+    description: "Which pipeline to run"
+
 workflow:
-  name: '$PIPELINE_NAME_PREFIX | $CI_COMMIT_REF_NAME | $CI_COMMIT_TITLE'
+  name: '$PIPELINE_MODE | $CI_COMMIT_REF_NAME | $CI_COMMIT_TITLE'
   rules:
-    - if: '$RUN_UBSAN == "true"'
-      variables:
-        PIPELINE_NAME_PREFIX: "UBSAN"
-    - if: '$RUN_FUZZER == "true"'
-      variables:
-        PIPELINE_NAME_PREFIX: "FUZZER"
-    - if: '$RUN_MINERVA == "true"'
-      variables:
-        PIPELINE_NAME_PREFIX: "MINERVA"
     - when: always
-      variables:
-        PIPELINE_NAME_PREFIX: "RELEASE"
 
 stages:
-  - artifacts
   - build
   - test
   - trace
@@ -34,33 +32,38 @@ default:
       - scheduler_failure
       - unknown_failure
 
-# A standard pipeline runs the normal artifacts/build/test/trace/analyze
-# suite. FUZZER and MINERVA are EXCLUSIVE modes that replace it, so the
-# normal suite runs only when no exclusive mode is selected. Add any future
-# exclusive mode to this single line.
 .standard-pipeline-rules: &standard_pipeline
-  - if: '$RUN_FUZZER != "true" && $RUN_MINERVA != "true"'
+  - if: '$PIPELINE_MODE == "RELEASE+COVERAGE" || $PIPELINE_MODE == null'
+
+.ubsan-pipeline-rules: &ubsan_pipeline
+  - if: '$PIPELINE_MODE == "UBSAN"'
+
+.fuzzer-pipeline-rules: &fuzzer_pipeline
+  - if: '$PIPELINE_MODE == "FUZZER"'
+
+.minerva-pipeline-rules: &minerva_pipeline
+  - if: '$PIPELINE_MODE == "MINERVA"'
+
+.hw-pipeline-rules: &hw_pipeline
+  - if: '$PIPELINE_MODE == "HW"'
 
 include:
-  # artifacts.yaml is shared: a MINERVA pipeline still needs the image and
-  # xen-tools exports for the runtime jobs, so it is gated off for FUZZER
-  # only, not for MINERVA. (FUZZER is self-contained and does not use it.)
-  - local: 'automation/renesas-gitlab-ci/artifacts.yaml'
-    rules:
-      - if: '$RUN_FUZZER != "true"'
-  - local: 'automation/renesas-gitlab-ci/build.yaml'
+  - local: 'automation/renesas-gitlab-ci/common.yaml'
+  - local: 'automation/renesas-gitlab-ci/standard/build.yaml'
     rules: *standard_pipeline
-  - local: 'automation/renesas-gitlab-ci/mcdc.yaml'
+  - local: 'automation/renesas-gitlab-ci/standard/lldb.yaml'
     rules: *standard_pipeline
-  - local: 'automation/renesas-gitlab-ci/test.yaml'
+  - local: 'automation/renesas-gitlab-ci/standard/zephyr.yaml'
     rules: *standard_pipeline
-  - local: 'automation/renesas-gitlab-ci/trace.yaml'
+  - local: 'automation/renesas-gitlab-ci/gen5.yaml'
+    rules: *hw_pipeline
+  - local: 'automation/renesas-gitlab-ci/standard/trace.yaml'
     rules: *standard_pipeline
-  - local: 'automation/renesas-gitlab-ci/analyze.yaml'
+  - local: 'automation/renesas-gitlab-ci/standard/analyze.yaml'
     rules: *standard_pipeline
+  - local: 'automation/renesas-gitlab-ci/ubsan.yaml'
+    rules: *ubsan_pipeline
   - local: 'automation/renesas-gitlab-ci/fuzzer.yaml'
-    rules:
-      - if: '$RUN_FUZZER == "true"'
+    rules: *fuzzer_pipeline
   - local: 'automation/renesas-gitlab-ci/minerva.yaml'
-    rules:
-      - if: '$RUN_MINERVA == "true"'
+    rules: *minerva_pipeline

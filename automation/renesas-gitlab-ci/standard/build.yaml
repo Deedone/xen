@@ -1,0 +1,50 @@
+# Release Xen build using ATfE
+
+xen-atfe-arm64:
+  extends: .atfe-arm64-build
+
+# Builds an unoptimised clang Xen and pre-computes the plugin.conf / xen-dwarf.pickle.
+
+xen-mcdc-arm64:
+  extends: .atfe-arm64-build
+  variables:
+    CUSTOM_XEN_CONFIG: |
+      CONFIG_EXPERT=y
+      CONFIG_NO_OPTIMIZE=y
+      CONFIG_FRAME_POINTER=y
+  script:
+    - ./automation/renesas-scripts/mcdc-build.sh 2>&1 | tee mcdc-build.log
+
+# Builds the brtrace QEMU plugin (libbrtrace.so)
+
+mcdc-qemu-plugin:
+  stage: build
+  image: xentroops/xen_rel
+  tags:
+    - aws-arm64
+  needs: []
+  script:
+    - mkdir -p binaries
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
+    - make -C clang-qemu-mcdc/qemu-plugin
+    - cp clang-qemu-mcdc/qemu-plugin/libbrtrace.so binaries/libbrtrace.so
+  artifacts:
+    paths:
+      - 'binaries/libbrtrace.so'
+    when: always
+
+# TrustedFirmware-A (TF-A)
+
+tf-a-qemu:
+  stage: build
+  image: xentroops/xen_rel
+  script:
+    - ./automation/renesas-scripts/build-tfa-qemu.sh 2>&1 | tee tfa-build.log
+  artifacts:
+    paths:
+      - 'binaries/qemu_fw.bios'
+      - 'tfa-build.log'
+    when: always
+  needs: []
+  tags:
+    - aws-arm64

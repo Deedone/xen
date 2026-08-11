@@ -2,7 +2,6 @@
 
 ```
 docker/
-├── Artifacts.dockerfile                                                # Dockerfile for Xen test artifacts
 ├── Atfe.dockerfile                                                     # Standalone Dockerfile for pre-built ATfE
 ├── Executor.dockerfile                                                 # Dockerfile for Xen certification tasks
 ├── Qemu.dockerfile                                                     # Standalone Dockerfile for pre-built QEMU
@@ -11,20 +10,6 @@ docker/
 ```
 
 ## Quick Start
-
-### Build the Artifacts Image
-
-This Artifacts image builds minimal Xen test artifacts for ARM64:
-
- - Linux kernel v6.6.86
- - Alpine-based initramfs (rootfs.cpio.gz)
-
-Built on top of Alpine Linux.
-
-```bash
-DOCKER_BUILDKIT=1 docker build --platform linux/arm64 --progress=plain -t xentroops/xen_artifacts_rel:latest -f Artifacts.dockerfile .
-docker push xentroops/xen_artifacts_rel:latest
-```
 
 ### Build Pre-built Heavy Component Images
 
