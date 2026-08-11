@@ -140,12 +140,11 @@ qemu-zephyr-mcdc:
     MCDC_PLUGIN: "${CI_PROJECT_DIR}/binaries/libbrtrace.so"
     MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
     MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
+    RUN_COVERAGE: "true"
   parallel:
     matrix: *zephyr-test-matrix
   rules:
     - if: '$RUN_UBSAN == "true"'
-      when: never
-    - if: '$RUN_COVERAGE == "true"'
       when: never
     - when: on_success
   script:

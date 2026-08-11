@@ -39,7 +39,9 @@ if [ -n "${MCDC_CONF:-}" ]; then
     export MCDC_TRACE="${MCDC_TRACE:-${XEN_ROOT}/${APP_NAME}-brtrace.dat}"
     QEMU_PLUGIN_ARGS="-plugin ${MCDC_PLUGIN},config=${MCDC_CONF},tracefile=${MCDC_TRACE}"
     rm -f "${MCDC_TRACE}"
-elif [ "$RUN_COVERAGE" == "true" ]; then
+fi
+
+if [ "$RUN_COVERAGE" == "true" ]; then
     echo "Running QEMU with coverage plugin."
 
     export LLDB_COV_LOG="${LLDB_COV_LOG:-${XEN_ROOT}/lldb_coverage.log}"
@@ -52,7 +54,7 @@ elif [ "$RUN_COVERAGE" == "true" ]; then
     START_CODE="0x${START_HEX}"
     END_CODE="0x${END_HEX}"
 
-    QEMU_PLUGIN_ARGS="-plugin /usr/local/lib/qemu-plugins/libdrcov.so"
+    QEMU_PLUGIN_ARGS+=" -plugin /usr/local/lib/qemu-plugins/libdrcov.so"
     QEMU_PLUGIN_ARGS+=",filename=${QEMU_COV_TRACE}"
     QEMU_PLUGIN_ARGS+=",start_code=${START_CODE}"
     QEMU_PLUGIN_ARGS+=",end_code=${END_CODE}"
@@ -228,7 +230,9 @@ do_coverage_report() {
     if [ -n "${MCDC_CONF:-}" ]; then
         ( cd "${XEN_ROOT}" &&
         ./automation/renesas-scripts/mcdc-report.sh -n "${APP_NAME}" ) || true
-    elif [ "$RUN_COVERAGE" == "true" ]; then
+    fi
+
+    if [ "$RUN_COVERAGE" == "true" ]; then
         ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} \
         LCOV_OUT=${COVERAGE_OUT}/${APP_NAME}.cov.info \
         lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
