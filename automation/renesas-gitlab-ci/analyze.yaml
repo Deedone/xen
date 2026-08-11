@@ -161,7 +161,7 @@ gen_coverage_report:
       - coverage.info
       - coverage_data
       - coverage-report.tar.gz
-  needs:
+  dependencies:
     - qemu-lldb-tests
     - qemu-zephyr-tests
   rules:
