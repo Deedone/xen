@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#ifndef __PCI_HOST_RCAR4_H__
-#define __PCI_HOST_RCAR4_H__
+#ifndef __PCI_HOST_RCAR_H__
+#define __PCI_HOST_RCAR_H__
 
 #include <asm/pci.h>
 
@@ -17,4 +17,4 @@ void rcar4_pcie_osid_reg_free(struct pci_host_bridge *bridge,
 int rcar4_pcie_osid_regs_init(struct pci_host_bridge *bridge);
 #endif
 
-#endif /* __PCI_HOST_RCAR4_H__ */
+#endif /* __PCI_HOST_RCAR_H__ */

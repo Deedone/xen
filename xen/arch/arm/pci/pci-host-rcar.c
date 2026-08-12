@@ -13,9 +13,9 @@
 #include <asm/pci.h>
 
 #include "pci-designware.h"
-#include "pci-host-rcar4.h"
+#include "pci-host-rcar.h"
 
-#define RCAR4_DWC_VERSION       0x520A
+#define RCAR_DWC_VERSION       0x520A
 
 /* PCIE BDF-OSID assignment */
 #define CNVID(n)             (0x700 + ((n) * 4))
@@ -61,41 +61,41 @@ struct rcar4_pcie_priv {
  *   "config": child's configuration space
  *   "atu"   : iATU registers for DWC version 4.80 or later
  */
-static int __init rcar4_cfg_reg_index(struct dt_device_node *np)
+static int __init rcar_cfg_reg_index(struct dt_device_node *np)
 {
     return dt_property_match_string(np, "reg-names", "dbi");
 }
 
-static int __init rcar4_child_cfg_reg_index(struct dt_device_node *np)
+static int __init rcar_child_cfg_reg_index(struct dt_device_node *np)
 {
     return dt_property_match_string(np, "reg-names", "config");
 }
 
-static void rcar4_pcie_fixup_bar(struct pci_host_bridge *bridge,
-                                 unsigned int bar_num,
-                                 paddr_t *addr)
+static void rcar_pcie_fixup_bar(struct pci_host_bridge *bridge,
+                                unsigned int bar_num,
+                                paddr_t *addr)
 {
     if ( IS_ENABLED(CONFIG_RCAR_REGION_ID_SUPPORT) )
         *addr = MADDR_ENCODE_RGID(*addr);
 }
 
 /* ECAM ops */
-static const struct pci_ecam_ops rcar4_pcie_ops = {
+static const struct pci_ecam_ops rcar_pcie_ops = {
     .bus_shift  = 20,
-    .cfg_reg_index = rcar4_cfg_reg_index,
+    .cfg_reg_index = rcar_cfg_reg_index,
     .pci_ops    = {
         .map_bus                = pci_ecam_map_bus,
         .read                   = pci_generic_config_read,
         .write                  = pci_generic_config_write,
         .need_p2m_hwdom_mapping = pci_ecam_need_p2m_hwdom_mapping,
         .init_bus_range         = pci_generic_init_bus_range,
-        .fixup_bar              = rcar4_pcie_fixup_bar,
+        .fixup_bar              = rcar_pcie_fixup_bar,
     }
 };
 
-static const struct pci_ecam_ops rcar4_pcie_child_ops = {
+static const struct pci_ecam_ops rcar_pcie_child_ops = {
     .bus_shift  = 20,
-    .cfg_reg_index = rcar4_child_cfg_reg_index,
+    .cfg_reg_index = rcar_child_cfg_reg_index,
     .pci_ops    = {
         .map_bus                = dw_pcie_child_map_bus,
         .read                   = dw_pcie_child_config_read,
@@ -105,7 +105,7 @@ static const struct pci_ecam_ops rcar4_pcie_child_ops = {
     }
 };
 
-static const struct dt_device_match __initconstrel rcar4_pcie_dt_match[] = {
+static const struct dt_device_match __initconstrel rcar_pcie_dt_match[] = {
     { .compatible = "renesas,r8a779f0-pcie" },
     { .compatible = "renesas,r8a779g0-pcie" },
     { .compatible = "renesas,rcar-gen5-pcie6" },
@@ -206,8 +206,8 @@ void rcar4_pcie_bdf_msk_set(struct pci_host_bridge *bridge, unsigned int reg_id,
     rcar4_pcie_writel_app(priv, CNVIDMSK(reg_id), val);
 }
 
-static int __init pci_host_rcar4_probe(struct dt_device_node *dev,
-                                       const void *data)
+static int __init pci_host_rcar_probe(struct dt_device_node *dev,
+                                      const void *data)
 {
     struct pci_host_bridge *bridge;
     paddr_t app_phys_addr;
@@ -218,8 +218,8 @@ static int __init pci_host_rcar4_probe(struct dt_device_node *dev,
     if ( !priv )
         return -ENOMEM;
 
-    bridge = dw_pcie_host_probe(dev, data, &rcar4_pcie_ops,
-                                &rcar4_pcie_child_ops);
+    bridge = dw_pcie_host_probe(dev, data, &rcar_pcie_ops,
+                                &rcar_pcie_child_ops);
 
     app_idx = dt_property_match_string(dev, "reg-names", "app");
     if ( app_idx < 0 )
@@ -247,14 +247,14 @@ static int __init pci_host_rcar4_probe(struct dt_device_node *dev,
 
 skip_app:
     dw_pcie_set_priv(bridge, priv);
-    dw_pcie_set_version(bridge, RCAR4_DWC_VERSION);
+    dw_pcie_set_version(bridge, RCAR_DWC_VERSION);
 
     return 0;
 }
 
-DT_DEVICE_START(pci_gen, "PCI HOST R-CAR GEN4", DEVICE_PCI_HOSTBRIDGE)
-.dt_match = rcar4_pcie_dt_match,
-.init = pci_host_rcar4_probe,
+DT_DEVICE_START(pci_gen, "PCI HOST R-CAR GEN4/GEN5", DEVICE_PCI_HOSTBRIDGE)
+.dt_match = rcar_pcie_dt_match,
+.init = pci_host_rcar_probe,
 DT_DEVICE_END
 
 /*
