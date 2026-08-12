@@ -55,6 +55,8 @@ struct vpci {
         struct vpci_bar {
             /* Physical (host) address. */
             uint64_t addr;
+            /* PCI bus space address */
+            uint64_t pci_addr;
             /* Guest address. */
             uint64_t guest_addr;
             uint64_t size;
@@ -223,6 +225,7 @@ void vpci_msix_arch_control_write(
     const struct pci_dev *pdev, unsigned int reg, uint32_t val, void *data);
 void vpci_msix_arch_cleanup(struct vpci *vpci);
 void vpci_msix_arch_register(struct vpci_msix *msix, struct domain *d);
+int vpci_translate_bar_range(const struct pci_dev *pdev, struct vpci_bar *bar);
 
 #endif /* __XEN__ */
 
