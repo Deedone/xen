@@ -51,7 +51,7 @@
 #include <asm/device.h>
 #include <asm/io.h>
 #include <asm/iommu_fwspec.h>
-#include "../arch/arm/pci/pci-host-rcar4.h"
+#include "../arch/arm/pci/pci-host-rcar.h"
 
 #define dev_name(dev) dt_node_full_name(dev_to_dt(dev))
 
