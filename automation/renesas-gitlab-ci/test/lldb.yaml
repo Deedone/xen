@@ -46,7 +46,7 @@ qemu-lldb-tests:
     - xen-atfe-arm64
     - tf-a-qemu
 
-qemu-lldb-lcov:
+qemu-lldb-mcdc:
   extends: .qemu-arm64
   variables:
     MCDC_CONF: "${CI_PROJECT_DIR}/binaries/plugin.conf"

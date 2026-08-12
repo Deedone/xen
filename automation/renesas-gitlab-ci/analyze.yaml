@@ -162,7 +162,7 @@ gen_coverage_report:
       - coverage_data
       - coverage-report.tar.gz
   dependencies:
-    - qemu-lldb-lcov
+    - qemu-lldb-mcdc
     - qemu-zephyr-mcdc
   rules:
     - when: always
@@ -177,7 +177,7 @@ gen_mcdc_report:
   dependencies:
     - xen-mcdc-arm64
     - qemu-zephyr-mcdc
-    - qemu-lldb-lcov
+    - qemu-lldb-mcdc
   image: xentroops/xen_rel
   script:
     - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
