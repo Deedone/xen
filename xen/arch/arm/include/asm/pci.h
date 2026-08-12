@@ -53,6 +53,16 @@ struct pci_config_window {
 };
 
 /*
+ * A mapping from PCI to CPU address space.
+ */
+struct pci_range_map {
+    paddr_t             mem_addr;
+    paddr_t             pci_addr;
+    size_t              len;
+    struct list_head    node;
+};
+
+/*
  * struct to hold pci host bridge information
  * for a PCI controller.
  */
@@ -69,6 +79,7 @@ struct pci_host_bridge {
     uint64_t its_msi_base;
     struct rangeset *bar_ranges;
     struct rangeset *bar_ranges_prefetch;
+    struct list_head range_maps;
 };
 
 struct pci_ops {
