@@ -150,6 +150,8 @@ variables:
     - "hyp-vpci-dom0"
     # [XenVerTestJob~~1->XenVerTestCode~vpci_dom0_msix~1]
     - "hyp-vpci-dom0-msix"
+    # [XenVerTestJob~~1->XenVerTestCode~vpci_dom0_msi~1]
+    - "hyp-vpci-dom0-msi"
     # [XenVerTestJob~~1->XenVerTestCode~vpci_dom0_sriov~1]
     - "hyp-vpci-dom0-sriov"
     # [XenVerTestJob~~1->XenVerTestCode~vpci_domu~1]
