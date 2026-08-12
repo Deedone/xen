@@ -1,9 +1,9 @@
 obj-y += pci.o
 obj-y += pci-access.o
-obj-y += pci-host-generic.o
 obj-y += pci-host-common.o
 obj-y += ecam.o
-obj-y += pci-host-zynqmp.o
-obj-y += pci-designware.o
-obj-y += pci-host-rcar.o
-obj-y += pci-host-versal.o
+obj-$(CONFIG_PCI_HOST_GENERIC) += pci-host-generic.o
+obj-$(CONFIG_PCI_HOST_ZYNQMP) += pci-host-zynqmp.o
+obj-$(CONFIG_PCI_HOST_DESIGNWARE) += pci-designware.o
+obj-$(CONFIG_PCI_HOST_RCAR) += pci-host-rcar.o
+obj-$(CONFIG_PCI_HOST_VERSAL) += pci-host-versal.o
