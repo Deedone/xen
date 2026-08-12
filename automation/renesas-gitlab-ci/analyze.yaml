@@ -174,9 +174,10 @@ gen_mcdc_report:
   variables:
     MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
     MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
-  needs:
+  dependencies:
     - xen-mcdc-arm64
     - qemu-zephyr-mcdc
+    - qemu-lldb-lcov
   image: xentroops/xen_rel
   script:
     - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc

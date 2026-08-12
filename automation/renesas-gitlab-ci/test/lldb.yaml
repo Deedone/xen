@@ -13,6 +13,7 @@
       - '*.serial'
       - '*.log'
       - 'coverage_data'
+      - 'coverage_mcdc'
     when: always
   tags:
     - aws-arm64
@@ -48,6 +49,10 @@ qemu-lldb-tests:
 qemu-lldb-lcov:
   extends: .qemu-arm64
   variables:
+    MCDC_CONF: "${CI_PROJECT_DIR}/binaries/plugin.conf"
+    MCDC_PLUGIN: "${CI_PROJECT_DIR}/binaries/libbrtrace.so"
+    MCDC_DWARF: "${CI_PROJECT_DIR}/binaries/xen-dwarf.pickle"
+    MCDC_TOOL_DIR: "${CI_PROJECT_DIR}/clang-qemu-mcdc"
     RUN_COVERAGE: "true"
     USE_TFA: "true"
   parallel:
@@ -57,7 +62,9 @@ qemu-lldb-lcov:
       when: never
     - when: on_success
   script:
+    - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
     - ./automation/renesas-scripts/qemu-lldb.sh "${TEST_SCRIPT}"
   needs:
     - xen-mcdc-arm64
+    - mcdc-qemu-plugin
     - tf-a-qemu

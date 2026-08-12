@@ -10,6 +10,7 @@ if [ $# -lt 1 ]; then
 fi
 
 export LLDB_SCRIPT="$1"
+export TEST_NAME="${LLDB_SCRIPT%.py}"
 export XEN_ROOT="${PWD}"
 export WORKDIR="${WORKDIR:-${XEN_ROOT}/binaries}"
 export QEMU_PREFIX="${QEMU_PREFIX:-/usr/local/bin/}"
@@ -32,6 +33,15 @@ export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot c
 # Add directory with lldb_automation library
 export PYTHONPATH="${XEN_ROOT}/automation/renesas-scripts/lldb/:$PYTHONPATH"
 
+PLUGIN_ARGS=""
+
+if [ -n "${MCDC_CONF:-}" ]; then
+    export MCDC_PLUGIN="${MCDC_PLUGIN:-/usr/local/lib/qemu-plugins/libbrtrace.so}"
+    export MCDC_TRACE="${MCDC_TRACE:-${XEN_ROOT}/${TEST_NAME}-brtrace.dat}"
+    PLUGIN_ARGS="-plugin ${MCDC_PLUGIN},config=${MCDC_CONF},tracefile=${MCDC_TRACE}"
+    rm -f "${MCDC_TRACE}"
+fi
+
 if [ "$RUN_COVERAGE" == "true" ]; then
 	echo "Running QEMU with coverage plugin."
 
@@ -41,7 +51,7 @@ if [ "$RUN_COVERAGE" == "true" ]; then
 	START_CODE="0x${START_HEX}"
 	END_CODE="0x${END_HEX}"
 
-	PLUGIN_ARGS="-plugin /usr/local/lib/qemu-plugins/libdrcov.so"
+	PLUGIN_ARGS+=" -plugin /usr/local/lib/qemu-plugins/libdrcov.so"
 	PLUGIN_ARGS+=",filename=${QEMU_COV_TRACE}"
 	PLUGIN_ARGS+=",start_code=${START_CODE}"
 	PLUGIN_ARGS+=",end_code=${END_CODE}"
@@ -50,8 +60,6 @@ if [ "$RUN_COVERAGE" == "true" ]; then
 	rm -f ${QEMU_COV_TRACE}
 
 	mkdir -p ${COVERAGE_OUT}
-else
-	PLUGIN_ARGS=""
 fi
 
 rm -f ${QEMU_LOG}
@@ -112,13 +120,22 @@ cat ${XEN_LOG} || true
 cat ${QEMU_LOG} || true
 cat ${LLDB_LOG} || true
 
-if [ "$RUN_COVERAGE" == "true" ]; then
-    ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${LLDB_SCRIPT}.cov.info \
-        lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
-	> ${LLDB_COV_LOG} 2>&1
-fi
+# Generate coverage report only if test was passed
+do_coverage_report() {
+    # MC/DC report generation from the trace collected during this run.
+    if [ -n "${MCDC_CONF:-}" ]; then
+        ( cd "${XEN_ROOT}" &&
+        ./automation/renesas-scripts/mcdc-report.sh -n "${TEST_NAME}" ) || true
+    fi
+
+    if [ "$RUN_COVERAGE" == "true" ]; then
+        ELF="${WORKDIR}/xen-syms" COV_INPUT=${QEMU_COV_TRACE} LCOV_OUT=${COVERAGE_OUT}/${LLDB_SCRIPT}.cov.info \
+            lldb --batch -o "command script import ${XEN_ROOT}/automation/renesas-scripts/lldb_coverage.py" \
+        > ${LLDB_COV_LOG} 2>&1
+    fi
+}
 
 # Test validation
-grep -qF "${PASSED}" "${LLDB_LOG}" && { echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
+grep -qF "${PASSED}" "${LLDB_LOG}" && { do_coverage_report; echo -e "\e[32m***FOUND EXPECTED TEST STRING***\e[0m"; exit 0; }
 echo -e "\e[31m***NOT FOUND EXPECTED TEST STRING***\e[0m"
 exit 1
