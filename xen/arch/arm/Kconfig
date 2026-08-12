@@ -284,6 +284,8 @@ config PCI_PASSTHROUGH
 	help
 	  This option enables PCI device passthrough
 
+source "arch/arm/pci/Kconfig"
+
 config ARM64_SPIN_TABLE
 	bool "Support for SMP spin-table CPU bringup"
 	depends on ARM_64

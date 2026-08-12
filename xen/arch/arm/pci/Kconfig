@@ -1,0 +1,26 @@
+menu "PCI host controllers"
+	depends on HAS_PCI
+
+config PCI_HOST_GENERIC
+	bool "Generic ECAM PCI host controller"
+	default n
+
+config PCI_HOST_ZYNQMP
+	bool "Xilinx ZynqMP PCI host controller"
+	default n
+
+config PCI_HOST_VERSAL
+	bool "Xilinx Versal CPM PCI host controller"
+	default n
+
+config PCI_HOST_RCAR
+	bool "Renesas R-Car PCI host controller"
+	default n
+	select PCI_HOST_DESIGNWARE
+	help
+	  Support for the R-Car PCIe controller.
+
+config PCI_HOST_DESIGNWARE
+	bool
+
+endmenu
