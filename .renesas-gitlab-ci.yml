@@ -10,6 +10,7 @@ variables:
       - "FUZZER"
       - "MINERVA"
       - "HW"
+      - "MISRA"
     description: "Which pipeline to run"
 
 workflow:
@@ -47,6 +48,9 @@ default:
 .hw-pipeline-rules: &hw_pipeline
   - if: '$PIPELINE_MODE == "HW"'
 
+.misra-pipeline-rules: &misra_pipeline
+  - if: '$PIPELINE_MODE == "MISRA"'
+
 include:
   - local: 'automation/renesas-gitlab-ci/common.yaml'
   - local: 'automation/renesas-gitlab-ci/standard/build.yaml'
@@ -67,3 +71,5 @@ include:
     rules: *fuzzer_pipeline
   - local: 'automation/renesas-gitlab-ci/minerva.yaml'
     rules: *minerva_pipeline
+  - local: 'automation/renesas-gitlab-ci/misra.yaml'
+    rules: *misra_pipeline

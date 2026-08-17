@@ -1,88 +1,3 @@
-.eclair-analysis:
-  stage: analyze
-  allow_failure: true
-  variables:
-    LLVM_BIN_DIR: /opt/atfe/bin/
-    CC: gcc
-    CXX: g++
-    HOSTCC: gcc
-    HOSTCXX: g++
-    clang: y
-    llvm: y
-    XEN_TARGET_ARCH: arm64
-    KBUILD_DEFCONFIG: rel_arm64_defconfig
-    EXTRA_XEN_CONFIG: |
-      CONFIG_CMDLINE="xsm=flask flask=permissive"
-      CONFIG_DEBUG=n
-      CONFIG_DEBUG_INFO=n
-    ECLAIR_OUTPUT_DIR: "ECLAIR_out"
-    ANALYSIS_KIND: "normal"
-    VARIANT: "ARM64"
-    LOGFILE: "eclair-${VARIANT}-${RULESET}.log"
-  before_script:
-    # Kill eclair_report server (if running), because DB will be updated after analysis
-    - pkill eclair_report || true
-  script:
-    - export PATH=${LLVM_BIN_DIR}:$PATH
-    - ./automation/renesas-scripts/eclair 2>&1 | tee "${LOGFILE}"
-  after_script:
-    # Store latest analysis result
-    - rm -fr /home/gitlab-runner/xen_latest || true
-    - mkdir -p /home/gitlab-runner/xen_latest || true
-    - cp -r ./ECLAIR_out /home/gitlab-runner/xen_latest
-  artifacts:
-    paths:
-      - "${ECLAIR_OUTPUT_DIR}/*.log"
-      - "${ECLAIR_OUTPUT_DIR}/*.txt"
-      - "${ECLAIR_OUTPUT_DIR}/html/*"
-      - "*.log"
-      - "*.json"
-      - "intermediates/"
-    when: always
-  needs: []
-  rules:
-    - when: manual
-  tags:
-    - epdefrans
-
-eclair-clang-monitored:
-  extends: .eclair-analysis
-  variables:
-    RULESET: "monitored"
-
-eclair-clang-accepted:
-  extends: .eclair-analysis
-  variables:
-    RULESET: "accepted"
-
-eclair-server-start:
-  stage: analyze
-  variables:
-    TERM: xterm
-  script:
-    # This job will spin until eclair_report server is killed
-    - |
-      echo 'Run command on your local machine: \
-      ssh -L 3786:localhost:3786 -N <user>@10.13.64.194 \
-      and open report at http://127.0.0.1:3786'
-    - /home/gitlab-runner/bugseng/eclair/bin/eclair_report -verbose -db=/home/gitlab-runner/xen_latest/ECLAIR_out/PROJECT.ecd -browser -server || true
-  rules:
-    - when: manual
-  needs: []
-  tags:
-    - epdefrans
-
-eclair-server-stop:
-  stage: analyze
-  script:
-    - ps -aux | grep eclair_report || true
-    - pkill eclair_report || true
-  rules:
-    - when: manual
-  needs: []
-  tags:
-    - epdefrans
-
 gen_coverage_report:
   stage: analyze
   tags:
@@ -92,6 +7,7 @@ gen_coverage_report:
     - LCOV_ARGS=$(find ./coverage_data -name "*.info" -printf "-a %p "); lcov --rc lcov_branch_coverage=1 $LCOV_ARGS -o coverage.info
     - genhtml --substitute 's|arch/arm/efi/common-stub.c|common/efi/common-stub.c|g' -o coverage-report coverage.info
     - tar -czf coverage-report.tar.gz coverage-report
+  coverage: '/^\s*lines\.+:\s+(\d+\.\d+)%/'
   artifacts:
     paths:
       - 'coverage.info'
@@ -119,6 +35,7 @@ gen_mcdc_report:
     - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
     - QEMU_TRACES=$(find ./coverage_mcdc -name "*brtrace.dat" -print )
     - ./automation/renesas-scripts/mcdc-report.sh $QEMU_TRACES
+  coverage: '/^\s*MC\/DCs\.+:\s+(\d+\.\d+)%/'
   artifacts:
     paths:
       - 'coverage_mcdc/combined_report/'
