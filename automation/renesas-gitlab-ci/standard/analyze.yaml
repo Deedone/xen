@@ -11,7 +11,6 @@ gen_coverage_report:
   artifacts:
     paths:
       - 'coverage.info'
-      - 'coverage_data'
       - 'coverage-report.tar.gz'
   dependencies:
     - qemu-lldb-mcdc
@@ -33,12 +32,16 @@ gen_mcdc_report:
   image: xentroops/xen_rel
   script:
     - git clone --depth 1 -b "${MCDC_TOOL_BRANCH}" "${MCDC_TOOL_URI}" clang-qemu-mcdc
-    - QEMU_TRACES=$(find ./coverage_mcdc -name "*brtrace.dat" -print )
+    - mkdir -p traces/
+    - find ./coverage_mcdc -name '*-traces.tar.gz' -exec tar -xzf {} -C traces \;
+    - QEMU_TRACES=$(find ./traces -name "*brtrace.dat" -print )
     - ./automation/renesas-scripts/mcdc-report.sh $QEMU_TRACES
   coverage: '/^\s*MC\/DCs\.+:\s+(\d+\.\d+)%/'
   artifacts:
     paths:
       - 'coverage_mcdc/combined_report/'
+    exclude:
+      - 'coverage_mcdc/combined_report/*-traces.tar.gz'
     when: always
   rules:
     - when: always

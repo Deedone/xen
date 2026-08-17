@@ -48,11 +48,19 @@ INFO="${OUT_DIR}/${REPORT_NAME}.info"
 python3 "${MCDC_TOOL_DIR}/mcdc_coverage_gen.py" \
     --dwarf "${MCDC_DWARF}" --lcov "${INFO}" "${TRACE_FILES[@]}"
 
+TRACE_NAMES=()
 for trace_file in "${TRACE_FILES[@]}"; do
     DEST_NAME=$(basename "${trace_file}")
     cp "${trace_file}" "${OUT_DIR}/${DEST_NAME}"
+    TRACE_NAMES+=("${DEST_NAME}")
 done
 
 cd ${XEN_ROOT}/xen
 
 genhtml --branch-coverage --mcdc-coverage -o "${OUT_DIR}/html" "${INFO}"
+
+cd ${OUT_DIR}
+tar -czf "${REPORT_NAME}-html.tar.gz" html
+rm -rf html
+tar -czf "${REPORT_NAME}-traces.tar.gz" "${TRACE_NAMES[@]}"
+rm -f "${TRACE_NAMES[@]}"
