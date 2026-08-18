@@ -6,6 +6,8 @@ import os
 
 import lldb_automation as dbg
 
+fault_injected = False
+
 def Panic(frame):
     x0_addr = dbg.get_register_value(frame, "x0")
 
@@ -22,11 +24,26 @@ def Panic(frame):
     sys.stdout.flush()
     os._exit(0)
 
-def CpuSchedUp(frame):
-    dbg.force_return(frame, "1")
+def Xzalloc(frame):
+    global fault_injected
+
+    if fault_injected:
+        return
+
+    size = dbg.get_register_value(frame, "x0")
+    sched_res_size = dbg.evaluate_expression_int(frame, "sizeof(struct sched_resource)")
+    if size != sched_res_size:
+        return
+
+    caller = frame.GetThread().GetFrameAtIndex(1)
+    if caller.GetFunctionName() not in ("sched_alloc_res", "cpu_schedule_up"):
+        return
+
+    fault_injected = True
+    dbg.force_return(frame, "0")
 
 def SchedulerInit(frame):
-    dbg.install_entry_hook("cpu_schedule_up", CpuSchedUp)
+    dbg.install_entry_hook("_xzalloc", Xzalloc, pin_thread=True)
 
 elf_path = os.environ.get("XEN_ELF", "xen")
 port = int(os.environ.get("XEN_PORT", "1234"))
