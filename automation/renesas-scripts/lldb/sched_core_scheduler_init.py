@@ -71,13 +71,6 @@ def RegisterCpuNotifier(frame):
         test_state["cpu_notifier"].set_passed()
 
 
-def CpuScheduleUp(frame):
-    cpu = dbg.get_register_value(frame, "x0")
-
-    if cpu == 0:
-        test_state["cpu0_sched"].set_passed()
-
-
 def SchedulerInitExit(frame):
     sched_active = dbg.get_global_var_int("scheduler_active")
 
@@ -91,6 +84,19 @@ def SchedulerInitExit(frame):
     if opt_sched_name == active_sched_name_addr:
         test_state["opt_sched"].set_passed()
 
+    # Test cpu_sched_up run and configured CPU0 sched resources
+    sched_res_expr = ("*(struct sched_resource **)"
+                      "((char*)&per_cpu__sched_res + __per_cpu_offset[0])")
+    sched_res = dbg.evaluate_expression_int(frame, sched_res_expr)
+    if sched_res != 0:
+        master_cpu = dbg.evaluate_expression_int(frame,
+                        f"((struct sched_resource *){sched_res})->master_cpu")
+        scheduler = dbg.evaluate_expression_int(frame,
+                        f"((struct sched_resource *){sched_res})->scheduler")
+        idle_ops = dbg.evaluate_expression_int(frame, "&sched_idle_ops")
+        if master_cpu == 0 and scheduler == idle_ops:
+            test_state["cpu0_sched"].set_passed()
+
     check_result()
 
     sys.stdout.flush()
@@ -100,7 +106,6 @@ def SchedulerInit(frame):
     dbg.install_entry_hook("open_softirq", OpenSoftIrq)
     dbg.install_entry_hook("domain_create", DomainCreate)
     dbg.install_entry_hook("register_cpu_notifier", RegisterCpuNotifier)
-    dbg.install_entry_hook("cpu_schedule_up", CpuScheduleUp)
     dbg.install_exit_hook(frame, SchedulerInitExit)
 
 def check_result():
