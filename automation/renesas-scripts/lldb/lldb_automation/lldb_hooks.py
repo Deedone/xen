@@ -36,10 +36,13 @@ def install_entry_hook(symbol_name: str, on_entry: callable, pin_thread: bool = 
         raise ValueError(f"Could not resolve symbol '{symbol_name}'")
 
     if pin_thread:
-        try:
-            bp.SetThreadID(session.thread.GetThreadID())
-        except Exception as e:
-            print(f"[-] Failed to set pin breakpoint to thread {bp_id}: {e}")
+        thread = session.process.GetSelectedThread() if session.process else None
+        if not thread or not thread.IsValid():
+            raise RuntimeError(
+                f"Cannot pin hook '{symbol_name}': no thread selected"
+            )
+
+        bp.SetThreadID(thread.GetThreadID())
 
     bp_id = bp.GetID()
 
