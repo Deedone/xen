@@ -52,7 +52,7 @@ gen5-board-select:
 gen5-zephyr-tests:
   extends:
     - .test-job-gen5-arm64
-    - .zephyr-test-matrix
+    - .zephyr-test-matrix-hw
   script:
     # Hold the bench lock SHARED so gen5-board-select's bench-wide PDU recovery
     # (exclusive, non-blocking) can never cold-cycle the bench mid-test.
