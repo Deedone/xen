@@ -5,7 +5,9 @@ from .lldb_session import session
 __entry_hooks = {}
 __exit_hooks = {}
 
-def install_entry_hook(symbol_name: str, on_entry: callable, pin_thread: bool = False) -> int:
+def install_entry_hook(symbol_name: str, on_entry: callable,
+                       pin_thread: bool = False,
+                       allow_inline: bool = False) -> int:
     """
     Installs a persistent breakpoint on the entry of a specified function by name.
 
@@ -15,6 +17,10 @@ def install_entry_hook(symbol_name: str, on_entry: callable, pin_thread: bool = 
             is entered. Expected signature: func(frame).
         pin_thread (bool, optional): If True, restricts the breakpoint to the 
             currently active execution thread.
+        allow_inline (bool, optional): If True, also resolve DWARF inline
+            locations. The callback may run at multiple locations and must not
+            rely on function-entry ABI registers, install an exit hook, or
+            force a return from an inline frame.
 
     Returns:
         int: The installed Breakpoint ID.
@@ -28,10 +34,13 @@ def install_entry_hook(symbol_name: str, on_entry: callable, pin_thread: bool = 
     if not session.target:
         raise RuntimeError("Failed to install hook: no debug session found")
 
-    sc_list = session.target.FindFunctions(symbol_name)
-    start_addr = sc_list.GetContextAtIndex(0).GetSymbol().GetStartAddress()
+    if allow_inline:
+        bp = session.target.BreakpointCreateByName(symbol_name)
+    else:
+        sc_list = session.target.FindFunctions(symbol_name)
+        start_addr = sc_list.GetContextAtIndex(0).GetSymbol().GetStartAddress()
+        bp = session.target.BreakpointCreateBySBAddress(start_addr)
 
-    bp = session.target.BreakpointCreateBySBAddress(start_addr)
     if not bp.IsValid() or bp.GetNumLocations() == 0:
         raise ValueError(f"Could not resolve symbol '{symbol_name}'")
 

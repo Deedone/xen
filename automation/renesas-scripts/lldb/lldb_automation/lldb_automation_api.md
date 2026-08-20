@@ -287,7 +287,8 @@ registers to simulate a natural function return.
 ```python
 def install_entry_hook(symbol_name: str,
                        on_entry: callable,
-                       pin_thread: bool = False) -> int
+                       pin_thread: bool = False,
+                       allow_inline: bool = False) -> int
 ```
 
 Installs a persistent breakpoint on the entry of a specified function by name.
@@ -299,6 +300,10 @@ Installs a persistent breakpoint on the entry of a specified function by name.
   is entered. Expected signature: func(frame).
 - `pin_thread` _bool, optional_ - If True, restricts the breakpoint to the
   currently active execution thread.
+- `allow_inline` _bool, optional_ - If True, also resolve DWARF inline
+  locations. The callback may run at multiple locations and must not rely on
+  function-entry ABI registers, install an exit hook, or force a return from
+  an inline frame.
   
 
 **Returns**:
@@ -344,4 +349,3 @@ Need to be called on function entrance.
 - `ValueError` - If the provided SBFrame is invalid.
 - `RuntimeError` - If the thread cannot be retrieved, no parent frame is
   found (e.g., stack depth is too shallow), or breakpoint creation fails.
-
