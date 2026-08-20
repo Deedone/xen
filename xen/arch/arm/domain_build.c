@@ -24,6 +24,7 @@
 #include <xen/acpi.h>
 #include <xen/vmap.h>
 #include <xen/warning.h>
+#include <xen/static-memory.h>
 #include <xen/static-shmem.h>
 #include <asm/device.h>
 #include <asm/setup.h>
@@ -2171,7 +2172,14 @@ int __init construct_hwdom(struct kernel_info *kinfo,
 
     find_gnttab_region(d, kinfo);
     if ( is_domain_direct_mapped(d) )
-        allocate_memory_11(d, kinfo);
+    {
+#ifdef CONFIG_STATIC_MEMORY
+        if ( node && dt_find_property(node, "xen,static-mem", NULL) )
+            assign_static_memory_11(d, kinfo, node);
+        else
+#endif
+            allocate_memory_11(d, kinfo);
+    }
     else
         allocate_memory(d, kinfo);
 
