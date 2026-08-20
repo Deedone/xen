@@ -166,6 +166,9 @@ variables:
     - "vpsci/system-suspend/32-bit-arguments"
     # [XenValTestJob~~1->XenValTestCode~arm64_virt_psci_system_suspend_rej_secondaty_cpu_online~1]
     - "vpsci/system-suspend/secondary-online"
+    # [XenValTestJob~~1->XenValTestCode~arm64_virt_psci_system_suspend_rej_context_alloc_fail~1]
+    # QEMU-only: relies on LLDB fault injection.
+    - "vpsci/system-suspend/context-allocation-failure"
 
 .zephyr-test-matrix:
   parallel:
