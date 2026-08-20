@@ -17,12 +17,9 @@ export TFA_BIN="${TFA_BIN:-${WORKDIR}/qemu_fw.bios}"
 # TF-A/QEMU Zephyr test memory layout:
 #   0x40000000              device tree
 #   0x40080000              Xen (preloaded BL33)
-#   0x41000000              Zephyr Dom0 boot module
+#   0x41000000              Zephyr control-domain boot module
 #   0x42000000 and above    DomU boot modules, 16 MiB apart
-#   0x48000000              Dom0 allocation guard
-#   0x58000000-0x60000000   Dom0 RAM expected by the Zephyr build
-DOM0_LAYOUT_RESERVE_ADDR=0x48000000
-DOM0_LAYOUT_RESERVE_SIZE=0x1000
+#   0x58000000-0x60000000   static control-domain RAM
 
 export QEMU_LOG="${QEMU_LOG:-${XEN_ROOT}/qemu.serial}"
 
@@ -130,12 +127,16 @@ cp build/zephyr/zephyr.bin ${WORKDIR}/${APP_NAME}.bin
 
 # Recompile xen.dtb from xen.dts to ensure it's up-to-date. A test may ship an
 # xen.overlay (extra pCPUs, boot-time cpupools, ...) applied on top of it.
+dtc -@ -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen-base.dtb
+dtc -@ -I dts -O dtb ${ZTESTS_ROOT}/device-tree/control-domain.overlay \
+    -o ${WORKDIR}/control-domain.dtbo
 if [ -f "${TEST_DIR}/xen.overlay" ]; then
-    dtc -@ -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen-base.dtb
     dtc -@ -I dts -O dtb ${TEST_DIR}/xen.overlay -o ${WORKDIR}/xen.dtbo
-    fdtoverlay -i ${WORKDIR}/xen-base.dtb -o ${WORKDIR}/xen.dtb ${WORKDIR}/xen.dtbo
+    fdtoverlay -i ${WORKDIR}/xen-base.dtb -o ${WORKDIR}/xen.dtb \
+        ${WORKDIR}/xen.dtbo ${WORKDIR}/control-domain.dtbo
 else
-    dtc -I dts -O dtb ${ZTESTS_ROOT}/device-tree/xen.dts -o ${WORKDIR}/xen.dtb
+    fdtoverlay -i ${WORKDIR}/xen-base.dtb -o ${WORKDIR}/xen.dtb \
+        ${WORKDIR}/control-domain.dtbo
 fi
 
 QEMU_BOOT_ARGS=(-kernel "${XEN_BIN}")
@@ -145,24 +146,16 @@ if [ "${USE_TFA}" = "true" ]; then
         -device "loader,file=${XEN_BIN},addr=0x40080000,force-raw=on"
         -bios "${TFA_BIN}"
     )
-
-    # Direct kernel boot placed the DTB at 0x48000000, causing Xen to skip that
-    # 128 MiB-aligned bank and allocate Dom0 at 0x58000000. TF-A keeps the DTB at
-    # 0x40000000, so reserve one page at the old address to preserve the placement
-    # expected by the Zephyr xen_dom0_overlay snippet.
-    DOM0_LAYOUT_RESERVE_NODE="/reserved-memory/zephyr-dom0-layout"
-    DOM0_LAYOUT_RESERVE_NODE+="@${DOM0_LAYOUT_RESERVE_ADDR#0x}"
-    fdtput -p -t x ${WORKDIR}/xen.dtb /reserved-memory '#address-cells' 2
-    fdtput -p -t x ${WORKDIR}/xen.dtb /reserved-memory '#size-cells' 2
-    fdtput -p -t x ${WORKDIR}/xen.dtb ${DOM0_LAYOUT_RESERVE_NODE} reg \
-        0 ${DOM0_LAYOUT_RESERVE_ADDR} 0 ${DOM0_LAYOUT_RESERVE_SIZE}
 fi
 
 REG_ADDR=0x41000000
 REG_SIZE=$(printf "0x%x" "$(stat -c '%s' "${WORKDIR}/${APP_NAME}.bin")")
 
-fdtput -t x ${WORKDIR}/xen.dtb /chosen/module@41000000 reg ${REG_ADDR} ${REG_SIZE}
-fdtget -t x ${WORKDIR}/xen.dtb /chosen/module@41000000 reg
+CONTROL_NODE=/chosen/control-domain
+fdtput -t i ${WORKDIR}/xen.dtb ${CONTROL_NODE} cpus "${CONTROL_VCPUS:-1}"
+fdtput -t x ${WORKDIR}/xen.dtb ${CONTROL_NODE}/module@41000000 reg \
+    ${REG_ADDR} ${REG_SIZE}
+fdtget -t x ${WORKDIR}/xen.dtb ${CONTROL_NODE}/module@41000000 reg
 
 # dom0less domains: DOM0LESS_DOMUS lists one kernel per /chosen/domU<n> node
 # of the test's xen.dts, in ascending <n> order. Each kernel is loaded at

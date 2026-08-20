@@ -76,7 +76,7 @@ GEN5_BASE_DTS="${GEN5_BASE_DTS:-${XEN_ROOT}/automation/device-tree/r8a78000-iron
 export XEN_BINARY="${XEN_BINARY:-${WORKDIR}/xen}"
 # Drive the Gen5 UART by explicit node path /soc/serial@c0710000 (prefer the
 # explicit path over the serial0 alias for Xen's dtuart).
-export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all dom0_mem=128M noreboot console_timestamps=boot console=dtuart dtuart=/soc/serial@c0710000}"
+export XEN_CMDLINE="${XEN_CMDLINE:-loglvl=all noreboot console_timestamps=boot console=dtuart dtuart=/soc/serial@c0710000}"
 
 export ZEPHYR_SDK_INSTALL_DIR=/home/gitlab-runner/zephyr-sdk-1.0.1
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
@@ -163,10 +163,20 @@ fdt resize 1024
 fdt set /chosen \\#address-cells <0x2>
 fdt set /chosen \\#size-cells <0x2>
 fdt set /chosen xen,xen-bootargs "${XEN_CMDLINE}"
-fdt mknod /chosen dom0@48400000
-fdt set /chosen/dom0@48400000 compatible  "xen,linux-zimage" "xen,multiboot-module" "multiboot,module"
-fdt set /chosen/dom0@48400000 reg <0x0 0x48400000 0x0 $(printf '0x%x' "${TEST_APP_SIZE}") >
-fdt set /chosen xen,dom0-bootargs "console=hvc0"
+fdt mknod /chosen control-domain
+fdt set /chosen/control-domain compatible "xen,domain"
+fdt set /chosen/control-domain \#address-cells <0x2>
+fdt set /chosen/control-domain \#size-cells <0x2>
+fdt set /chosen/control-domain domid <0x0>
+fdt set /chosen/control-domain capabilities <0x3>
+fdt set /chosen/control-domain cpus <0x1>
+fdt set /chosen/control-domain memory <0x0 0x20000>
+fdt set /chosen/control-domain xen,static-mem <0x0 0x40000000 0x0 0x08000000>
+fdt set /chosen/control-domain direct-map
+fdt mknod /chosen/control-domain module@48400000
+fdt set /chosen/control-domain/module@48400000 compatible "multiboot,kernel" "multiboot,module"
+fdt set /chosen/control-domain/module@48400000 reg <0x0 0x48400000 0x0 $(printf '0x%x' "${TEST_APP_SIZE}") >
+fdt set /chosen/control-domain/module@48400000 bootargs "console=hvc0"
 ${_policy_fdt}
 setenv fdt_high 0xffffffffffffffff
 booti 0x4b200000 - 0x4d000000
