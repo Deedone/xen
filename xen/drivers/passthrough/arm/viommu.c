@@ -13,6 +13,7 @@ LIST_HEAD(host_iommu_list);
 
 /* Struct to hold the vIOMMU ops and vIOMMU type */
 static const struct viommu_desc __ro_after_init *cur_viommu;
+static bool host_iommu_list_incomplete;
 
 /* Common function for adding to host_iommu_list */
 void add_to_host_iommu_list(paddr_t addr, paddr_t size,
@@ -20,6 +21,7 @@ void add_to_host_iommu_list(paddr_t addr, paddr_t size,
                             uint32_t features)
 {
     struct host_iommu *iommu_data;
+    int irq;
 
     iommu_data = xzalloc(struct host_iommu);
     if ( !iommu_data )
@@ -29,14 +31,17 @@ void add_to_host_iommu_list(paddr_t addr, paddr_t size,
     iommu_data->size = size;
     iommu_data->dt_node = node;
     iommu_data->features = features;
-    iommu_data->irq = platform_get_irq(node, 0);
-    if ( iommu_data->irq < 0 )
+    irq = platform_get_irq(node, 0);
+    if ( irq < 0 )
     {
-        gdprintk(XENLOG_ERR,
-                 "vIOMMU: Cannot find a valid IOMMU irq\n");
+        host_iommu_list_incomplete = true;
+        printk(XENLOG_WARNING
+               "vIOMMU: disabling support because IOMMU @0x%"PRIx64
+               " has no usable IRQ (%d)\n", addr, irq);
         xfree(iommu_data);
         return;
     }
+    iommu_data->irq = irq;
 
     printk("vIOMMU: Found IOMMU @0x%"PRIx64"\n", addr);
 
@@ -74,7 +79,8 @@ int viommu_allocate_free_vid(struct domain *d, uint32_t id, uint32_t *vid) {
 
 uint8_t viommu_get_type(void)
 {
-    if ( !cur_viommu )
+    if ( !cur_viommu || host_iommu_list_incomplete ||
+         list_empty(&host_iommu_list) )
         return XEN_DOMCTL_CONFIG_VIOMMU_NONE;
 
     return cur_viommu->viommu_type;
