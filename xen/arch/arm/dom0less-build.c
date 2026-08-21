@@ -464,7 +464,15 @@ int __init arch_parse_dom0less_node(struct dt_device_node *node,
 
         d_cfg->arch.nr_spis = vgic_def_nr_spis();
 
-        if ( is_pci_scan_enabled() )
+        /*
+         * pci-scan only covers the DomU case. Keep the hardware domain in
+         * sync with create_dom0(), which gives it vPCI as soon as Xen drives
+         * the host bridges, or its config accesses bypass Xen entirely.
+         */
+        if ( is_pci_scan_enabled() ||
+             (IS_ENABLED(CONFIG_HAS_VPCI) && (flags & CDF_hardware) &&
+              iommu_enabled &&
+              pci_host_iterate_bridges_and_count(NULL, NULL) > 0) )
             d_cfg->flags |= XEN_DOMCTL_CDF_vpci;
 
         /*
