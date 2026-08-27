@@ -23,6 +23,7 @@
 #include <xen/lib.h>
 #include <xen/sched.h>
 #include <xen/softirq.h>
+#include <xen/xvmalloc.h>
 
 #include <xsm/xsm.h>
 
@@ -35,7 +36,7 @@
 
 struct map_data {
     struct domain *d;
-    const struct vpci_bar *bar;
+    const struct vpci_bar_map *bar;
     bool map;
 };
 
@@ -174,32 +175,20 @@ static void modify_decoding(const struct pci_dev *pdev, uint16_t cmd,
         ASSERT_UNREACHABLE();
 }
 
-bool vpci_process_pending(struct vcpu *v)
+static int vpci_process_map_task(const struct pci_dev *pdev,
+                                 struct vpci_map_task *task)
 {
-    const struct pci_dev *pdev = v->vpci.pdev;
-    struct vpci_header *header = NULL;
     unsigned int i;
 
-    if ( !pdev )
-        return false;
+    ASSERT(rw_is_locked(&pdev->domain->pci_lock));
 
-    read_lock(&v->domain->pci_lock);
-
-    if ( !pdev->vpci || (v->domain != pdev->domain) )
+    for ( i = 0; i < ARRAY_SIZE(task->bars); i++ )
     {
-        v->vpci.pdev = NULL;
-        read_unlock(&v->domain->pci_lock);
-        return false;
-    }
-
-    header = &pdev->vpci->header;
-    for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
-    {
-        struct vpci_bar *bar = &header->bars[i];
+        struct vpci_bar_map *bar = &task->bars[i];
         struct rangeset *mem = bar->mem;
         struct map_data data = {
-            .d = v->domain,
-            .map = v->vpci.cmd & PCI_COMMAND_MEMORY,
+            .d = pdev->domain,
+            .map = task->cmd & PCI_COMMAND_MEMORY,
             .bar = bar,
         };
         int rc;
@@ -210,38 +199,98 @@ bool vpci_process_pending(struct vcpu *v)
         rc = rangeset_consume_ranges(mem, map_range, &data);
 
         if ( rc == -ERESTART )
-        {
-            read_unlock(&v->domain->pci_lock);
-            return true;
-        }
+            return rc;
 
         if ( rc )
         {
             spin_lock(&pdev->vpci->lock);
             /* Disable memory decoding unconditionally on failure. */
-            modify_decoding(pdev, v->vpci.cmd & ~PCI_COMMAND_MEMORY, false);
+            modify_decoding(pdev, task->cmd & ~PCI_COMMAND_MEMORY, false);
             spin_unlock(&pdev->vpci->lock);
 
-            /* Clean all the rangesets */
-            for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
-                if ( !rangeset_is_empty(header->bars[i].mem) )
-                     rangeset_purge(header->bars[i].mem);
+            if ( !is_hardware_domain(pdev->domain) )
+                domain_crash(pdev->domain);
 
-            v->vpci.pdev = NULL;
+            return rc;
+        }
+    }
 
+    spin_lock(&pdev->vpci->lock);
+    modify_decoding(pdev, task->cmd, task->rom_only);
+    spin_unlock(&pdev->vpci->lock);
+
+    return 0;
+}
+
+static void destroy_map_task(struct vpci_map_task *task)
+{
+    unsigned int i;
+
+    if ( !task )
+    {
+        ASSERT_UNREACHABLE();
+        return;
+    }
+
+    for ( i = 0; i < ARRAY_SIZE(task->bars); i++ )
+        rangeset_destroy(task->bars[i].mem);
+
+    xvfree(task);
+}
+
+static void clear_map_queue(struct vcpu *v)
+{
+    struct vpci_map_task *task;
+
+    while ( (task = list_first_entry_or_null(&v->vpci.task_queue,
+                                             struct vpci_map_task,
+                                             next)) != NULL )
+    {
+        list_del(&task->next);
+        destroy_map_task(task);
+    }
+}
+
+bool vpci_process_pending(struct vcpu *v)
+{
+    const struct pci_dev *pdev = v->vpci.pdev;
+    struct vpci_map_task *task;
+
+    if ( !pdev )
+        return false;
+
+    read_lock(&v->domain->pci_lock);
+
+    if ( !pdev->vpci || (v->domain != pdev->domain) )
+    {
+        clear_map_queue(v);
+        v->vpci.pdev = NULL;
+        read_unlock(&v->domain->pci_lock);
+        return false;
+    }
+
+    while ( (task = list_first_entry_or_null(&v->vpci.task_queue,
+                                             struct vpci_map_task,
+                                             next)) != NULL )
+    {
+        int rc = vpci_process_map_task(pdev, task);
+
+        if ( rc == -ERESTART )
+        {
             read_unlock(&v->domain->pci_lock);
+            return true;
+        }
 
-            if ( !is_hardware_domain(v->domain) )
-                domain_crash(v->domain);
+        list_del(&task->next);
+        destroy_map_task(task);
 
-            return false;
+        if ( rc )
+        {
+            clear_map_queue(v);
+            break;
         }
     }
     v->vpci.pdev = NULL;
-
-    spin_lock(&pdev->vpci->lock);
-    modify_decoding(pdev, v->vpci.cmd, v->vpci.rom_only);
-    spin_unlock(&pdev->vpci->lock);
 
     read_unlock(&v->domain->pci_lock);
 
@@ -249,17 +298,16 @@ bool vpci_process_pending(struct vcpu *v)
 }
 
 static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
-                            uint16_t cmd)
+                            struct vpci_map_task *task)
 {
-    struct vpci_header *header = &pdev->vpci->header;
     int rc = 0;
     unsigned int i;
 
     ASSERT(rw_is_write_locked(&d->pci_lock));
 
-    for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
+    for ( i = 0; i < ARRAY_SIZE(task->bars); i++ )
     {
-        struct vpci_bar *bar = &header->bars[i];
+        struct vpci_bar_map *bar = &task->bars[i];
         struct rangeset *mem = bar->mem;
         struct map_data data = { .d = d, .map = true, .bar = bar };
 
@@ -280,14 +328,51 @@ static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
         }
     }
     if ( !rc )
-        modify_decoding(pdev, cmd, false);
+        modify_decoding(pdev, task->cmd, false);
 
     return rc;
 }
 
-static void defer_map(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
+static struct vpci_map_task *alloc_map_task(const struct pci_dev *pdev,
+                                            uint16_t cmd, bool rom_only)
+{
+    struct vpci_map_task *task;
+    unsigned int i;
+
+    task = xvzalloc(struct vpci_map_task);
+
+    if ( !task )
+        return NULL;
+
+    for ( i = 0; i < ARRAY_SIZE(task->bars); i++ )
+    {
+        if ( !MAPPABLE_BAR(&pdev->vpci->header.bars[i]) )
+            continue;
+
+        task->bars[i].mem = rangeset_new(pdev->domain, NULL,
+                                         RANGESETF_no_print);
+
+        if ( !task->bars[i].mem )
+        {
+            destroy_map_task(task);
+            return NULL;
+        }
+
+        task->bars[i].addr = pdev->vpci->header.bars[i].addr;
+        task->bars[i].guest_addr = pdev->vpci->header.bars[i].guest_addr;
+    }
+
+    task->cmd = cmd;
+    task->rom_only = rom_only;
+
+    return task;
+}
+
+static void defer_map(const struct pci_dev *pdev, struct vpci_map_task *task)
 {
     struct vcpu *curr = current;
+
+    ASSERT(!curr->vpci.pdev || curr->vpci.pdev == pdev);
 
     /*
      * FIXME: when deferring the {un}map the state of the device should not
@@ -296,8 +381,8 @@ static void defer_map(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
      * started for the same device if the domain is not well-behaved.
      */
     curr->vpci.pdev = pdev;
-    curr->vpci.cmd = cmd;
-    curr->vpci.rom_only = rom_only;
+    list_add_tail(&task->next, &curr->vpci.task_queue);
+
     /*
      * Raise a scheduler softirq in order to prevent the guest from resuming
      * execution with pending mapping operations, to trigger the invocation
@@ -312,10 +397,16 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
     struct pci_dev *tmp;
     const struct domain *d;
     const struct vpci_msix *msix = pdev->vpci->msix;
+    struct vpci_map_task *task;
     unsigned int i, j;
     int rc;
 
     ASSERT(rw_is_write_locked(&pdev->domain->pci_lock));
+
+    task = alloc_map_task(pdev, cmd, rom_only);
+
+    if ( !task )
+        return -ENOMEM;
 
     /*
      * Create a rangeset per BAR that represents the current device memory
@@ -332,7 +423,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
     for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
     {
         struct vpci_bar *bar = &header->bars[i];
-        struct rangeset *mem = bar->mem;
+        struct rangeset *mem = task->bars[i].mem;
         unsigned long start = PFN_DOWN(bar->addr);
         unsigned long end = PFN_DOWN(bar->addr + bar->size - 1);
         unsigned long start_guest = PFN_DOWN(bar->guest_addr);
@@ -343,9 +434,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
 
         if ( !MAPPABLE_BAR(bar) ||
              (rom_only ? bar->type != VPCI_BAR_ROM
-                       : (bar->type == VPCI_BAR_ROM && !header->rom_enabled)) ||
-             /* Skip BARs already in the requested state. */
-             bar->enabled == !!(cmd & PCI_COMMAND_MEMORY) )
+                       : (bar->type == VPCI_BAR_ROM && !header->rom_enabled)) )
             continue;
 
         if ( !pci_check_bar(pdev, _mfn(start), _mfn(end)) )
@@ -368,7 +457,8 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             gprintk(XENLOG_G_WARNING,
                     "%pp: can't map BAR%u - offset mismatch: %#lx vs %#lx\n",
                     &pdev->sbdf, i, bar->guest_addr, bar->addr);
-            return -EINVAL;
+            rc = -EINVAL;
+            goto fail;
         }
 
         rc = rangeset_add_range(mem, start_guest, end_guest);
@@ -376,13 +466,13 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
         {
             printk(XENLOG_G_WARNING "Failed to add [%lx, %lx]: %d\n",
                    start_guest, end_guest, rc);
-            return rc;
+            goto fail;
         }
 
         /* Check for overlap with the already setup BAR ranges. */
         for ( j = 0; j < i; j++ )
         {
-            struct rangeset *prev_mem = header->bars[j].mem;
+            struct rangeset *prev_mem = task->bars[j].mem;
 
             if ( rangeset_is_empty(prev_mem) )
                 continue;
@@ -393,7 +483,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                 gprintk(XENLOG_WARNING,
                        "%pp: failed to remove overlapping range [%lx, %lx]: %d\n",
                         &pdev->sbdf, start_guest, end_guest, rc);
-                return rc;
+                goto fail;
             }
         }
 
@@ -403,7 +493,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             gprintk(XENLOG_WARNING,
                     "%pp: failed to sanitize BAR#%u memory: %d\n",
                     &pdev->sbdf, i, rc);
-            return rc;
+            goto fail;
         }
     }
 
@@ -414,9 +504,9 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
         unsigned long end = PFN_DOWN(vmsix_table_addr(pdev->vpci, i) +
                                      vmsix_table_size(pdev->vpci, i) - 1);
 
-        for ( j = 0; j < ARRAY_SIZE(header->bars); j++ )
+        for ( j = 0; j < ARRAY_SIZE(task->bars); j++ )
         {
-            struct rangeset *mem = header->bars[j].mem;
+            struct rangeset *mem = task->bars[j].mem;
 
             if ( rangeset_is_empty(mem) )
                 continue;
@@ -427,7 +517,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                 gprintk(XENLOG_WARNING,
                        "%pp: failed to remove MSIX table [%lx, %lx]: %d\n",
                         &pdev->sbdf, start, end, rc);
-                return rc;
+                goto fail;
             }
         }
     }
@@ -471,7 +561,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                 for ( j = 0; j < ARRAY_SIZE(header->bars); j++)
                 {
                     const struct vpci_bar *bar = &header->bars[j];
-                    struct rangeset *mem = bar->mem;
+                    struct rangeset *mem = task->bars[j].mem;
 
                     if ( !rangeset_overlaps_range(mem, start, end) ||
                          /*
@@ -490,7 +580,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                         gprintk(XENLOG_WARNING,
                                 "%pp: failed to remove [%lx, %lx]: %d\n",
                                 &pdev->sbdf, start, end, rc);
-                        return rc;
+                        goto fail;
                     }
                 }
             }
@@ -513,12 +603,19 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
          * will always be to establish mappings and process all the BARs.
          */
         ASSERT((cmd & PCI_COMMAND_MEMORY) && !rom_only);
-        return apply_map(pdev->domain, pdev, cmd);
+        rc = apply_map(pdev->domain, pdev, task);
+        destroy_map_task(task);
+        return rc;
     }
 
-    defer_map(pdev, cmd, rom_only);
+    defer_map(pdev, task);
 
     return 0;
+
+ fail:
+    destroy_map_task(task);
+
+    return rc;
 }
 
 static void cf_check cmd_write(
@@ -737,18 +834,6 @@ static void cf_check rom_write(
     }
 }
 
-static int bar_add_rangeset(const struct pci_dev *pdev, struct vpci_bar *bar,
-                            unsigned int i)
-{
-    char str[32];
-
-    snprintf(str, sizeof(str), "%pp:BAR%u", &pdev->sbdf, i);
-
-    bar->mem = rangeset_new(pdev->domain, str, RANGESETF_no_print);
-
-    return !bar->mem ? -ENOMEM : 0;
-}
-
 int vpci_init_header(struct pci_dev *pdev)
 {
     uint16_t cmd;
@@ -859,10 +944,6 @@ int vpci_init_header(struct pci_dev *pdev)
         else
             bars[i].type = VPCI_BAR_MEM32;
 
-        rc = bar_add_rangeset(pdev, &bars[i], i);
-        if ( rc )
-            goto fail;
-
         rc = pci_size_mem_bar(pdev->sbdf, reg, &addr, &size,
                               (i == num_bars - 1) ? PCI_BAR_LAST : 0);
         if ( rc < 0 )
@@ -916,12 +997,6 @@ int vpci_init_header(struct pci_dev *pdev)
                                4, rom);
         if ( rc )
             rom->type = VPCI_BAR_EMPTY;
-        else
-        {
-            rc = bar_add_rangeset(pdev, rom, num_bars);
-            if ( rc )
-                goto fail;
-        }
     }
     else if ( !is_hwdom )
     {

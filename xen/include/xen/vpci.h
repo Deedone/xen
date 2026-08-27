@@ -19,6 +19,8 @@
  */
 #define VPCI_MAX_VIRT_DEV       (PCI_SLOT(~0) + 1)
 
+void vpci_vcpu_init(struct vcpu *v);
+
 /* Assign vPCI to device by adding handlers. */
 int __must_check vpci_assign_device(struct pci_dev *pdev);
 
@@ -54,7 +56,6 @@ struct vpci {
             uint64_t guest_addr;
             uint64_t size;
             uint64_t resizable_sizes;
-            struct rangeset *mem;
             enum {
                 VPCI_BAR_EMPTY,
                 VPCI_BAR_IO,
@@ -152,14 +153,24 @@ struct vpci {
 #endif
 };
 
-struct vpci_vcpu {
+#ifdef __XEN__
+struct vpci_map_task {
     /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
-    const struct pci_dev *pdev;
+    struct list_head next;
+    struct vpci_bar_map {
+        uint64_t addr;
+        uint64_t guest_addr;
+        struct rangeset *mem;
+    } bars[ARRAY_SIZE(((struct vpci_header *)NULL)->bars)];
     uint16_t cmd;
     bool rom_only : 1;
 };
 
-#ifdef __XEN__
+struct vpci_vcpu {
+    const struct pci_dev *pdev;
+    struct list_head task_queue;
+};
+
 void vpci_dump_msi(void);
 
 /* Arch-specific vPCI MSI helpers. */
@@ -203,6 +214,8 @@ bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 
 #else /* !CONFIG_HAS_VPCI */
 struct vpci_vcpu {};
+
+static inline void vpci_vcpu_init(struct vcpu *v) { }
 
 static inline int vpci_reinit_ext_capabilities(struct pci_dev *pdev)
 {
