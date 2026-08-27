@@ -7,6 +7,8 @@ bool efi_enabled(unsigned int feature)
     return false;
 }
 
+#ifdef CONFIG_X86
+
 unsigned long efi_get_time(void)
 {
     BUG();
@@ -34,3 +36,5 @@ int efi_compat_runtime_call(struct compat_pf_efi_runtime_call *)
     __attribute__((__alias__("efi_runtime_call")));
 
 #endif
+
+#endif /* CONFIG_X86 */
