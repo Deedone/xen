@@ -196,6 +196,7 @@ bool vpci_process_pending(struct vcpu *v)
     for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
     {
         struct vpci_bar *bar = &header->bars[i];
+        struct rangeset *mem = bar->mem;
         struct map_data data = {
             .d = v->domain,
             .map = v->vpci.cmd & PCI_COMMAND_MEMORY,
@@ -203,10 +204,10 @@ bool vpci_process_pending(struct vcpu *v)
         };
         int rc;
 
-        if ( rangeset_is_empty(bar->mem) )
+        if ( rangeset_is_empty(mem) )
             continue;
 
-        rc = rangeset_consume_ranges(bar->mem, map_range, &data);
+        rc = rangeset_consume_ranges(mem, map_range, &data);
 
         if ( rc == -ERESTART )
         {
@@ -218,8 +219,7 @@ bool vpci_process_pending(struct vcpu *v)
         {
             spin_lock(&pdev->vpci->lock);
             /* Disable memory decoding unconditionally on failure. */
-            modify_decoding(pdev, v->vpci.cmd & ~PCI_COMMAND_MEMORY,
-                            false);
+            modify_decoding(pdev, v->vpci.cmd & ~PCI_COMMAND_MEMORY, false);
             spin_unlock(&pdev->vpci->lock);
 
             /* Clean all the rangesets */
@@ -260,13 +260,14 @@ static int __init apply_map(struct domain *d, const struct pci_dev *pdev,
     for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
     {
         struct vpci_bar *bar = &header->bars[i];
+        struct rangeset *mem = bar->mem;
         struct map_data data = { .d = d, .map = true, .bar = bar };
 
-        if ( rangeset_is_empty(bar->mem) )
+        if ( rangeset_is_empty(mem) )
             continue;
 
-        while ( (rc = rangeset_consume_ranges(bar->mem, map_range,
-                                              &data)) == -ERESTART )
+        while ( (rc = rangeset_consume_ranges(mem, map_range, &data)) ==
+                -ERESTART )
         {
             /*
              * It's safe to drop and reacquire the lock in this context
@@ -331,12 +332,13 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
     for ( i = 0; i < ARRAY_SIZE(header->bars); i++ )
     {
         struct vpci_bar *bar = &header->bars[i];
+        struct rangeset *mem = bar->mem;
         unsigned long start = PFN_DOWN(bar->addr);
         unsigned long end = PFN_DOWN(bar->addr + bar->size - 1);
         unsigned long start_guest = PFN_DOWN(bar->guest_addr);
         unsigned long end_guest = PFN_DOWN(bar->guest_addr + bar->size - 1);
 
-        if ( !bar->mem )
+        if ( !mem )
             continue;
 
         if ( !MAPPABLE_BAR(bar) ||
@@ -354,7 +356,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             continue;
         }
 
-        ASSERT(rangeset_is_empty(bar->mem));
+        ASSERT(rangeset_is_empty(mem));
 
         /*
          * Make sure that the guest set address has the same page offset
@@ -369,7 +371,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             return -EINVAL;
         }
 
-        rc = rangeset_add_range(bar->mem, start_guest, end_guest);
+        rc = rangeset_add_range(mem, start_guest, end_guest);
         if ( rc )
         {
             printk(XENLOG_G_WARNING "Failed to add [%lx, %lx]: %d\n",
@@ -380,12 +382,12 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
         /* Check for overlap with the already setup BAR ranges. */
         for ( j = 0; j < i; j++ )
         {
-            struct vpci_bar *prev_bar = &header->bars[j];
+            struct rangeset *prev_mem = header->bars[j].mem;
 
-            if ( rangeset_is_empty(prev_bar->mem) )
+            if ( rangeset_is_empty(prev_mem) )
                 continue;
 
-            rc = rangeset_remove_range(prev_bar->mem, start_guest, end_guest);
+            rc = rangeset_remove_range(prev_mem, start_guest, end_guest);
             if ( rc )
             {
                 gprintk(XENLOG_WARNING,
@@ -395,7 +397,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
             }
         }
 
-        rc = pci_sanitize_bar_memory(bar->mem);
+        rc = pci_sanitize_bar_memory(mem);
         if ( rc )
         {
             gprintk(XENLOG_WARNING,
@@ -414,12 +416,12 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
 
         for ( j = 0; j < ARRAY_SIZE(header->bars); j++ )
         {
-            const struct vpci_bar *bar = &header->bars[j];
+            struct rangeset *mem = header->bars[j].mem;
 
-            if ( rangeset_is_empty(bar->mem) )
+            if ( rangeset_is_empty(mem) )
                 continue;
 
-            rc = rangeset_remove_range(bar->mem, start, end);
+            rc = rangeset_remove_range(mem, start, end);
             if ( rc )
             {
                 gprintk(XENLOG_WARNING,
@@ -469,8 +471,9 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                 for ( j = 0; j < ARRAY_SIZE(header->bars); j++)
                 {
                     const struct vpci_bar *bar = &header->bars[j];
+                    struct rangeset *mem = bar->mem;
 
-                    if ( !rangeset_overlaps_range(bar->mem, start, end) ||
+                    if ( !rangeset_overlaps_range(mem, start, end) ||
                          /*
                           * If only the ROM enable bit is toggled check against
                           * other BARs in the same device for overlaps, but not
@@ -481,7 +484,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                           bar->type == VPCI_BAR_ROM) )
                         continue;
 
-                    rc = rangeset_remove_range(bar->mem, start, end);
+                    rc = rangeset_remove_range(mem, start, end);
                     if ( rc )
                     {
                         gprintk(XENLOG_WARNING,
