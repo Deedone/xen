@@ -175,10 +175,10 @@ static void modify_decoding(const struct pci_dev *pdev, uint16_t cmd,
         ASSERT_UNREACHABLE();
 }
 
-static int vpci_process_map_task(const struct pci_dev *pdev,
-                                 struct vpci_map_task *task)
+static int vpci_process_map_task(struct vpci_map_task *task)
 {
     unsigned int i;
+    const struct pci_dev *pdev = task->pdev;
 
     ASSERT(rw_is_locked(&pdev->domain->pci_lock));
 
@@ -253,27 +253,26 @@ static void clear_map_queue(struct vcpu *v)
 
 bool vpci_process_pending(struct vcpu *v)
 {
-    const struct pci_dev *pdev = v->vpci.pdev;
     struct vpci_map_task *task;
 
-    if ( !pdev )
+    if ( list_empty(&v->vpci.task_queue) )
         return false;
 
     read_lock(&v->domain->pci_lock);
 
-    if ( !pdev->vpci || (v->domain != pdev->domain) )
-    {
-        clear_map_queue(v);
-        v->vpci.pdev = NULL;
-        read_unlock(&v->domain->pci_lock);
-        return false;
-    }
+    // if ( !pdev->vpci || (v->domain != pdev->domain) )
+    // {
+    //     clear_map_queue(v);
+    //     v->vpci.pdev = NULL;
+    //     read_unlock(&v->domain->pci_lock);
+    //     return false;
+    // }
 
     while ( (task = list_first_entry_or_null(&v->vpci.task_queue,
                                              struct vpci_map_task,
                                              next)) != NULL )
     {
-        int rc = vpci_process_map_task(pdev, task);
+        int rc = vpci_process_map_task(task);
 
         if ( rc == -ERESTART )
         {
@@ -290,7 +289,6 @@ bool vpci_process_pending(struct vcpu *v)
             break;
         }
     }
-    v->vpci.pdev = NULL;
 
     read_unlock(&v->domain->pci_lock);
 
@@ -364,15 +362,14 @@ static struct vpci_map_task *alloc_map_task(const struct pci_dev *pdev,
 
     task->cmd = cmd;
     task->rom_only = rom_only;
+    task->pdev = pdev;
 
     return task;
 }
 
-static void defer_map(const struct pci_dev *pdev, struct vpci_map_task *task)
+static void defer_map(struct vpci_map_task *task)
 {
     struct vcpu *curr = current;
-
-    ASSERT(!curr->vpci.pdev || curr->vpci.pdev == pdev);
 
     /*
      * FIXME: when deferring the {un}map the state of the device should not
@@ -380,7 +377,6 @@ static void defer_map(const struct pci_dev *pdev, struct vpci_map_task *task)
      * is mapped. This can lead to parallel mapping operations being
      * started for the same device if the domain is not well-behaved.
      */
-    curr->vpci.pdev = pdev;
     list_add_tail(&task->next, &curr->vpci.task_queue);
 
     /*
@@ -608,7 +604,7 @@ int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
         return rc;
     }
 
-    defer_map(pdev, task);
+    defer_map(task);
 
     return 0;
 

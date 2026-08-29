@@ -164,10 +164,10 @@ struct vpci_map_task {
     } bars[ARRAY_SIZE(((struct vpci_header *)NULL)->bars)];
     uint16_t cmd;
     bool rom_only : 1;
+    const struct pci_dev *pdev;
 };
 
 struct vpci_vcpu {
-    const struct pci_dev *pdev;
     struct list_head task_queue;
 };
 
