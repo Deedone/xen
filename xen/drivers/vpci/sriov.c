@@ -30,7 +30,7 @@ static int vf_init_bars(struct pci_dev *vf_pdev)
                                       sriov_pos + PCI_SRIOV_VF_STRIDE);
 
     vf_idx = vf_pdev->sbdf.sbdf - (pf_pdev->sbdf.sbdf + offset);
-    if ( vf_idx < 0 || vf_idx >= sriov->num_vfs )
+    if ( vf_idx < 0 )
         return -EINVAL;
 
     if ( sriov->num_vfs > 1 && !stride )
@@ -42,6 +42,9 @@ static int vf_init_bars(struct pci_dev *vf_pdev)
             return -EINVAL;
         vf_idx /= stride;
     }
+
+    if ( vf_idx >= sriov->num_vfs )
+        return -EINVAL;
 
     /*
      * Set up BARs for this VF out of PF's VF BARs taking into account
