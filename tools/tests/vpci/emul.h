@@ -101,6 +101,10 @@ typedef union {
 #define pci_get_pdev(...) (&test_pdev)
 #define pci_get_ro_map(...) NULL
 
+#define pci_vf_setup_pending(...) false
+#define vpci_sriov_add_vf(...) false
+#define vpci_sriov_drop_vfs(...)
+
 #define test_bit(...) false
 
 /* Dummy native helpers. Writes are ignored, reads return 1's. */

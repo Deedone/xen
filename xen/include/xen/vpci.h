@@ -4,6 +4,7 @@
 #ifdef CONFIG_HAS_VPCI
 
 #include <xen/pci.h>
+#include <xen/time.h>
 #include <xen/types.h>
 #include <xen/list.h>
 
@@ -147,6 +148,15 @@ struct vpci {
     struct vpci_sriov {
         /* PF only */
         struct vpci_bar vf_bars[PCI_SRIOV_NUM_BARS];
+        /*
+         * When the VFs which are enabled but not added to Xen yet are
+         * guaranteed to respond to config space accesses.  Zero if there are
+         * none.
+         */
+        s_time_t vfs_ready;
+        /* Routing ID offset of the first VF, and stride between VFs. */
+        uint16_t offset;
+        uint16_t stride;
         uint16_t num_vfs;
         unsigned int pos;
     } *sriov;
@@ -175,6 +185,12 @@ struct vpci_map_task {
 
 struct vpci_vcpu {
     struct list_head task_queue;
+    /*
+     * PF whose VFs have been disabled by the config space write in progress,
+     * and which Xen has to remove once the PCI locks have been dropped.  All
+     * ones when there is none.
+     */
+    pci_sbdf_t drop_vfs_pf;
 };
 
 void vpci_dump_msi(void);

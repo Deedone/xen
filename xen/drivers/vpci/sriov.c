@@ -6,6 +6,8 @@
  */
 
 #include <xen/sched.h>
+#include <xen/softirq.h>
+#include <xen/time.h>
 #include <xen/vpci.h>
 
 #include <xsm/xsm.h>
@@ -183,6 +185,159 @@ static void size_vf_bars(const struct pci_dev *pf_pdev, unsigned int sriov_pos,
     }
 }
 
+/*
+ * A VF need not respond to config space accesses until 100ms after VF Enable
+ * has been set, and adding a device needs locks which control_write() holds.
+ * Both are dealt with by marking the BDFs of the VFs: accesses to a marked
+ * BDF are terminated by vpci_{read,write}(), and the first one made past the
+ * window adds the VF to Xen.  Xen's window starts with the write to hardware,
+ * ahead of the guest's, so a guest honouring its own 100ms never has an access
+ * terminated.
+ */
+static pci_sbdf_t vf_sbdf(const struct pci_dev *pf_pdev, unsigned int idx)
+{
+    const struct vpci_sriov *sriov = pf_pdev->vpci->sriov;
+    pci_sbdf_t sbdf = pf_pdev->sbdf;
+
+    sbdf.bdf += sriov->offset + sriov->stride * idx;
+
+    return sbdf;
+}
+
+static void mark_vfs(const struct pci_dev *pf_pdev)
+{
+    struct vpci_sriov *sriov = pf_pdev->vpci->sriov;
+    unsigned int i;
+
+    /* VF Offset and VF Stride are only valid while VF Enable is set. */
+    sriov->offset = pci_conf_read16(pf_pdev->sbdf,
+                                    sriov->pos + PCI_SRIOV_VF_OFFSET);
+    sriov->stride = pci_conf_read16(pf_pdev->sbdf,
+                                    sriov->pos + PCI_SRIOV_VF_STRIDE);
+    sriov->vfs_ready = NOW() + MILLISECS(100);
+
+    for ( i = 0; i < sriov->num_vfs; i++ )
+    {
+        pci_sbdf_t sbdf = vf_sbdf(pf_pdev, i);
+        int rc = pci_vf_setup_begin(sbdf);
+
+        if ( rc )
+            gprintk(XENLOG_WARNING, "%pp: cannot set up VF %pp: %d\n",
+                    &pf_pdev->sbdf, &sbdf, rc);
+    }
+}
+
+static void unmark_vfs(const struct pci_dev *pf_pdev)
+{
+    struct vpci_sriov *sriov = pf_pdev->vpci->sriov;
+    unsigned int i;
+
+    if ( !sriov->vfs_ready )
+        return;
+
+    for ( i = 0; i < sriov->num_vfs; i++ )
+        pci_vf_setup_end(vf_sbdf(pf_pdev, i));
+
+    sriov->vfs_ready = 0;
+}
+
+/* Find the PF which has enabled @sbdf, if that VF is ready to be added. */
+static const struct pci_dev *ready_pf(const struct domain *d, pci_sbdf_t sbdf)
+{
+    struct pci_dev *pdev;
+
+    ASSERT(rw_is_locked(&d->pci_lock));
+
+    for_each_pdev ( d, pdev )
+    {
+        const struct vpci_sriov *sriov = pdev->vpci ? pdev->vpci->sriov : NULL;
+        unsigned int i;
+
+        if ( !sriov || !sriov->vfs_ready || NOW() < sriov->vfs_ready )
+            continue;
+
+        for ( i = 0; i < sriov->num_vfs; i++ )
+            if ( vf_sbdf(pdev, i).sbdf == sbdf.sbdf )
+                return pdev;
+    }
+
+    return NULL;
+}
+
+bool vpci_sriov_add_vf(pci_sbdf_t sbdf)
+{
+    struct domain *d = current->domain;
+    struct pci_dev_info info = { .is_virtfn = true };
+    const struct pci_dev *pf;
+    pci_sbdf_t pf_sbdf;
+    nodeid_t node;
+    int rc;
+
+    read_lock(&d->pci_lock);
+    pf = ready_pf(d, sbdf);
+    if ( !pf )
+    {
+        read_unlock(&d->pci_lock);
+        gprintk(XENLOG_DEBUG, "%pp: config space access during VF setup\n",
+                &sbdf);
+        return false;
+    }
+
+    pf_sbdf = pf->sbdf;
+    info.physfn.bus = pf_sbdf.bus;
+    info.physfn.devfn = pf_sbdf.devfn;
+    node = pf->node;
+    read_unlock(&d->pci_lock);
+
+    rc = pci_add_device(sbdf.seg, sbdf.bus, sbdf.devfn, &info, node);
+    if ( rc )
+        gprintk(XENLOG_ERR, "%pp: cannot add VF %pp: %d\n", &pf_sbdf, &sbdf,
+                rc);
+
+    /*
+     * Stop terminating accesses either way: a VF which Xen failed to add is
+     * left for the hardware domain to register.
+     */
+    pci_vf_setup_end(sbdf);
+
+    return true;
+}
+
+void vpci_sriov_drop_vfs(void)
+{
+    struct vcpu *curr = current;
+    pci_sbdf_t pf_sbdf = curr->vpci.drop_vfs_pf;
+    struct pci_dev *pf, *vf, *tmp;
+
+    if ( likely(pf_sbdf.sbdf == ~0U) )
+        return;
+
+    curr->vpci.drop_vfs_pf.sbdf = ~0U;
+
+    /*
+     * The unmapping queued by control_write() still references the VF pdevs,
+     * so it has to complete before they are freed.
+     */
+    while ( vpci_process_pending(curr) )
+        process_pending_softirqs();
+
+    pcidevs_lock();
+    pf = pci_get_pdev(NULL, pf_sbdf);
+    if ( pf )
+    {
+        list_for_each_entry_safe(vf, tmp, &pf->vf_list, vf_list)
+        {
+            pci_sbdf_t sbdf = vf->sbdf;
+            int rc = pci_remove_device(sbdf.seg, sbdf.bus, sbdf.devfn);
+
+            if ( rc )
+                gprintk(XENLOG_ERR, "%pp: cannot remove VF %pp: %d\n",
+                        &pf_sbdf, &sbdf, rc);
+        }
+    }
+    pcidevs_unlock();
+}
+
 static void cf_check control_write(const struct pci_dev *pdev, unsigned int reg,
                                    uint32_t val, void *data)
 {
@@ -206,6 +361,15 @@ static void cf_check control_write(const struct pci_dev *pdev, unsigned int reg,
     if ( mem_enabled && !new_mem_enabled )
         map_vfs(pdev, 0);
 
+    if ( enabled && !new_enabled )
+    {
+        unmark_vfs(pdev);
+
+        /* The VFs cease to exist below, so Xen has to remove them. */
+        if ( !list_empty(&pdev->vf_list) )
+            current->vpci.drop_vfs_pf = pdev->sbdf;
+    }
+
     if ( !enabled && new_enabled )
     {
         size_vf_bars(pdev, sriov_pos, data);
@@ -228,6 +392,10 @@ static void cf_check control_write(const struct pci_dev *pdev, unsigned int reg,
     }
 
     pci_conf_write16(pdev->sbdf, reg, val);
+
+    /* The VFs only come into existence with the write above. */
+    if ( !enabled && new_enabled )
+        mark_vfs(pdev);
 }
 
 static int cf_check init_sriov(struct pci_dev *pdev)
@@ -275,6 +443,8 @@ static int cf_check cleanup_sriov(const struct pci_dev *pdev, bool hide)
         return 0;
 
     ASSERT(!pdev->info.is_virtfn);
+
+    unmark_vfs(pdev);
 
     if ( !list_empty(&pdev->vf_list) )
     {

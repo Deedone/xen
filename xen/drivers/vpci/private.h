@@ -142,6 +142,20 @@ static inline size_t vmsix_table_size(const struct vpci *vpci, unsigned int nr)
 /* Map/unmap the BARs of a vPCI device. */
 int vpci_modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only);
 
+/*
+ * Handle a config space access to a VF which is enabled in hardware but not
+ * known to Xen yet.  Returns false while the VF need not respond, in which
+ * case the access has to be terminated.  Must be called with no PCI lock
+ * held, as adding a device acquires them.
+ */
+bool vpci_sriov_add_vf(pci_sbdf_t sbdf);
+
+/*
+ * Remove the VFs of the PF whose VF Enable the config space write in progress
+ * has cleared.  Same locking requirement as above.
+ */
+void vpci_sriov_drop_vfs(void);
+
 void cf_check vpci_guest_mem_bar_write(const struct pci_dev *pdev,
                                        unsigned int reg, uint32_t val,
                                        void *data);
