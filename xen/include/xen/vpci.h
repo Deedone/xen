@@ -54,7 +54,6 @@ struct vpci {
             uint64_t guest_addr;
             uint64_t size;
             uint64_t resizable_sizes;
-            struct rangeset *mem;
             enum {
                 VPCI_BAR_EMPTY,
                 VPCI_BAR_IO,
@@ -152,14 +151,16 @@ struct vpci {
 #endif
 };
 
+#ifdef __XEN__
 struct vpci_vcpu {
-    /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
-    const struct pci_dev *pdev;
-    uint16_t cmd;
-    bool rom_only : 1;
+    struct list_head task_queue;
 };
 
-#ifdef __XEN__
+static inline void vpci_vcpu_init(struct vpci_vcpu *v)
+{
+    INIT_LIST_HEAD(&v->task_queue);
+}
+
 void vpci_dump_msi(void);
 
 /* Arch-specific vPCI MSI helpers. */
@@ -203,6 +204,8 @@ bool vpci_ecam_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int len,
 
 #else /* !CONFIG_HAS_VPCI */
 struct vpci_vcpu {};
+
+static inline void vpci_vcpu_init(struct vpci_vcpu *v) { }
 
 static inline int vpci_reinit_ext_capabilities(struct pci_dev *pdev)
 {

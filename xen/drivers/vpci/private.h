@@ -44,6 +44,19 @@ typedef struct {
 #define REGISTER_VPCI_EXTCAP(name, finit, fclean) \
     REGISTER_VPCI_CAPABILITY(PCI_EXT_CAP_ID_##name, name, finit, fclean, true)
 
+struct vpci_map_task {
+    /* Per-vcpu structure to store state while {un}mapping of PCI BARs. */
+    const struct pci_dev *pdev;
+    struct list_head next;
+    struct vpci_bar_map {
+        uint64_t addr;
+        uint64_t guest_addr;
+        struct rangeset *mem;
+    } bars[ARRAY_SIZE(((struct vpci_header *)NULL)->bars)];
+    uint16_t cmd;
+    bool rom_only : 1;
+};
+
 int __must_check vpci_init_header(struct pci_dev *pdev);
 
 int vpci_init_capabilities(struct pci_dev *pdev, bool ext_only);
