@@ -32,6 +32,7 @@
 #include <xen/softirq.h>
 #include <xen/tasklet.h>
 #include <xen/vpci.h>
+#include <xen/xvmalloc.h>
 #include <xen/msi.h>
 #include <xsm/xsm.h>
 #include "ats.h"
@@ -40,6 +41,8 @@ struct pci_seg {
     struct list_head alldevs_list;
     u16 nr;
     unsigned long *ro_map;
+    /* BDFs of VFs which have been enabled but which Xen has not added yet. */
+    unsigned long *vf_setup_map;
     /* bus2bridge_lock protects bus2bridge array */
     spinlock_t bus2bridge_lock;
 #define MAX_BUSES 256
@@ -137,6 +140,47 @@ const unsigned long *pci_get_ro_map(u16 seg)
     struct pci_seg *pseg = get_pseg(seg);
 
     return pseg ? pseg->ro_map : NULL;
+}
+
+/*
+ * Marking is serialised by the hardware domain's pci_lock, which the SR-IOV
+ * control register write handler holds; unmarking only clears a bit.
+ */
+int pci_vf_setup_begin(pci_sbdf_t sbdf)
+{
+    struct pci_seg *pseg = get_pseg(sbdf.seg);
+
+    if ( !pseg )
+        return -ENODEV;
+
+    if ( !pseg->vf_setup_map )
+    {
+        unsigned int nr = PCI_BDF(-1, -1, -1) + 1;
+
+        pseg->vf_setup_map = xvzalloc_array(unsigned long, BITS_TO_LONGS(nr));
+        if ( !pseg->vf_setup_map )
+            return -ENOMEM;
+    }
+
+    set_bit(sbdf.bdf, pseg->vf_setup_map);
+
+    return 0;
+}
+
+void pci_vf_setup_end(pci_sbdf_t sbdf)
+{
+    const struct pci_seg *pseg = get_pseg(sbdf.seg);
+
+    if ( pseg && pseg->vf_setup_map )
+        clear_bit(sbdf.bdf, pseg->vf_setup_map);
+}
+
+bool pci_vf_setup_pending(pci_sbdf_t sbdf)
+{
+    const struct pci_seg *pseg = get_pseg(sbdf.seg);
+
+    return pseg && pseg->vf_setup_map &&
+           test_bit(sbdf.bdf, pseg->vf_setup_map);
 }
 
 static struct phantom_dev {
