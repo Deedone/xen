@@ -27,6 +27,7 @@
 void vpci_vcpu_init(struct vcpu *v)
 {
     INIT_LIST_HEAD(&v->vpci.task_queue);
+    v->vpci.drop_vfs_pf.sbdf = ~0U;
 }
 
 #ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
@@ -486,6 +487,11 @@ uint32_t vpci_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int size)
         return data;
     }
 
+    /* Ahead of any lock being taken, as adding a device acquires them. */
+    if ( unlikely(is_hardware_domain(d) && pci_vf_setup_pending(sbdf)) &&
+         !vpci_sriov_add_vf(sbdf) )
+        return data & (0xffffffffU >> (32 - 8 * size));
+
     /*
      * Find the PCI dev matching the address, which for hwdom also requires
      * consulting DomXEN.  Passthrough everything that's not trapped.
@@ -607,6 +613,11 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
         return;
     }
 
+    /* Ahead of any lock being taken, as adding a device acquires them. */
+    if ( unlikely(is_hardware_domain(d) && pci_vf_setup_pending(sbdf)) &&
+         !vpci_sriov_add_vf(sbdf) )
+        return;
+
     /*
      * Find the PCI dev matching the address, which for hwdom also requires
      * consulting DomXEN.  Passthrough everything that's not trapped.
@@ -680,6 +691,9 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
         /* Tailing gap, write the remaining. */
         vpci_write_hw(sbdf, reg + data_offset, size - data_offset,
                       data >> (data_offset * 8));
+
+    /* Only once every lock has been released, as removal acquires them. */
+    vpci_sriov_drop_vfs();
 }
 
 /* Helper function to check an access size and alignment on vpci space. */

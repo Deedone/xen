@@ -26,15 +26,15 @@ ret_t pci_physdev_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         if ( copy_from_guest(&add, arg, 1) != 0 )
             break;
 
-        pdev_info.is_extfn = (add.flags & XEN_PCI_DEV_EXTFN);
+        /*
+         * Virtual functions are always discovered by the hypervisor, so
+         * they don't need to be added here.
+         */
         if ( add.flags & XEN_PCI_DEV_VIRTFN )
-        {
-            pdev_info.is_virtfn = true;
-            pdev_info.physfn.bus = add.physfn.bus;
-            pdev_info.physfn.devfn = add.physfn.devfn;
-        }
-        else
-            pdev_info.is_virtfn = false;
+            return 0;
+
+        pdev_info.is_extfn = (add.flags & XEN_PCI_DEV_EXTFN);
+        pdev_info.is_virtfn = false;
 
 #ifdef CONFIG_NUMA
         if ( add.flags & XEN_PCI_DEV_PXM )
