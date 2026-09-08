@@ -629,8 +629,13 @@ static void cf_check cmd_write(
      * Let Dom0 play with all the bits directly except for the memory
      * decoding one. Bits that are not allowed for DomU are already
      * handled above and by the rsvdp_mask.
+     *
+     * PCI_COMMAND_MEMORY is hardwired to 0 for VFs, so for the hardware domain
+     * it must not control the mapping: VF memory space is enabled by MSE in the
+     * PF's SR-IOV control register.
      */
-    if ( header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) )
+    if ( !(pdev->info.is_virtfn && is_hardware_domain(pdev->domain)) &&
+         header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) )
         /*
          * Ignore the error. No memory has been added or removed from the p2m
          * (because the actual p2m changes are deferred in defer_map) and the
@@ -890,6 +895,9 @@ int vpci_init_header(struct pci_dev *pdev)
                  PCI_COMMAND_IO);
 
     header->guest_cmd = cmd;
+
+    if ( pdev->info.is_virtfn )
+        return vpci_vf_init_header(pdev);
 
     /* Disable memory decoding before sizing. */
     if ( !is_hwdom || (cmd & PCI_COMMAND_MEMORY) )
