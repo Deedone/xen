@@ -79,19 +79,80 @@ int vpci_vf_init_header(struct pci_dev *vf_pdev)
     const struct pci_dev *pf_pdev;
     int rc = 0;
     uint16_t ctrl;
+    unsigned int sriov_pos;
 
     ASSERT(rw_is_write_locked(&vf_pdev->domain->pci_lock));
     ASSERT(vf_pdev->info.is_virtfn);
 
     pf_pdev = vf_pdev->pf_pdev;
     ASSERT(pf_pdev);
+    sriov_pos = pf_pdev->vpci->sriov->pos;
 
     rc = vf_init_bars(vf_pdev);
     if ( rc )
         return rc;
 
-    ctrl = pci_conf_read16(pf_pdev->sbdf,
-                           pf_pdev->vpci->sriov->pos + PCI_SRIOV_CTRL);
+    ctrl = pci_conf_read16(pf_pdev->sbdf, sriov_pos + PCI_SRIOV_CTRL);
+
+    if ( IS_ENABLED(CONFIG_HAS_VPCI_GUEST_SUPPORT) &&
+         pf_pdev->domain != vf_pdev->domain )
+    {
+        struct vpci_bar *bars = vf_pdev->vpci->header.bars;
+        /*
+         * A VF's Vendor and Device ID registers read as 0xffff. The guest has
+         * no PF to synthesise them from, so take the vendor from the PF and
+         * the device from its SR-IOV capability.
+         */
+        uint16_t vid = pci_conf_read16(pf_pdev->sbdf, PCI_VENDOR_ID);
+        uint16_t did = pci_conf_read16(pf_pdev->sbdf,
+                                       sriov_pos + PCI_SRIOV_VF_DID);
+
+        rc = vpci_add_register(vf_pdev->vpci, vpci_read_val, NULL,
+                               PCI_VENDOR_ID, 2, (void *)(uintptr_t)vid);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(vf_pdev->vpci, vpci_read_val, NULL,
+                               PCI_DEVICE_ID, 2, (void *)(uintptr_t)did);
+        if ( rc )
+            return rc;
+
+        /* Hardcode multi-function device bit to 0 */
+        rc = vpci_add_register(vf_pdev->vpci, vpci_read_val, NULL,
+                               PCI_HEADER_TYPE, 1,
+                               (void *)PCI_HEADER_TYPE_NORMAL);
+        if ( rc )
+            return rc;
+
+        rc = vpci_add_register(vf_pdev->vpci, vpci_hw_read32, NULL,
+                               PCI_CLASS_REVISION, 4, NULL);
+        if ( rc )
+            return rc;
+
+        for ( unsigned int i = 0; i < PCI_SRIOV_NUM_BARS; i++ )
+        {
+            switch ( pf_pdev->vpci->sriov->vf_bars[i].type )
+            {
+            case VPCI_BAR_MEM32:
+            case VPCI_BAR_MEM64_LO:
+            case VPCI_BAR_MEM64_HI:
+                rc = vpci_add_register(vf_pdev->vpci, vpci_guest_mem_bar_read,
+                                       vpci_guest_mem_bar_write,
+                                       PCI_BASE_ADDRESS_0 + i * 4, 4, &bars[i]);
+                if ( rc )
+                    return rc;
+                break;
+
+            default:
+                rc = vpci_add_register(vf_pdev->vpci, vpci_read_val, NULL,
+                                       PCI_BASE_ADDRESS_0 + i * 4, 4,
+                                       (void *)0);
+                if ( rc )
+                    return rc;
+                break;
+            }
+        }
+    }
 
     if ( (pf_pdev->domain == vf_pdev->domain) && (ctrl & PCI_SRIOV_CTRL_MSE) )
     {
