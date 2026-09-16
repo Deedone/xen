@@ -472,8 +472,8 @@ typedef uint64_t xen_callback_t;
  * 256 MB is reserved for VPCI configuration space based on calculation
  * 256 buses x 32 devices x 8 functions x 4 KB = 256 MB
  */
-#define GUEST_VPCI_ECAM_BASE    xen_mk_ullong(0x10000000)
-#define GUEST_VPCI_ECAM_SIZE    xen_mk_ullong(0x10000000)
+#define GUEST_VPCI_ECAM_BASE    xen_mk_ullong(0x1e000000)
+#define GUEST_VPCI_ECAM_SIZE    xen_mk_ullong(0x02000000)
 
 /* vGIC ITS mappings */
 #define GUEST_GICV3_ITS_BASE   xen_mk_ullong(0xf1040000)
