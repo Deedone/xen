@@ -454,6 +454,14 @@ static int __init handle_linux_pci_domain(struct kernel_info *kinfo,
     if ( node->parent && dt_device_type_is_equal(node->parent, "pci") )
         return 0;
 
+    /*
+     * Bridges disabled or marked for passthrough are not probed by the
+     * hardware domain, so there is no domain number to keep in sync.
+     * Xen has no driver for them either, so no segment can be assigned.
+     */
+    if ( !dt_device_is_available(node) || dt_device_for_passthrough(node) )
+        return 0;
+
     if ( dt_find_property(node, "linux,pci-domain", NULL) )
         return 0;
 
