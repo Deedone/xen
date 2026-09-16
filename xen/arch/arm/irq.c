@@ -616,9 +616,7 @@ int route_irq_to_guest(struct domain *d, unsigned int virq,
 
             if ( d != ad )
             {
-                printk(XENLOG_G_ERR "IRQ %u is already used by domain %u\n",
-                       irq, ad->domain_id);
-                retval = -EBUSY;
+                /* Ignore */
             }
             else if ( irq_get_guest_info(desc)->virq != virq )
             {
