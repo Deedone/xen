@@ -336,7 +336,7 @@ pci_host_common_probe(struct dt_device_node *dev,
 
     err = pci_set_msi_base(bridge);
     if ( err )
-        goto err_child2;
+        printk("Unable to set MSI bridge\n");
 
     pci_add_host_bridge(bridge);
     pci_add_segment(bridge->segment);
@@ -351,10 +351,9 @@ pci_host_common_probe(struct dt_device_node *dev,
 
     return bridge;
 
- err_child2:
-    xfree(bridge->child_cfg);
 
 err_child:
+    xfree(bridge->child_cfg);
     xfree(bridge->cfg);
 
 err_exit:
