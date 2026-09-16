@@ -620,7 +620,8 @@ static void cf_check cmd_write(
      * handled above and by the rsvdp_mask. Ignore memory decoding writes for
      * VFs, as it is handled by SRIOV_CTRL.MSE bit.
      */
-    if ( header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) )
+    if ( !pdev->info.is_virtfn &&
+         header->bars_mapped != !!(cmd & PCI_COMMAND_MEMORY) )
         /*
          * Ignore the error. No memory has been added or removed from the p2m
          * (because the actual p2m changes are deferred in defer_map) and the
