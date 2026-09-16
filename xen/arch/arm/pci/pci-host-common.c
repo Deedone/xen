@@ -542,7 +542,7 @@ int __init pci_host_bridge_mappings(struct domain *d)
             }
 
             need_mapping = bridge->ops->need_p2m_hwdom_mapping(d, bridge, addr);
-            if ( !need_mapping && bridge->child_ops )
+            if ( need_mapping && bridge->child_ops )
                 need_mapping =
                     bridge->child_ops->need_p2m_hwdom_mapping(d, bridge, addr);
             if ( need_mapping )
