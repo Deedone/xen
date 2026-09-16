@@ -57,6 +57,7 @@ static int vf_init_bars(struct pci_dev *vf_pdev)
         }
 
         bar->addr         = pf_bar->addr + vf_idx * pf_bar->size;
+        bar->pci_addr     = pf_bar->pci_addr + vf_idx * pf_bar->size;
         bar->guest_addr   = bar->addr;
         bar->size         = pf_bar->size;
         bar->type         = pf_bar->type;
@@ -218,6 +219,7 @@ static void size_vf_bars(const struct pci_dev *pf_pdev, unsigned int sriov_pos,
             continue;
         }
 
+        bars[i].pci_addr = addr;
         bars[i].addr = addr;
         bars[i].guest_addr = addr;
         bars[i].size = size;
@@ -238,6 +240,18 @@ static void size_vf_bars(const struct pci_dev *pf_pdev, unsigned int sriov_pos,
             ASSERT_UNREACHABLE();
             rc = 1;
         }
+
+        /*
+         * VF BARs live in the PF's SR-IOV capability, so they are never
+         * written through bar_write() and still hold a PCI bus address.
+         */
+        if ( vpci_translate_bar_range(pf_pdev, &bars[i]) )
+            printk(XENLOG_WARNING
+                   "%pp: failed to translate VF BAR%u range [%lx, %lx]\n",
+                   &pf_pdev->sbdf, i, bars[i].pci_addr,
+                   bars[i].pci_addr + size - 1);
+        else
+            bars[i].guest_addr = bars[i].addr;
     }
 }
 
