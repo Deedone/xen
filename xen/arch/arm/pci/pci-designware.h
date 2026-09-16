@@ -29,6 +29,7 @@
 #define PCIE_ATU_REGION_INDEX1  0x1
 #define PCIE_ATU_TYPE_IO        0x2
 #define PCIE_ATU_TYPE_CFG0      0x4
+#define PCIE_ATU_TYPE_CFG1      0x5
 
 #define FIELD_PREP(_mask, _val) \
     (((typeof(_mask))(_val) << (ffs64(_mask) - 1)) & (_mask))

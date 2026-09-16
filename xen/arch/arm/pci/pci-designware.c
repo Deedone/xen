@@ -276,14 +276,21 @@ void __iomem *dw_pcie_child_map_bus(struct pci_host_bridge *bridge,
                                     pci_sbdf_t sbdf, uint32_t where)
 {
     uint32_t busdev;
-    int ret;
+    int type, ret;
 
     busdev = PCIE_ATU_BUS(sbdf.bus) | PCIE_ATU_DEV(PCI_SLOT(sbdf.devfn)) |
              PCIE_ATU_FUNC(PCI_FUNC(sbdf.devfn));
 
-    /* FIXME: Parent is the root bus, so use PCIE_ATU_TYPE_CFG0. */
-    ret = dw_pcie_prog_outbound_atu(bridge, PCIE_ATU_REGION_INDEX0,
-                                    PCIE_ATU_TYPE_CFG0,
+    /*
+     * Type 0 only reaches the bus immediately below the root port. Anything
+     * deeper has to go out as Type 1, or the request is never routed and
+     * every register reads back as all ones. SR-IOV hits this as soon as the
+     * VF offset pushes a VF onto the next bus.
+     */
+    type = ( sbdf.bus == bridge->child_cfg->busn_start ) ? PCIE_ATU_TYPE_CFG0
+                                                         : PCIE_ATU_TYPE_CFG1;
+
+    ret = dw_pcie_prog_outbound_atu(bridge, PCIE_ATU_REGION_INDEX0, type,
                                     bridge->child_cfg->phys_addr, busdev,
                                     bridge->child_cfg->size);
     if ( ret )
