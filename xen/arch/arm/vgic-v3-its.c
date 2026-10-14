@@ -20,6 +20,7 @@
 
 #include <xen/bitops.h>
 #include <xen/config.h>
+#include <xen/domain-layout.h>
 #include <xen/domain_page.h>
 #include <xen/guest_access.h>
 #include <xen/lib.h>
