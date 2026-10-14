@@ -12,6 +12,7 @@
  * License along with this program; If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <xen/domain-layout.h>
 #include <xen/msi.h>
 #include <xen/sched.h>
 #include <xen/vpci.h>

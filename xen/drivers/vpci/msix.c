@@ -28,7 +28,6 @@
 
 #include <asm/io.h>
 #include <asm/p2m.h>
-#include <asm/x86_emulate.h>
 
 static uint32_t cf_check control_read(
     const struct pci_dev *pdev, unsigned int reg, void *data)

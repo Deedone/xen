@@ -2,6 +2,7 @@
 /*
  * xen/arch/arm/vpci.c
  */
+#include <xen/domain-layout.h>
 #include <xen/lib.h>
 #include <xen/sched.h>
 #include <xen/vpci.h>
