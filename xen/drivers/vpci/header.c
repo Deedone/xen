@@ -208,8 +208,7 @@ static int vpci_process_map_task(struct vpci_map_task *task, struct vcpu *v)
         {
             spin_lock(&pdev->vpci->lock);
             /* Disable memory decoding unconditionally on failure. */
-            modify_decoding(pdev, task->cmd & ~PCI_COMMAND_MEMORY,
-                            false);
+            modify_decoding(pdev, task->cmd & ~PCI_COMMAND_MEMORY, false);
             spin_unlock(&pdev->vpci->lock);
 
             if ( !is_hardware_domain(pdev->domain) )
