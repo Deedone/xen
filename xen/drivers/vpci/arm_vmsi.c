@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
+#include <xen/domain-layout.h>
 #include <xen/msi.h>
 #include <xen/sched.h>
 #include <xen/vpci.h>
