@@ -10,6 +10,7 @@
 #include <xen/acpi.h>
 #include <xen/lib.h>
 #include <xen/delay.h>
+#include <xen/domain-layout.h>
 #include <xen/iocap.h>
 #include <xen/libfdt/libfdt.h>
 #include <xen/mm.h>
