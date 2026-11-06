@@ -153,9 +153,9 @@ struct vpci {
          */
         s_time_t vfs_ready;
         /* Routing ID offset of the first VF, and stride between VFs. */
-        uint16_t offset;
-        uint16_t stride;
-        uint16_t num_vfs;
+        unsigned int offset;
+        unsigned int stride;
+        unsigned int num_vfs;
         unsigned int pos;
     } *sriov;
 
@@ -172,16 +172,16 @@ struct vpci_vcpu {
     struct list_head task_queue;
     /*
      * PF whose VFs have been disabled by the config space write in progress,
-     * and which Xen has to remove once the PCI locks have been dropped.  All
-     * ones when there is none.
+     * and which Xen has to remove once the PCI locks have been dropped.  Only
+     * valid while drop_vfs is set.
      */
     pci_sbdf_t drop_vfs_pf;
+    bool drop_vfs;
 };
 
 static inline void vpci_vcpu_init(struct vpci_vcpu *v)
 {
     INIT_LIST_HEAD(&v->task_queue);
-    v->drop_vfs_pf.sbdf = ~0U;
 }
 
 void vpci_dump_msi(void);

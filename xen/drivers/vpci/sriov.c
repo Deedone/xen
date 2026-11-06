@@ -21,7 +21,6 @@ static int vf_init_bars(struct pci_dev *vf_pdev)
     unsigned int i;
     const struct pci_dev *pf_pdev = vf_pdev->pf_pdev;
     struct vpci_bar *bars = vf_pdev->vpci->header.bars;
-    struct vpci_bar *physfn_vf_bars = pf_pdev->vpci->sriov->vf_bars;
     struct vpci_sriov *sriov = pf_pdev->vpci->sriov;
 
     vf_idx = vf_pdev->sbdf.sbdf - (pf_pdev->sbdf.sbdf + sriov->offset);
@@ -47,7 +46,7 @@ static int vf_init_bars(struct pci_dev *vf_pdev)
      */
     for ( i = 0; i < PCI_SRIOV_NUM_BARS; i++ )
     {
-        struct vpci_bar *pf_bar = &physfn_vf_bars[i];
+        struct vpci_bar *pf_bar = &pf_pdev->vpci->sriov->vf_bars[i];
         struct vpci_bar *bar = &bars[i];
 
         /*
@@ -138,7 +137,6 @@ static void size_vf_bars(const struct pci_dev *pf_pdev, unsigned int sriov_pos,
 
     ASSERT(rw_is_write_locked(&pf_pdev->domain->pci_lock));
     ASSERT(!pf_pdev->info.is_virtfn);
-    ASSERT(pf_pdev->vpci->sriov);
 
     /* Set the BARs addresses and size. */
     for ( i = 0; i < PCI_SRIOV_NUM_BARS; i += rc )
@@ -200,7 +198,7 @@ static pci_sbdf_t vf_sbdf(const struct pci_dev *pf_pdev, unsigned int idx)
     return sbdf;
 }
 
-static void mark_vfs(const struct pci_dev *pf_pdev)
+static int mark_vfs(const struct pci_dev *pf_pdev)
 {
     struct vpci_sriov *sriov = pf_pdev->vpci->sriov;
     unsigned int i;
@@ -210,7 +208,9 @@ static void mark_vfs(const struct pci_dev *pf_pdev)
                                     sriov->pos + PCI_SRIOV_VF_OFFSET);
     sriov->stride = pci_conf_read16(pf_pdev->sbdf,
                                     sriov->pos + PCI_SRIOV_VF_STRIDE);
-    sriov->vfs_ready = NOW() + MILLISECS(100);
+
+    if ( sriov->num_vfs > 1 && !sriov->stride )
+        return -EINVAL;
 
     for ( i = 0; i < sriov->num_vfs; i++ )
     {
@@ -218,9 +218,18 @@ static void mark_vfs(const struct pci_dev *pf_pdev)
         int rc = pci_vf_setup_begin(sbdf);
 
         if ( rc )
+        {
             gprintk(XENLOG_WARNING, "%pp: cannot set up VF %pp: %d\n",
                     &pf_pdev->sbdf, &sbdf, rc);
+            while ( i-- )
+                pci_vf_setup_end(vf_sbdf(pf_pdev, i));
+            return rc;
+        }
     }
+
+    sriov->vfs_ready = NOW() + MILLISECS(100);
+
+    return 0;
 }
 
 static void unmark_vfs(const struct pci_dev *pf_pdev)
@@ -231,16 +240,16 @@ static void unmark_vfs(const struct pci_dev *pf_pdev)
     if ( !sriov->vfs_ready )
         return;
 
+    sriov->vfs_ready = 0;
+
     for ( i = 0; i < sriov->num_vfs; i++ )
         pci_vf_setup_end(vf_sbdf(pf_pdev, i));
-
-    sriov->vfs_ready = 0;
 }
 
 /* Find the PF which has enabled @sbdf, if that VF is ready to be added. */
 static const struct pci_dev *ready_pf(const struct domain *d, pci_sbdf_t sbdf)
 {
-    struct pci_dev *pdev;
+    const struct pci_dev *pdev;
 
     ASSERT(rw_is_locked(&d->pci_lock));
 
@@ -302,13 +311,13 @@ bool vpci_sriov_add_vf(pci_sbdf_t sbdf)
 void vpci_sriov_drop_vfs(void)
 {
     struct vcpu *curr = current;
-    pci_sbdf_t pf_sbdf = curr->vpci.drop_vfs_pf;
+    pci_sbdf_t pf_sbdf;
     struct pci_dev *pf, *vf, *tmp;
 
-    if ( likely(pf_sbdf.sbdf == ~0U) )
+    if ( likely(!xchg(&curr->vpci.drop_vfs, false)) )
         return;
 
-    curr->vpci.drop_vfs_pf.sbdf = ~0U;
+    pf_sbdf = curr->vpci.drop_vfs_pf;
 
     /*
      * The unmapping queued by control_write() still references the VF pdevs,
@@ -318,7 +327,7 @@ void vpci_sriov_drop_vfs(void)
         process_pending_softirqs();
 
     pcidevs_lock();
-    pf = pci_get_pdev(NULL, pf_sbdf);
+    pf = pci_get_pdev(curr->domain, pf_sbdf);
     if ( pf )
     {
         list_for_each_entry_safe(vf, tmp, &pf->vf_list, vf_list)
@@ -365,7 +374,11 @@ static void cf_check control_write(const struct pci_dev *pdev, unsigned int reg,
 
         /* The VFs cease to exist below, so Xen has to remove them. */
         if ( !list_empty(&pdev->vf_list) )
+        {
+            ASSERT(!current->vpci.drop_vfs);
             current->vpci.drop_vfs_pf = pdev->sbdf;
+            current->vpci.drop_vfs = true;
+        }
     }
 
     if ( !enabled && new_enabled )
@@ -379,7 +392,8 @@ static void cf_check control_write(const struct pci_dev *pdev, unsigned int reg,
          */
         sriov->num_vfs = pci_conf_read16(pdev->sbdf,
                                          sriov_pos + PCI_SRIOV_NUM_VF);
-        mark_vfs(pdev);
+        if ( mark_vfs(pdev) )
+            return;
     }
 
     if ( !decoding && new_decoding )
@@ -404,7 +418,7 @@ static int cf_check init_sriov(struct pci_dev *pdev)
 
     ASSERT(pos);
 
-    if ( xsm_resource_setup_pci(XSM_PRIV, pdev->sbdf.bdf) )
+    if ( !is_hardware_domain(pdev->domain) )
     {
         printk(XENLOG_ERR
                "%pp: SR-IOV configuration unsupported for unpriv %pd\n",
@@ -418,13 +432,6 @@ static int cf_check init_sriov(struct pci_dev *pdev)
 
     pdev->vpci->sriov->pos = pos;
 
-    /*
-     * We need to modify vf_rlen in control_write but we can't do it cleanly
-     * from pdev because write callback only accepts const pdev. Moving vf_rlen
-     * inside of struct vpci_sriov is also not possible because it is used
-     * before vpci init. So pass it here as additional data to not require
-     * dropping const in control_write.
-     */
     return vpci_add_register(pdev->vpci, vpci_hw_read16, control_write,
                              pos + PCI_SRIOV_CTRL, 2, &pdev->physfn.vf_rlen);
 }
@@ -445,16 +452,14 @@ static int cf_check cleanup_sriov(const struct pci_dev *pdev, bool hide)
     {
         struct pci_dev *vf_pdev, *temp;
 
-        printk(XENLOG_WARNING 
-               "Attempting to remove SR-IOV PF %pp with VFs still present, VFs will be forcefully removed first\n",
+        printk(XENLOG_WARNING
+               "Attempting to remove SR-IOV PF %pp, VFs will be forcefully removed first\n",
                &pdev->sbdf);
 
         map_vfs(pdev, 0);
         list_for_each_entry_safe_reverse(vf_pdev, temp, &pdev->vf_list, vf_list)
-        {
             pci_remove_device(vf_pdev->sbdf.seg, vf_pdev->sbdf.bus,
                               vf_pdev->sbdf.devfn);
-        }
     }
 
     pos = pdev->vpci->sriov->pos;
@@ -484,7 +489,7 @@ static int cf_check cleanup_sriov(const struct pci_dev *pdev, bool hide)
     rc = vpci_add_register(pdev->vpci, vpci_hw_read16, NULL,
                            pos + PCI_SRIOV_CTRL, 2, NULL);
     if ( rc )
-        printk(XENLOG_ERR "%pd %pp: fail to add SRIOV ctrl handler rc=%d\n",
+        printk(XENLOG_ERR "%pd %pp: fail to re-add SRIOV ctrl handler rc=%d\n",
                pdev->domain, &pdev->sbdf, rc);
 
     return rc;

@@ -481,10 +481,22 @@ uint32_t vpci_read(pci_sbdf_t sbdf, unsigned int reg, unsigned int size)
         return data;
     }
 
-    /* Ahead of any lock being taken, as adding a device acquires them. */
-    if ( unlikely(is_hardware_domain(d) && pci_vf_setup_pending(sbdf)) &&
-         !vpci_sriov_add_vf(sbdf) )
-        return data & (0xffffffffU >> (32 - 8 * size));
+    /*
+     * Check whether a VF is still to be added before the guest accesses it.
+     * pcidevs_lock() protects against parallel additions of the same VF; the
+     * outer test avoids taking it on every vPCI access.
+     */
+    if ( is_hardware_domain(d) && pci_vf_setup_pending(sbdf) )
+    {
+        bool done;
+
+        pcidevs_lock();
+        done = pci_vf_setup_pending(sbdf) && !vpci_sriov_add_vf(sbdf);
+        pcidevs_unlock();
+
+        if ( done )
+            return data;
+    }
 
     /*
      * Find the PCI dev matching the address, which for hwdom also requires
@@ -607,10 +619,22 @@ void vpci_write(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
         return;
     }
 
-    /* Ahead of any lock being taken, as adding a device acquires them. */
-    if ( unlikely(is_hardware_domain(d) && pci_vf_setup_pending(sbdf)) &&
-         !vpci_sriov_add_vf(sbdf) )
-        return;
+    /*
+     * Check whether a VF is still to be added before the guest accesses it.
+     * pcidevs_lock() protects against parallel additions of the same VF; the
+     * outer test avoids taking it on every vPCI access.
+     */
+    if ( is_hardware_domain(d) && pci_vf_setup_pending(sbdf) )
+    {
+        bool done;
+
+        pcidevs_lock();
+        done = pci_vf_setup_pending(sbdf) && !vpci_sriov_add_vf(sbdf);
+        pcidevs_unlock();
+
+        if ( done )
+            return;
+    }
 
     /*
      * Find the PCI dev matching the address, which for hwdom also requires

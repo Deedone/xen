@@ -63,6 +63,8 @@ typedef bool spinlock_t;
 #define read_unlock(l) (*(l) = false)
 #define write_lock(l) (*(l) = true)
 #define write_unlock(l) (*(l) = false)
+#define pcidevs_lock()
+#define pcidevs_unlock()
 
 typedef union {
     uint32_t sbdf;

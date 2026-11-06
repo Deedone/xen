@@ -162,9 +162,7 @@ int pci_vf_setup_begin(pci_sbdf_t sbdf)
             return -ENOMEM;
     }
 
-    set_bit(sbdf.bdf, pseg->vf_setup_map);
-
-    return 0;
+    return test_and_set_bit(sbdf.bdf, pseg->vf_setup_map) ? -EEXIST : 0;
 }
 
 void pci_vf_setup_end(pci_sbdf_t sbdf)
