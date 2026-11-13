@@ -17,6 +17,9 @@
 
 #define RCAR_DWC_VERSION     0x520A
 
+#define RCAR_GEN4    4
+#define RCAR_GEN5    5
+
 /* PCIE BDF-OSID assignment */
 #define CNVID(n)             (0x700 + ((n) * 4))
 #define CNVID_CNV_EN         (1U << 31)
@@ -106,8 +109,9 @@ static const struct pci_ecam_ops rcar_pcie_child_ops = {
 };
 
 static const struct dt_device_match __initconstrel rcar_pcie_dt_match[] = {
-    { .compatible = "renesas,r8a779f0-pcie" },
-    { .compatible = "renesas,r8a779g0-pcie" },
+    { .compatible = "renesas,r8a779f0-pcie", .data = (void *)RCAR_GEN4 },
+    { .compatible = "renesas,r8a779g0-pcie", .data = (void *)RCAR_GEN4 },
+    { .compatible = "renesas,rcar-gen5-pcie6", .data = (void *)RCAR_GEN5 },
     {},
 };
 
@@ -201,6 +205,7 @@ void rcar4_pcie_bdf_msk_set(struct pci_host_bridge *bridge, unsigned int reg_id,
 static int __init pci_host_rcar_probe(struct dt_device_node *dev,
                                       const void *data)
 {
+    const struct dt_device_match *match;
     struct pci_host_bridge *bridge;
     paddr_t app_phys_addr;
     paddr_t app_size;
@@ -212,6 +217,11 @@ static int __init pci_host_rcar_probe(struct dt_device_node *dev,
 
     bridge = dw_pcie_host_probe(dev, data, &rcar_pcie_ops,
                                 &rcar_pcie_child_ops);
+
+    match = dt_match_node(rcar_pcie_dt_match, dev);
+    ASSERT(match);
+    if ( match->data != (void *)RCAR_GEN4 )
+        goto skip_app;
 
     app_idx = dt_property_match_string(dev, "reg-names", "app");
     if ( app_idx < 0 )
@@ -237,6 +247,7 @@ static int __init pci_host_rcar_probe(struct dt_device_node *dev,
     printk("APP at [mem 0x%" PRIpaddr "-0x%" PRIpaddr "]\n", app_phys_addr,
            app_phys_addr + app_size - 1);
 
+skip_app:
     dw_pcie_set_priv(bridge, priv);
     dw_pcie_set_version(bridge, RCAR_DWC_VERSION);
 
@@ -246,7 +257,7 @@ err:
     return ret;
 }
 
-DT_DEVICE_START(pci_gen, "PCI HOST R-CAR GEN4", DEVICE_PCI_HOSTBRIDGE)
+DT_DEVICE_START(pci_gen, "PCI HOST R-CAR GEN4/GEN5", DEVICE_PCI_HOSTBRIDGE)
 .dt_match = rcar_pcie_dt_match,
 .init = pci_host_rcar_probe,
 DT_DEVICE_END
